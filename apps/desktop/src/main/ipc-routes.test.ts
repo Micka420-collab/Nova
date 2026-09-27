@@ -93,6 +93,10 @@ describe("toIpcError", () => {
     expect(toIpcError(new RuntimeError("invalid_state", "not retryable")).code).toBe("conflict");
     expect(toIpcError(new VaultError("locked")).code).toBe("vault_unavailable");
     expect(toIpcError(new ServiceError("invalid_request", "URL not allowed")).code).toBe("invalid_request");
+    expect(toIpcError(new ServiceError("key_unreadable", "Stored key cannot be decrypted"))).toEqual({
+      code: "key_unreadable",
+      message: "Stored key cannot be decrypted",
+    });
     expect(toIpcError(new z.ZodError([]))).toEqual({ code: "invalid_request", message: "Invalid request" });
   });
 
@@ -138,9 +142,42 @@ describe("buildIpcRoutes", () => {
     await expect(
       call(IPC_CHANNELS.conversationsGet, { conversationId: "7f1c1b8e-7a8f-4d7c-9a51-1c2c3d4e5f60" }),
     ).resolves.toMatchObject({ ok: false, error: { code: "not_found" } });
-    await expect(
-      call(IPC_CHANNELS.chatStop, { streamId: "7f1c1b8e-7a8f-4d7c-9a51-1c2c3d4e5f60" }),
-    ).resolves.toMatchObject({ ok: false, error: { code: "not_found" } });
+  });
+
+  it("treats a stop of a stream that already ended as done, not as a missing element", async () => {
+    const { call, runner } = setup();
+    const sent = await call(IPC_CHANNELS.chatSend, { conversationId: null, content: "Bonjour", modelId: MODEL });
+    if (!sent.ok) throw new Error("send failed");
+    const { streamId } = sent.value as { streamId: string };
+    await expect(call(IPC_CHANNELS.chatStop, { streamId })).resolves.toEqual({ ok: true, value: undefined });
+    await runner.idle();
+    await expect(call(IPC_CHANNELS.chatStop, { streamId })).resolves.toEqual({ ok: true, value: undefined });
+  });
+
+  it("lists conversations as a page and returns the live text of a running answer", async () => {
+    const { call, runner, events } = setup();
+    const sent = await call(IPC_CHANNELS.chatSend, { conversationId: null, content: "Bonjour", modelId: MODEL });
+    if (!sent.ok) throw new Error("send failed");
+    const { conversation, assistantMessage, streamId } = sent.value as {
+      conversation: { id: string };
+      assistantMessage: { id: string };
+      streamId: string;
+    };
+    await expect.poll(() => events.some((event) => event.type === "delta")).toBe(true);
+
+    await expect(call(IPC_CHANNELS.conversationsList, {})).resolves.toMatchObject({
+      ok: true,
+      value: { items: [{ id: conversation.id }], hasMore: false },
+    });
+    // The first delta is below the persistence throttle: only the runner holds it.
+    await expect(call(IPC_CHANNELS.conversationsGet, { conversationId: conversation.id })).resolves.toMatchObject({
+      ok: true,
+      value: {
+        messages: [{ content: "Bonjour" }, { id: assistantMessage.id, content: "partial", status: "streaming" }],
+      },
+    });
+    runner.stop(streamId);
+    await runner.idle();
   });
 
   it("returns internal errors without their message and logs them redacted", async () => {

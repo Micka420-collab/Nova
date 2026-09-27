@@ -4,6 +4,7 @@ import type {
   AppInfo,
   AppSettings,
   ChatStreamEvent,
+  ConversationDetail,
   ModelCatalog,
   NovaApi,
   ProviderConnectionView,
@@ -11,6 +12,7 @@ import type {
   SetKeyRequest,
   SettingsPatch,
 } from "@nova/shared";
+import { NovaIpcError } from "@nova/shared";
 import { toUiError, type UiError } from "../lib/errors";
 import {
   applyActiveStreams,
@@ -51,6 +53,12 @@ export interface UiState {
   modelPicker: { open: boolean; target: ModelTarget };
 }
 
+/** Unsent composer text of a conversation, with the error of its last failed send (one lifetime). */
+export interface Draft {
+  text: string;
+  error: UiError | null;
+}
+
 export interface AppData extends ChatSlice {
   boot: { status: "loading" | "ready" | "error"; error: UiError | null };
   appInfo: AppInfo | null;
@@ -59,6 +67,8 @@ export interface AppData extends ChatSlice {
   catalog: { status: Loadable; data: ModelCatalog | null; error: UiError | null };
   conversationsStatus: Loadable;
   conversationsError: UiError | null;
+  /** The list (or search) was capped by main: older conversations exist beyond it. */
+  conversationsHasMore: boolean;
   query: string;
   /** Conversation shown by the chat view; null = a new, not yet created conversation. */
   activeId: string | null;
@@ -67,6 +77,13 @@ export interface AppData extends ChatSlice {
   lastOutcome: (LastOutcome & { conversationId: string; error: ProviderErrorInfo | null }) | null;
   /** Model picked but not used yet, by conversation id (or NEW_CONVERSATION). Applied on send. */
   modelChoice: Record<string, string>;
+  /** Composer drafts by conversation id (or NEW_CONVERSATION). */
+  drafts: Record<string, Draft>;
+  /**
+   * Conversations whose last answer is known (from this session's events or a loaded detail) to
+   * have failed. Conversations never observed are absent: unknown is not shown as failed.
+   */
+  failed: Record<string, true>;
   ui: UiState;
 }
 
@@ -81,6 +98,9 @@ export interface AppActions {
   goHome(): void;
   openSettings(section?: SettingsSection): void;
   send(content: string, conversationId: string | null): Promise<void>;
+  setDraft(conversationId: string | null, text: string): void;
+  /** Sends `content` as the draft of `conversationId`: on failure the draft keeps its text and gets the error. */
+  sendDraft(content: string, conversationId: string | null): Promise<boolean>;
   stop(conversationId: string): Promise<void>;
   retry(conversationId: string, messageId: string): Promise<void>;
   rename(id: string, title: string): Promise<void>;
@@ -99,6 +119,8 @@ export type AppState = AppData & AppActions;
 export type AppStore = StoreApi<AppState>;
 
 const PROVIDER = { providerId: "openrouter" } as const;
+/** Chat failures that main records on the provider connection (key refused, credits exhausted). */
+const CONNECTION_FAILURES = new Set(["invalid_key", "insufficient_credits"]);
 const LIST_REFRESH_DELAY_MS = 300;
 
 export function initialData(): AppData {
@@ -111,6 +133,7 @@ export function initialData(): AppData {
     conversations: [],
     conversationsStatus: "idle",
     conversationsError: null,
+    conversationsHasMore: false,
     query: "",
     streams: {},
     detail: null,
@@ -119,6 +142,8 @@ export function initialData(): AppData {
     detailError: null,
     lastOutcome: null,
     modelChoice: {},
+    drafts: {},
+    failed: {},
     ui: {
       route: "home",
       settingsSection: "providers",
@@ -154,6 +179,19 @@ export function companionPhase(state: AppData): StreamView["phase"] | null {
   return activeStream(state)?.phase ?? Object.values(state.streams)[0]?.phase ?? null;
 }
 
+function withFailed(failed: Record<string, true>, conversationId: string, value: boolean): Record<string, true> {
+  if (Boolean(failed[conversationId]) === value) return failed;
+  const next = { ...failed };
+  if (value) next[conversationId] = true;
+  else delete next[conversationId];
+  return next;
+}
+
+function lastAnswerFailed(detail: ConversationDetail): boolean {
+  const last = detail.messages.findLast((message) => message.role === "assistant");
+  return last?.status === "error";
+}
+
 export function createAppStore(client: NovaApi): AppStore {
   let listTimer: ReturnType<typeof setTimeout> | null = null;
   let detailRequest = 0;
@@ -183,14 +221,66 @@ export function createAppStore(client: NovaApi): AppStore {
       }
     };
 
+    /** Main records key and credit failures on the connection; the renderer reads that recorded state. */
+    const refreshConnection = async () => {
+      try {
+        set({ connection: await client.connection.get(PROVIDER) });
+      } catch {
+        // The previous state stays; the failed answer already shows its own error.
+      }
+    };
+
+    /**
+     * After a failed or stopped run, main's copy is the truth: a retry that ends before any text is
+     * deleted and the previous answer restored, while the event still carries the deleted message.
+     * The shown messages and the failed marker are rebuilt from main.
+     */
+    const reloadAfterRun = async (conversationId: string, failedRun: boolean) => {
+      try {
+        const fresh = await client.conversations.get({ conversationId });
+        set({ failed: withFailed(get().failed, conversationId, lastAnswerFailed(fresh)) });
+        if (get().detail?.conversation.id === conversationId) set(applyLoadedDetail(chatSlice(), fresh));
+      } catch {
+        // Unreadable now (e.g. deleted): keep what the event said; the next load of the conversation fixes it.
+        set({ failed: withFailed(get().failed, conversationId, failedRun) });
+      }
+    };
+
     const onEvent = (event: ChatStreamEvent) => {
       set(applyChatEvent(chatSlice(), event));
+      if (event.type === "phase" || event.type === "delta") {
+        // A new run in this conversation: its previous failure is no longer the last answer.
+        set({ failed: withFailed(get().failed, event.conversationId, false) });
+        return;
+      }
       if (event.type !== "completed" && event.type !== "stopped" && event.type !== "failed") return;
       const kind = event.type === "completed" ? "success" : event.type === "failed" ? "error" : "stopped";
       const error = event.type === "failed" ? event.error : null;
       set({ lastOutcome: { kind, at: Date.now(), conversationId: event.conversationId, error } });
-      if (get().detail?.conversation.id === event.conversationId) void refreshUsage(event.conversationId);
+      if (error && CONNECTION_FAILURES.has(error.code)) void refreshConnection();
+      if (kind === "success") {
+        set({ failed: withFailed(get().failed, event.conversationId, false) });
+        if (get().detail?.conversation.id === event.conversationId) void refreshUsage(event.conversationId);
+      } else {
+        void reloadAfterRun(event.conversationId, kind === "error");
+      }
       scheduleListRefresh();
+    };
+
+    const patchDraft = (key: string, patch: Partial<Draft>) => {
+      set((state) => {
+        const current = state.drafts[key] ?? { text: "", error: null };
+        return { drafts: { ...state.drafts, [key]: { ...current, ...patch } } };
+      });
+    };
+
+    const dropDraft = (key: string) => {
+      set((state) => {
+        if (!(key in state.drafts)) return {};
+        const drafts = { ...state.drafts };
+        delete drafts[key];
+        return { drafts };
+      });
     };
 
     const loadDetail = async (id: string) => {
@@ -199,7 +289,11 @@ export function createAppStore(client: NovaApi): AppStore {
       try {
         const detail = await client.conversations.get({ conversationId: id });
         if (request !== detailRequest || get().activeId !== id) return;
-        set({ ...applyLoadedDetail(chatSlice(), detail), detailStatus: "ready" });
+        set({
+          ...applyLoadedDetail(chatSlice(), detail),
+          detailStatus: "ready",
+          failed: withFailed(get().failed, id, lastAnswerFailed(detail)),
+        });
       } catch (error) {
         if (request !== detailRequest) return;
         set({ detailStatus: "error", detailError: toUiError(error), detail: null });
@@ -244,9 +338,14 @@ export function createAppStore(client: NovaApi): AppStore {
         const query = get().query.trim();
         if (get().conversationsStatus !== "ready") set({ conversationsStatus: "loading" });
         try {
-          const conversations = await client.conversations.list(query ? { query } : {});
+          const page = await client.conversations.list(query ? { query } : {});
           if (get().query.trim() !== query) return;
-          set({ conversations, conversationsStatus: "ready", conversationsError: null });
+          set({
+            conversations: page.items,
+            conversationsHasMore: page.hasMore,
+            conversationsStatus: "ready",
+            conversationsError: null,
+          });
         } catch (error) {
           set({ conversationsStatus: "error", conversationsError: toUiError(error) });
         }
@@ -306,8 +405,9 @@ export function createAppStore(client: NovaApi): AppStore {
         const next = applySendResult(chatSlice(), result, stillThere);
         const modelChoice = { ...state.modelChoice };
         delete modelChoice[conversationId ?? NEW_CONVERSATION];
+        const failed = withFailed(state.failed, result.conversation.id, false);
         if (!(createdHere && stillThere)) {
-          set({ ...next, modelChoice });
+          set({ ...next, modelChoice, failed });
           return;
         }
         // The new conversation becomes the shown one, in the same update as its messages.
@@ -315,6 +415,7 @@ export function createAppStore(client: NovaApi): AppStore {
         set({
           ...next,
           modelChoice,
+          failed,
           activeId: result.conversation.id,
           detailStatus: "ready",
           detailError: null,
@@ -322,10 +423,35 @@ export function createAppStore(client: NovaApi): AppStore {
         });
       },
 
+      setDraft(conversationId, text) {
+        const key = conversationId ?? NEW_CONVERSATION;
+        if (text === "" && !get().drafts[key]?.error) dropDraft(key);
+        else patchDraft(key, { text });
+      },
+
+      async sendDraft(content, conversationId) {
+        const key = conversationId ?? NEW_CONVERSATION;
+        patchDraft(key, { error: null });
+        try {
+          await get().send(content, conversationId);
+          dropDraft(key);
+          return true;
+        } catch (error) {
+          patchDraft(key, { error: toUiError(error) });
+          return false;
+        }
+      },
+
       async stop(conversationId) {
         const stream = get().streams[conversationId];
         if (!stream) return;
-        await client.chat.stop({ streamId: stream.streamId });
+        try {
+          await client.chat.stop({ streamId: stream.streamId });
+        } catch (error) {
+          // The stream ended before the stop arrived: its terminal event reports the real outcome.
+          if (error instanceof NovaIpcError && error.code === "not_found") return;
+          throw error;
+        }
       },
 
       async retry(conversationId, messageId) {
@@ -334,7 +460,11 @@ export function createAppStore(client: NovaApi): AppStore {
         const result = await client.chat.retry({ conversationId, assistantMessageId: messageId, modelId });
         const modelChoice = { ...get().modelChoice };
         delete modelChoice[conversationId];
-        set({ ...applyRetryResult(chatSlice(), conversationId, messageId, result), modelChoice });
+        set({
+          ...applyRetryResult(chatSlice(), conversationId, messageId, result),
+          modelChoice,
+          failed: withFailed(get().failed, conversationId, false),
+        });
       },
 
       async rename(id, title) {
@@ -351,9 +481,13 @@ export function createAppStore(client: NovaApi): AppStore {
           const streams = { ...state.streams };
           delete streams[id];
           const isActive = state.activeId === id;
+          const drafts = { ...state.drafts };
+          delete drafts[id];
           return {
             conversations: state.conversations.filter((item) => item.id !== id),
             streams,
+            drafts,
+            failed: withFailed(state.failed, id, false),
             ...(isActive
               ? { activeId: null, detail: null, detailStatus: "idle" as const, ui: { ...state.ui, route: "home" as const } }
               : {}),

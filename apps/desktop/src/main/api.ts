@@ -12,7 +12,7 @@ export type MainApi = { [G in keyof NovaApi]: Omit<NovaApi[G], "onEvent"> };
 
 export interface MainApiDeps {
   store: NovaStore;
-  runner: Pick<ChatRunner, "send" | "retry" | "stop" | "active">;
+  runner: Pick<ChatRunner, "send" | "retry" | "stop" | "active" | "overlayLive">;
   connections: Pick<ConnectionService, "get" | "setKey" | "test" | "remove">;
   catalog: Pick<CatalogService, "catalog">;
   app: AppService;
@@ -52,7 +52,8 @@ export function createMainApi(deps: MainApiDeps): MainApi {
         if (!conversation) throw notFound("Conversation");
         return {
           conversation,
-          messages: store.listMessages(conversationId),
+          // Live text of a running answer: every delta emitted after this reply is new to the reader.
+          messages: runner.overlayLive(store.listMessages(conversationId)),
           usage: store.conversationUsage(conversationId),
         };
       },
@@ -72,8 +73,9 @@ export function createMainApi(deps: MainApiDeps): MainApi {
     },
     chat: {
       send: (req) => runner.send(req),
+      // Idempotent: a stream that already ended (the click raced its terminal event) is stopped.
       stop: async ({ streamId }) => {
-        if (!runner.stop(streamId)) throw notFound("Active stream");
+        runner.stop(streamId);
       },
       retry: (req) => runner.retry(req),
       active: async () => runner.active(),

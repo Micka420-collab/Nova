@@ -1,6 +1,6 @@
 /*
  * Brand geometry, shared by the React components and the hand-authored files in packages/ui/assets
- * (brand-assets.test.ts keeps them in sync). All shapes are strokes with round caps and joins.
+ * (brand-assets.test.ts keeps them in sync). The mark is one filled path; the wordmark uses round strokes.
  */
 
 /**

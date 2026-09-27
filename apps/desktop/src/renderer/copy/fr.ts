@@ -52,9 +52,8 @@ export const PROVIDER_ERROR_COPY: Record<ProviderErrorCode, ErrorCopy> = {
   },
   no_provider: {
     title: "Aucun fournisseur disponible",
-    detail:
-      "Aucun fournisseur ne sert ce modèle avec ta politique de conservation des données. Choisis un autre modèle ou ajuste le réglage dans Confidentialité.",
-    action: "Ouvrir la confidentialité",
+    detail: "Aucun fournisseur ne peut servir ce modèle pour l'instant. Réessaie dans un moment ou choisis un autre modèle.",
+    action: "Changer de modèle",
   },
   bad_request: {
     title: "Requête refusée",
@@ -76,6 +75,29 @@ export const PROVIDER_ERROR_COPY: Record<ProviderErrorCode, ErrorCopy> = {
     detail: "Le fournisseur a renvoyé une erreur pendant la génération. Le texte reçu est conservé.",
     action: "Réessayer",
   },
+  key_unreadable: {
+    title: "Clé enregistrée illisible",
+    detail:
+      "NOVA n'arrive plus à déchiffrer ta clé : le trousseau du système est peut-être verrouillé ou a été réinitialisé. Déverrouille-le ou saisis la clé à nouveau.",
+    action: "Saisir la clé à nouveau",
+  },
+  truncated: {
+    title: "Réponse coupée à sa longueur maximale",
+    detail:
+      "Le modèle a atteint la limite de longueur de sa réponse. Le texte reçu est conservé : réessaie, ou demande-lui de continuer.",
+    action: "Réessayer",
+  },
+  filtered: {
+    title: "Réponse bloquée par le filtre du fournisseur",
+    detail:
+      "Le filtre de contenu du fournisseur a arrêté la réponse. Reformule ta demande, ou choisis un autre modèle.",
+    action: "Changer de modèle",
+  },
+  empty_response: {
+    title: "Le modèle n'a rien répondu",
+    detail: "La réponse est arrivée vide. Réessaie ; si ça se répète, choisis un autre modèle.",
+    action: "Réessayer",
+  },
   aborted: {
     title: "Génération arrêtée",
     detail: "Tu as arrêté la génération. Le texte reçu est conservé.",
@@ -94,9 +116,21 @@ export const IPC_ERROR_COPY: Record<IpcErrorCode, string> = {
   conflict: "Action impossible pour l'instant : une génération est déjà en cours ici.",
   vault_unavailable: "Ce mode de stockage n'est pas disponible sur ce système.",
   no_key: "Aucune clé OpenRouter n'est enregistrée.",
+  key_unreadable:
+    "Ta clé enregistrée ne peut pas être lue : le trousseau du système est verrouillé ou a changé. Déverrouille-le, ou saisis ta clé à nouveau.",
   provider: "Le fournisseur a renvoyé une erreur.",
   internal: "Erreur interne de NOVA. Réessaie ; si ça persiste, consulte les journaux (Réglages › Diagnostics).",
 };
+
+/** Follow-up for IPC failures that the user can fix in Réglages › Fournisseurs. */
+export const IPC_ERROR_ACTIONS: Partial<Record<IpcErrorCode, string>> = {
+  no_key: "Ajouter une clé",
+  key_unreadable: "Saisir la clé à nouveau",
+};
+
+/** Secondary hint for `no_provider`: the data policy can also narrow the providers of a model. */
+export const NO_PROVIDER_PRIVACY_HINT =
+  "Ta politique de conservation des données écarte aussi certains fournisseurs : elle peut en être la cause.";
 
 export function rateLimitedTitle(seconds: number): string {
   return `Trop de requêtes — réessaie dans ${seconds} s`;
@@ -119,7 +153,7 @@ export const KEY_STORAGE_LABELS: Record<KeyStorage, string> = {
 export const VAULT_LEVEL_COPY: Record<VaultLevel, { label: string; detail: string }> = {
   os: {
     label: "Coffre du système",
-    detail: "La clé est chiffrée par le trousseau de ton système d'exploitation.",
+    detail: "Les clés enregistrées dans le coffre sont chiffrées par le trousseau de ton système d'exploitation.",
   },
   weak: {
     label: "Protection faible",
@@ -128,7 +162,7 @@ export const VAULT_LEVEL_COPY: Record<VaultLevel, { label: string; detail: strin
   },
   unavailable: {
     label: "Chiffrement indisponible",
-    detail: "NOVA ne peut pas chiffrer la clé ici : elle n'est gardée que pour la session en cours.",
+    detail: "NOVA ne peut pas chiffrer de clé ici : une clé n'est gardée que pour la session en cours.",
   },
 };
 
@@ -159,6 +193,9 @@ export const fr = {
     loadFailed: "Les conversations n'ont pas pu être chargées",
     empty: "Aucune conversation pour l'instant. Lance-toi depuis l'accueil.",
     emptySearch: (query: string) => `Aucune conversation ne contient « ${query} ».`,
+    olderExist: "Des conversations plus anciennes existent : utilise la recherche.",
+    moreResults: "D'autres conversations correspondent : précise ta recherche.",
+    failedMarker: "Dernière réponse en échec",
     streaming: "Génération en cours",
     rename: "Renommer",
     remove: "Supprimer",
@@ -197,6 +234,7 @@ export const fr = {
     success: "Réponse terminée",
     error: "Quelque chose a échoué",
     errorDetail: "Le détail est affiché sous le message.",
+    errorElsewhere: (title: string) => `« ${title} » a échoué.`,
     stopped: "Génération arrêtée",
     idle: "Nomi est disponible",
     verified: (relative: string) => `Connecté à OpenRouter · clé vérifiée ${relative}`,
@@ -254,7 +292,11 @@ export const fr = {
     empty: "Colle ta clé pour continuer.",
     verifiedTitle: "Clé vérifiée",
     unverifiedTitle: "Clé enregistrée, mais pas encore vérifiée",
-    unverifiedBody: "OpenRouter n'a pas pu être joint pour la vérifier. NOVA réessaiera au prochain test.",
+    unverifiedUnreachable: "OpenRouter est injoignable pour l'instant : la clé n'a pas pu être vérifiée.",
+    unverifiedRateLimited: "OpenRouter reçoit trop de requêtes et n'a pas pu vérifier la clé pour l'instant.",
+    unverifiedServiceError: "Le service OpenRouter a renvoyé une erreur pendant la vérification.",
+    unverifiedUnknown: "La clé n'a pas encore pu être vérifiée.",
+    unverifiedNext: "Elle est bien enregistrée : teste-la quand tu veux.",
     saved: "Clé enregistrée",
   },
   keyCheck: {
@@ -351,6 +393,7 @@ export const fr = {
     relaunch: "Relancer",
     retryIn: (seconds: number) => `Réessayer dans ${seconds} s`,
     providerDetail: "Détail du fournisseur",
+    openPrivacy: "Ouvrir la confidentialité",
     httpStatus: (status: number) => `HTTP ${status}`,
     editTitle: "Renommer la conversation",
     modelButton: (name: string) => `Modèle : ${name}`,
@@ -363,8 +406,13 @@ export const fr = {
     codePlain: "texte",
     image: (alt: string) => `Image non affichée : ${alt}`,
     imageNoAlt: "sans description",
-    linkRefused: "NOVA n'ouvre que les liens de confiance",
-    linkCopied: "Adresse copiée : colle-la dans ton navigateur si tu lui fais confiance.",
+    linkRefused: "NOVA n'ouvre pas ce lien",
+    linkRefusedBody:
+      "Seuls les liens de confiance s'ouvrent depuis NOVA. Vérifie l'adresse réelle ci-dessous : le texte du lien peut être trompeur.",
+    linkDestination: "Adresse réelle",
+    linkCopy: "Copier l'adresse",
+    linkCopied: "Adresse copiée",
+    linkDismiss: "Fermer",
     usageIn: (tokens: string) => `envoyés : ${tokens}`,
     usageOut: (tokens: string) => `reçus : ${tokens}`,
     usageUnknown: "jetons et coût non communiqués",
@@ -397,6 +445,7 @@ export const fr = {
     close: "Fermer le contexte",
     noConversation: "Ouvre une conversation pour voir son modèle, la destination des données et sa consommation.",
     requestedModel: "Modèle demandé",
+    nextModel: (name: string) => `Prochain message : ${name}`,
     servedModel: "Modèle servi",
     servedProvider: "Fournisseur",
     destination: "Destination des données",

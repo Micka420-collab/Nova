@@ -3,7 +3,17 @@ import { fr } from "../../copy/fr";
 import { REDUCED_MOTION_QUERY, useMediaQuery, useNow, useOnline } from "../../lib/hooks";
 import { useApp } from "../../state/context";
 import { deriveNomiState } from "../../state/nomi";
-import { companionPhase } from "../../state/store";
+import { companionPhase, type AppData } from "../../state/store";
+
+/** Title of the conversation the last outcome belongs to, when the chat view does not show it. */
+function outcomeElsewhere(state: AppData): string | null {
+  const outcome = state.lastOutcome;
+  if (!outcome) return null;
+  if (state.ui.route === "chat" && state.activeId === outcome.conversationId) return null;
+  const summary = state.conversations.find((item) => item.id === outcome.conversationId);
+  const title = summary?.title ?? (state.detail?.conversation.id === outcome.conversationId ? state.detail.conversation.title : null);
+  return title ?? fr.conversation.untitled;
+}
 
 const PILL_TONES: Record<NomiState, BadgeTone> = {
   offline: "neutral",
@@ -23,12 +33,22 @@ export function NomiDock() {
   const connection = useApp((state) => state.connection);
   const phase = useApp(companionPhase);
   const lastOutcome = useApp((state) => state.lastOutcome);
+  const elsewhere = useApp(outcomeElsewhere);
   const companion = useApp((state) => state.settings?.companion ?? null);
   const openSettings = useApp((state) => state.openSettings);
   const systemReduced = useMediaQuery(REDUCED_MOTION_QUERY);
-  // One-second ticks let the success/error pose expire on time.
-  const now = useNow(1000);
-  const view = deriveNomiState({ online, connection, activeStreamPhase: phase, lastOutcome, now });
+  // One-second ticks let the success/error pose expire on time; a fresh outcome shows at once
+  // instead of waiting for the next tick (its timestamp is later than the last tick).
+  const tick = useNow(1000);
+  const now = Math.max(tick, lastOutcome?.at ?? 0);
+  const view = deriveNomiState({
+    online,
+    connection,
+    activeStreamPhase: phase,
+    lastOutcome,
+    outcomeElsewhere: elsewhere,
+    now,
+  });
   const reduced = companion?.motion === "reduce" || (companion?.motion !== "full" && systemReduced);
   const busy = phase !== null;
 

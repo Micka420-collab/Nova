@@ -89,6 +89,10 @@ export interface FakeSeed {
   conversations?: Array<{ conversation: Conversation; messages: Message[] }>;
   models?: ModelInfo[];
   vaultLevel?: AppInfo["vault"]["level"];
+  /** `conversations.list` reports older conversations beyond the returned page. */
+  hasMoreConversations?: boolean;
+  /** Connection returned by `connection.setKey` (default: verified). */
+  setKeyResult?: ProviderConnectionView;
 }
 
 export interface FakeBridge {
@@ -99,6 +103,8 @@ export interface FakeBridge {
   calls: string[];
   /** Makes the next call of `name` fail with this IPC error. */
   failNext: (name: string, error: IpcError) => void;
+  /** Replaces the connection main would return (e.g. main recorded a refused key). */
+  setConnection: (next: ProviderConnectionView) => void;
 }
 
 export function createFakeBridge(seed: FakeSeed = {}): FakeBridge {
@@ -169,7 +175,7 @@ export function createFakeBridge(seed: FakeSeed = {}): FakeBridge {
       get: () => reply("connection.get", () => connection),
       setKey: (req) =>
         reply("connection.setKey", () => {
-          connection = { ...VALID_CONNECTION, storage: req.storage, keyHint: req.apiKey.slice(-4) };
+          connection = seed.setKeyResult ?? { ...VALID_CONNECTION, storage: req.storage, keyHint: req.apiKey.slice(-4) };
           return connection;
         }),
       test: () => reply("connection.test", () => connection),
@@ -183,16 +189,22 @@ export function createFakeBridge(seed: FakeSeed = {}): FakeBridge {
       catalog: () => reply("models.catalog", () => catalog),
     },
     conversations: {
-      list: () =>
-        reply("conversations.list", () =>
-          [...conversations.values()]
+      list: (req) =>
+        reply("conversations.list", () => {
+          const query = req.query?.toLowerCase() ?? "";
+          const matches = ({ conversation, messages }: { conversation: Conversation; messages: Message[] }) =>
+            conversation.title.toLowerCase().includes(query) ||
+            messages.some((message) => message.content.toLowerCase().includes(query));
+          const items = [...conversations.values()]
+            .filter(matches)
             .map(({ conversation, messages }) => ({
               ...conversation,
               messageCount: messages.length,
               preview: messages.at(-1)?.content ?? null,
             }))
-            .sort((a, b) => b.updatedAt - a.updatedAt),
-        ),
+            .sort((a, b) => b.updatedAt - a.updatedAt);
+          return { items, hasMore: seed.hasMoreConversations ?? false };
+        }),
       get: ({ conversationId }) =>
         reply("conversations.get", () => {
           const { conversation, messages } = findEntry(conversationId);
@@ -259,11 +271,24 @@ export function createFakeBridge(seed: FakeSeed = {}): FakeBridge {
   return {
     bridge,
     emit: (event) => {
+      // Main persists a run's final message before reporting it. A message main no longer has (a
+      // retry deleted when it ended before any text) stays absent.
+      if (event.type === "completed" || event.type === "stopped" || event.type === "failed") {
+        const entry = conversations.get(event.conversationId);
+        if (entry) {
+          entry.messages = entry.messages.map((message) => (message.id === event.message.id ? event.message : message));
+        }
+        const index = active.findIndex((item) => item.streamId === event.streamId);
+        if (index !== -1) active.splice(index, 1);
+      }
       for (const listener of listeners) listener(event);
     },
     calls,
     failNext: (name, error) => {
       failures.set(name, error);
+    },
+    setConnection: (next) => {
+      connection = next;
     },
   };
 }

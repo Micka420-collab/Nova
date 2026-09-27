@@ -1,10 +1,11 @@
-import { memo } from "react";
+import { memo, useState } from "react";
 import { Button, Callout, OrbitIndicator } from "@nova/ui";
 import type { Message, ProviderErrorInfo } from "@nova/shared";
-import { fr } from "../../copy/fr";
-import { describeProviderError } from "../../lib/errors";
+import { fr, NO_PROVIDER_PRIVACY_HINT } from "../../copy/fr";
+import { describeProviderError, mentionsDataPolicy } from "../../lib/errors";
 import { formatCost, formatTokens } from "../../lib/format";
 import { useNow } from "../../lib/hooks";
+import { useApp } from "../../state/context";
 import type { StreamView } from "../../state/chat-reducer";
 import { useErrorAction } from "../useErrorAction";
 import { Markdown } from "./Markdown";
@@ -15,7 +16,32 @@ export interface MessageItemProps {
   stream: StreamView | null;
   /** Only the last answer of a conversation can be regenerated, and never during a generation. */
   canRetry: boolean;
-  onRetry: (message: Message) => void;
+  /** Settles once the retry request is answered (success or reported failure). */
+  onRetry: (message: Message) => Promise<void>;
+}
+
+/** Disabled from the click until the request settles: a double click never sends two retries. */
+function RetryButton({
+  message,
+  onRetry,
+  label,
+  disabled = false,
+}: {
+  message: Message;
+  onRetry: MessageItemProps["onRetry"];
+  label: string;
+  disabled?: boolean;
+}) {
+  const [pending, setPending] = useState(false);
+  function run() {
+    setPending(true);
+    void onRetry(message).finally(() => setPending(false));
+  }
+  return (
+    <Button size="sm" variant="secondary" disabled={disabled} loading={pending} onClick={run}>
+      {label}
+    </Button>
+  );
 }
 
 function UsageFooter({ message }: { message: Message }) {
@@ -42,6 +68,9 @@ function secondsLeft(message: Message, error: ProviderErrorInfo, now: number): n
 function ErrorBlock({ message, error, canRetry, onRetry }: MessageItemProps & { error: ProviderErrorInfo }) {
   const now = useNow(1000);
   const action = useErrorAction(error.code);
+  const dataCollection = useApp((state) => state.settings?.privacy.providerDataCollection ?? null);
+  const openSettings = useApp((state) => state.openSettings);
+  const privacyHint = mentionsDataPolicy(error, dataCollection);
   const wait = secondsLeft(message, error, now);
   // The countdown replaces the provider's Retry-After in the title and reaches the plain title at 0.
   const copy = describeProviderError({ ...error, retryAfterSec: wait > 0 ? wait : null });
@@ -55,16 +84,17 @@ function ErrorBlock({ message, error, canRetry, onRetry }: MessageItemProps & { 
       role="note"
       title={title}
       action={
-        canRetry || action ? (
+        canRetry || action || privacyHint ? (
           <div className="nova-message__actions">
-            {canRetry ? (
-              <Button size="sm" variant="secondary" disabled={wait > 0} onClick={() => onRetry(message)}>
-                {retryLabel}
-              </Button>
-            ) : null}
+            {canRetry ? <RetryButton message={message} onRetry={onRetry} label={retryLabel} disabled={wait > 0} /> : null}
             {action ? (
               <Button size="sm" variant="ghost" onClick={action.run}>
                 {action.label}
+              </Button>
+            ) : null}
+            {privacyHint ? (
+              <Button size="sm" variant="ghost" onClick={() => openSettings("privacy")}>
+                {fr.chat.openPrivacy}
               </Button>
             ) : null}
           </div>
@@ -72,6 +102,7 @@ function ErrorBlock({ message, error, canRetry, onRetry }: MessageItemProps & { 
       }
     >
       <p>{copy.detail}</p>
+      {privacyHint ? <p>{NO_PROVIDER_PRIVACY_HINT}</p> : null}
       {error.providerMessage || error.httpStatus !== null ? (
         <details className="nova-message__details">
           <summary>{fr.chat.providerDetail}</summary>
@@ -104,9 +135,11 @@ function AssistantBody({ message, stream, canRetry, onRetry }: MessageItemProps)
     );
   }
   const retry = canRetry ? (
-    <Button size="sm" variant="secondary" onClick={() => onRetry(message)}>
-      {message.status === "stopped" ? fr.chat.relaunch : fr.chat.retry}
-    </Button>
+    <RetryButton
+      message={message}
+      onRetry={onRetry}
+      label={message.status === "stopped" ? fr.chat.relaunch : fr.chat.retry}
+    />
   ) : null;
   return (
     <>

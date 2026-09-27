@@ -4,7 +4,7 @@
 
 NOVA est un atelier personnel d'IA pour discuter, comprendre, créer des applications et automatiser son travail. Il s'adresse aux personnes qui savent expliquer ce qu'elles veulent sans maîtriser le code. Desktop d'abord (Electron), Web/PWA ensuite.
 
-**Statut : Jalon 1 en cours — non prêt pour la production.** Ce qui fonctionne réellement, et comment cela a été vérifié, est consigné dans [`docs/STATUS.md`](docs/STATUS.md).
+**Statut : Jalon 1 en cours — non prêt pour la production.** La tranche verticale (clé, catalogue, conversation en continu, historique) fonctionne sur Linux x64 contre un faux serveur OpenRouter ; elle n'a pas encore été essayée avec une vraie clé, ni sur Windows et macOS. Ce qui fonctionne réellement, et comment cela a été vérifié, est consigné dans [`docs/STATUS.md`](docs/STATUS.md).
 
 ## Ce que vise le jalon 1
 
@@ -19,7 +19,7 @@ Missions de code, extensions, voix et version Web viennent ensuite : voir [`docs
 
 - Node ≥ 24.10 et pnpm 12 (version fixée par `packageManager`, par exemple via Corepack).
 - Linux : pour les E2E sans écran, `xvfb`, `dbus` et `gnome-keyring`. Sans trousseau, NOVA fonctionne avec une clé de session ou un coffre faible, explicitement signalé.
-- Windows et macOS : construits et testés par la CI GitHub Actions (`.github/workflows/ci.yml`), pas localement. Consultez la matrice de [`docs/STATUS.md`](docs/STATUS.md) avant de considérer une plateforme comme prise en charge.
+- Windows et macOS : pas de vérification locale. La CI GitHub Actions (`.github/workflows/ci.yml`) y construit l'application, lance les E2E Playwright, `vault-smoke` et un paquet non signé ; lint, vérification de types et tests unitaires ne tournent que sous Linux. Aucun run n'est encore consigné : consultez la matrice de [`docs/STATUS.md`](docs/STATUS.md) avant de considérer une plateforme comme prise en charge.
 - Une clé OpenRouter standard (pas de clé de gestion) avec du crédit pour un usage réel.
 
 ## Démarrage rapide
@@ -45,7 +45,15 @@ pnpm test:e2e                     # Windows, macOS, ou Linux avec écran
 xvfb-run -a pnpm test:e2e         # Linux sans écran
 ```
 
-Sous Linux, la CI ajoute un trousseau privé pour tester le coffre du système ; voir `apps/desktop/e2e/run-with-keyring.sh` et `.github/workflows/ci.yml`.
+Playwright force `--password-store=basic` au lancement d'Electron : sous Linux, les E2E n'exercent que le coffre faible ou la clé de session. Le niveau du coffre du système se vérifie sur l'application réelle, hors Playwright :
+
+```bash
+# dans apps/desktop, après electron-vite build
+dbus-run-session -- bash e2e/run-with-keyring.sh xvfb-run -a node e2e/vault-smoke.mjs --expect os   # trousseau privé
+xvfb-run -a node e2e/vault-smoke.mjs --expect weak                                                   # sans trousseau
+```
+
+Sous Windows et macOS, la CI lance `node e2e/vault-smoke.mjs --expect os`.
 
 Paquets :
 
@@ -60,7 +68,7 @@ Règles de conception du jalon 1 ; leur vérification est suivie dans [`docs/STA
 
 - La clé est collée une fois dans l'interface, puis gérée uniquement par le processus principal : jamais renvoyée à l'interface, jamais journalisée, jamais exportée. Seuls ses 4 derniers caractères sont affichés.
 - Stockage : coffre du système (DPAPI, Keychain, libsecret, kwallet). Sous Linux sans trousseau, le coffre « faible » d'Electron n'est qu'une obfuscation : NOVA le dit, propose une clé de session par défaut et demande un consentement explicite.
-- Les conversations restent sur la machine, en SQLite. Elles ne partent que vers OpenRouter, au moment de l'envoi, avec `data_collection: deny` par défaut.
+- Les conversations restent sur la machine, en SQLite (`nova.sqlite` dans le dossier de données). Elles ne partent que vers OpenRouter, au moment de l'envoi, avec `data_collection: deny` par défaut.
 - Aucune télémétrie. Une éventuelle politique opt-in reste à décider (question Q4 de [`docs/DECISIONS.md`](docs/DECISIONS.md)).
 
 Détails : [`docs/SECURITY.md`](docs/SECURITY.md). Merci de ne pas publier de faille dans un ticket public ; le canal de signalement reste à définir.
@@ -82,7 +90,8 @@ Détails : [`docs/SECURITY.md`](docs/SECURITY.md). Merci de ne pas publier de fa
 ## Direction de marque
 
 - **NOVA**, atelier calme et précis ; **Nomi**, son compagnon, qui reflète l'activité réelle et jamais une activité simulée. Noms provisoires tant que la vérification de marque et de domaine n'est pas faite.
-- Signature visuelle : l'orbite, un anneau fin et un satellite, immobile au repos.
+- Marque : un ruban jade en forme de N dont les deux extrémités s'enroulent en orbite, avec une lune.
+- Signature visuelle : l'orbite, immobile au repos, qui ne bouge que sur une activité réelle.
 - Polices Manrope et JetBrains Mono, icônes Lucide, thèmes sombre et clair.
 - Ton : français clair, verbes d'action, « inconnu » plutôt qu'une estimation.
 

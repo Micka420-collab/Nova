@@ -14,15 +14,25 @@ function costLine(usage: UsageTotals): string {
   return fr.context.costUnknown;
 }
 
-/** Served model and provider of the latest answer that reported them. */
-function lastServed(detail: ConversationDetail): { model: string | null; provider: string | null } {
-  for (let index = detail.messages.length - 1; index >= 0; index -= 1) {
-    const message = detail.messages[index];
-    if (message?.role === "assistant" && (message.servedModel || message.servedProvider)) {
-      return { model: message.servedModel, provider: message.servedProvider };
-    }
-  }
-  return { model: null, provider: null };
+interface AnswerModels {
+  /** Model NOVA requested for the answer below (null = not recorded). */
+  requested: string | null;
+  served: string | null;
+  provider: string | null;
+}
+
+/**
+ * Requested and served model of the same answer: the latest that reported a served model, else the
+ * latest answer. The requested model is the one recorded on that answer, never a pending choice.
+ */
+function answerModels(detail: ConversationDetail): AnswerModels {
+  const answers = detail.messages.filter((message) => message.role === "assistant");
+  const answer = answers.findLast((message) => message.servedModel || message.servedProvider) ?? answers.at(-1);
+  return {
+    requested: answer?.modelId ?? detail.conversation.modelId,
+    served: answer?.servedModel ?? null,
+    provider: answer?.servedProvider ?? null,
+  };
 }
 
 /** Something was reported, or an answer may have been billed without a reported cost. */
@@ -33,14 +43,18 @@ function hasConsumption({ usage }: ConversationDetail): boolean {
 export function ContextPanel() {
   const activeId = useApp((state) => (state.ui.route === "chat" ? state.activeId : null));
   const detail = useApp((state) => (state.detail && state.detail.conversation.id === state.activeId ? state.detail : null));
-  const modelId = useApp((state) => selectedModelId(state, state.activeId));
+  const nextModelId = useApp((state) => selectedModelId(state, state.activeId));
   const catalog = useApp((state) => state.catalog.data);
   const privacy = useApp((state) => state.settings?.privacy.providerDataCollection ?? null);
   const openSettings = useApp((state) => state.openSettings);
   const now = useNow(30_000);
   const shown = activeId ? detail : null;
-  const model = findModel(catalog?.models, modelId);
-  const served = shown ? lastServed(shown) : null;
+  const answer = shown ? answerModels(shown) : null;
+  const requestedId = answer?.requested ?? null;
+  const requested = findModel(catalog?.models, requestedId);
+  // A model picked for the next message is not a request yet: shown apart, never as "demandé".
+  const pendingId = nextModelId !== null && nextModelId !== requestedId ? nextModelId : null;
+  const pending = findModel(catalog?.models, pendingId);
 
   return (
     <div className="nova-context">
@@ -49,15 +63,18 @@ export function ContextPanel() {
         <dl className="nova-facts">
           <dt>{fr.context.requestedModel}</dt>
           <dd>
-            {model?.name ?? modelId ?? fr.models.noneSelected}
-            {modelId ? <code className="nova-context__id">{modelId}</code> : null}
+            {requested?.name ?? requestedId ?? fr.app.unknown}
+            {requestedId ? <code className="nova-context__id">{requestedId}</code> : null}
+            {pendingId ? (
+              <span className="nova-context__next">{fr.context.nextModel(pending?.name ?? pendingId)}</span>
+            ) : null}
           </dd>
           <dt>{fr.context.servedModel}</dt>
-          <dd>{served?.model ?? fr.app.unknown}</dd>
+          <dd>{answer?.served ?? fr.app.unknown}</dd>
           <dt>{fr.context.servedProvider}</dt>
-          <dd>{served?.provider ?? fr.app.unknown}</dd>
+          <dd>{answer?.provider ?? fr.app.unknown}</dd>
           <dt>{fr.context.destination}</dt>
-          <dd>{fr.context.destinationValue(served?.provider ?? fr.context.providerUnknown)}</dd>
+          <dd>{fr.context.destinationValue(answer?.provider ?? fr.context.providerUnknown)}</dd>
           <dt>{fr.context.usage}</dt>
           <dd>
             {hasConsumption(shown) ? (

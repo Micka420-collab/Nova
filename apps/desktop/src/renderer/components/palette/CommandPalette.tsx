@@ -14,40 +14,49 @@ interface Results {
   /** Query these results answer; results for an older query mean a search is in flight. */
   query: string | null;
   items: ConversationSummary[];
+  hasMore: boolean;
   error: string | null;
 }
 
-function ConversationResults({ search, onOpen }: { search: string; onOpen: (id: string) => void }) {
+interface Search extends Results {
+  loading: boolean;
+}
+
+/** Conversations matching `search`, searched in main (titles and message contents) like the sidebar. */
+function useConversationSearch(search: string, enabled: boolean): Search {
   const client = useClient();
-  const [results, setResults] = useState<Results>({ query: null, items: [], error: null });
+  const [results, setResults] = useState<Results>({ query: null, items: [], hasMore: false, error: null });
   const query = search.trim();
 
-  // Searched in main (titles and message contents), like the sidebar.
   useEffect(() => {
+    if (!enabled) return;
     let current = true;
     const timer = setTimeout(() => {
       client.conversations
         .list(query ? { query } : {})
-        .then((items) => {
-          if (current) setResults({ query, items, error: null });
+        .then((page) => {
+          if (current) setResults({ query, items: page.items, hasMore: page.hasMore, error: null });
         })
         .catch((error: unknown) => {
-          if (current) setResults({ query, items: [], error: describeUiError(toUiError(error)).title });
+          if (current) setResults({ query, items: [], hasMore: false, error: describeUiError(toUiError(error)).title });
         });
     }, SEARCH_DELAY_MS);
     return () => {
       current = false;
       clearTimeout(timer);
     };
-  }, [client, query]);
+  }, [client, query, enabled]);
 
-  const loading = results.query !== query;
-  if (results.error && !loading) return <Command.Empty>{results.error}</Command.Empty>;
+  return { ...results, loading: results.query !== query };
+}
+
+function ConversationResults({ results, onOpen }: { results: Search; onOpen: (id: string) => void }) {
   return (
     <Command.Group heading={fr.palette.groupConversations}>
-      {loading && results.items.length === 0 ? <Command.Loading>{fr.palette.loadingConversations}</Command.Loading> : null}
-      {!loading && results.items.length === 0 ? <Command.Empty>{fr.palette.emptyConversations}</Command.Empty> : null}
-      {results.items.map((item) => (
+      {results.loading && results.items.length === 0 ? (
+        <Command.Loading label={fr.palette.loadingConversations}>{fr.palette.loadingConversations}</Command.Loading>
+      ) : null}
+      {results.error ? null : results.items.map((item) => (
         <Command.Item key={item.id} value={item.id} onSelect={() => onOpen(item.id)}>
           <span className="nova-palette__item-title">{item.title}</span>
           {item.preview ? <span className="nova-palette__item-hint">{item.preview}</span> : null}
@@ -55,6 +64,27 @@ function ConversationResults({ search, onOpen }: { search: string; onOpen: (id: 
       ))}
     </Command.Group>
   );
+}
+
+/**
+ * Outcome of a finished search, outside the list: the "back" item keeps cmdk's item count above
+ * zero, so Command.Empty would never render on this page.
+ */
+function SearchOutcome({ results }: { results: Search }) {
+  if (results.loading) return null;
+  if (results.error) {
+    return (
+      <p className="nova-palette__outcome" role="alert">
+        {results.error}
+      </p>
+    );
+  }
+  if (results.items.length === 0) {
+    return (
+      <output className="nova-palette__outcome">{fr.palette.emptyConversations}</output>
+    );
+  }
+  return results.hasMore ? <p className="nova-palette__outcome">{fr.nav.moreResults}</p> : null;
 }
 
 function PaletteContent({ onClose }: { onClose: () => void }) {
@@ -72,6 +102,7 @@ function PaletteContent({ onClose }: { onClose: () => void }) {
   const input = useRef<HTMLInputElement>(null);
   const [page, setPage] = useState<Page>("commands");
   const [search, setSearch] = useState("");
+  const results = useConversationSearch(search, page === "conversations");
 
   // After the dialog's own initial focus (its close button), the search field takes over.
   useEffect(() => {
@@ -151,10 +182,11 @@ function PaletteContent({ onClose }: { onClose: () => void }) {
                 {fr.palette.back}
               </Command.Item>
             </Command.Group>
-            <ConversationResults search={search} onOpen={(id) => run(() => openConversation(id))} />
+            <ConversationResults results={results} onOpen={(id) => run(() => openConversation(id))} />
           </>
         )}
       </Command.List>
+      {page === "conversations" ? <SearchOutcome results={results} /> : null}
     </Command>
   );
 }

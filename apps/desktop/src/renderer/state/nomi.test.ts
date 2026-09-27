@@ -42,6 +42,14 @@ describe("deriveNomiState", () => {
     expect(deriveNomiState({ ...base, connection: { ...verified, state: "unverified" } }).detail).toBe("Clé non vérifiée");
   });
 
+  it("names the conversation that failed when it is not the one on screen", () => {
+    const failed = { kind: "error" as const, at: NOW - 100 };
+    expect(deriveNomiState({ ...base, lastOutcome: failed }).detail).toBe("Le détail est affiché sous le message.");
+    expect(deriveNomiState({ ...base, lastOutcome: failed, outcomeElsewhere: "Plan de voyage" }).detail).toBe(
+      "« Plan de voyage » a échoué.",
+    );
+  });
+
   it("an outcome older than the window falls back to idle; a live stream beats a recent outcome", () => {
     const old = { kind: "success" as const, at: NOW - OUTCOME_WINDOW_MS };
     expect(deriveNomiState({ ...base, lastOutcome: old }).state).toBe("idle");

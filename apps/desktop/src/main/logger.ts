@@ -1,4 +1,4 @@
-// Structured JSON-lines logger of the main process. Every line goes through redactSecrets.
+// Structured JSON-lines logger of the main process. Every logged string goes through redactSecrets.
 // Callers never pass message contents or keys; redaction is the safety net, not the policy.
 import { appendFileSync, mkdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -24,9 +24,14 @@ export interface FileLoggerOptions {
   now?: () => number;
 }
 
+/**
+ * Redacts each string before JSON escaping: once escaped, a key after a newline or tab reads
+ * `\nsk-…`, where the patterns' word boundary no longer matches and the key would be kept.
+ */
 function serializable(_key: string, value: unknown): unknown {
   if (value instanceof Error) return { name: value.name, message: value.message, stack: value.stack };
   if (typeof value === "bigint") return value.toString();
+  if (typeof value === "string") return redactSecrets(value);
   return value;
 }
 
@@ -38,7 +43,7 @@ function formatLine(time: number, level: LogLevel, msg: string, data: Record<str
   } catch {
     json = JSON.stringify({ time: entry.time, level, msg, data: "[unserializable]" });
   }
-  return `${redactSecrets(json)}\n`;
+  return `${json}\n`;
 }
 
 export function createFileLogger(options: FileLoggerOptions): Logger {

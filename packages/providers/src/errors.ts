@@ -10,6 +10,9 @@ const RETRYABLE_CODES: ReadonlySet<ProviderErrorCode> = new Set<ProviderErrorCod
   "provider_error",
   "network",
   "stream_interrupted",
+  // Generation outcomes (finish_reason): a new attempt can finish; a filter verdict will not change.
+  "truncated",
+  "empty_response",
 ]);
 
 const STATUS_CODES: Readonly<Partial<Record<number, ProviderErrorCode>>> = {
@@ -54,6 +57,9 @@ export function parseRetryAfter(value: string | null, now: number = Date.now()):
   return Number.isNaN(date) ? null : Math.max(0, Math.ceil((date - now) / 1000));
 }
 
+/** OpenRouter's `limit_source` for too many concurrent generations: a wait, not an empty balance. */
+const IN_FLIGHT_BUDGET = "openrouter_in_flight_budget";
+
 /** Provider message plus the machine-readable kind and moderation reasons when present. */
 function describeError(error: JsonRecord): string | null {
   const metadata = asRecord(error.metadata);
@@ -68,18 +74,30 @@ function describeError(error: JsonRecord): string | null {
   return sanitizeProviderMessage(parts.join(" "));
 }
 
-function describeBody(bodyText: string): string | null {
-  let parsed: unknown;
+function parseBody(bodyText: string): JsonRecord | null {
   try {
-    parsed = JSON.parse(bodyText);
+    return asRecord(JSON.parse(bodyText));
   } catch {
-    // Non-JSON bodies (proxies, gateways) are kept as detail unless they are HTML pages.
-    return bodyText.trimStart().startsWith("<") ? null : sanitizeProviderMessage(bodyText);
+    return null;
   }
-  const root = asRecord(parsed);
-  const error = asRecord(root?.error);
+}
+
+function describeBody(bodyText: string, root: JsonRecord | null): string | null {
+  // Non-JSON bodies (proxies, gateways) are kept as detail unless they are HTML pages.
+  if (!root) return bodyText.trimStart().startsWith("<") ? null : sanitizeProviderMessage(bodyText);
+  const error = asRecord(root.error);
   if (error) return describeError(error);
-  return sanitizeProviderMessage(asString(root?.message) ?? asString(root?.error));
+  return sanitizeProviderMessage(asString(root.message) ?? asString(root.error));
+}
+
+/**
+ * A 402 is an empty balance, except OpenRouter's in-flight budget (documented to carry
+ * Retry-After): that one clears by waiting, so it is a rate limit with its countdown.
+ */
+function codeForResponse(status: number, root: JsonRecord | null, retryAfterSec: number | null): ProviderErrorCode {
+  if (status !== 402) return codeForStatus(status);
+  const limitSource = asString(asRecord(asRecord(root?.error)?.metadata)?.limit_source);
+  return limitSource === IN_FLIGHT_BUDGET || retryAfterSec !== null ? "rate_limited" : "insufficient_credits";
 }
 
 /** Maps a non-2xx HTTP response. `bodyText` must already be free of the caller's key. */
@@ -89,10 +107,12 @@ export function mapHttpError(
   headers: Headers,
   now: number = Date.now(),
 ): ProviderErrorInfo {
-  return providerErrorInfo(codeForStatus(status), {
+  const root = parseBody(bodyText);
+  const retryAfterSec = parseRetryAfter(headers.get("retry-after"), now);
+  return providerErrorInfo(codeForResponse(status, root, retryAfterSec), {
     httpStatus: status,
-    retryAfterSec: parseRetryAfter(headers.get("retry-after"), now),
-    providerMessage: describeBody(bodyText),
+    retryAfterSec,
+    providerMessage: describeBody(bodyText, root),
   });
 }
 

@@ -47,6 +47,21 @@ function describeFailure(error: unknown): string {
   return error.cause instanceof Error ? `${error.message}: ${error.cause.message}` : error.message;
 }
 
+/**
+ * Validates the request before any I/O and returns it with normalized headers. A request that
+ * cannot even be built (e.g. a key character that no HTTP header can carry) fails the same way on
+ * every attempt: it is `bad_request`, never a retryable network failure, so an unusable key is
+ * not stored as "unverified".
+ */
+function prepareRequest(url: string, init: RequestInit, secret: string | undefined): RequestInit {
+  try {
+    return { ...init, headers: new Request(url, init).headers };
+  } catch (error) {
+    const detail = sanitizeProviderMessage(scrub(describeFailure(error), secret));
+    throw new ProviderError(providerErrorInfo("bad_request", { providerMessage: detail }), detail ?? "invalid request");
+  }
+}
+
 function invalidResponse(what: string): ProviderError {
   return new ProviderError(providerErrorInfo("provider_error"), `invalid ${what} response`);
 }
@@ -294,11 +309,13 @@ export class OpenRouterProvider implements ModelProvider {
 
   /** Performs the request under `requestMs` until headers; non-2xx responses become ProviderError. */
   private async send(scope: CallScope, path: string, init: RequestInit, apiKey: string | undefined): Promise<Response> {
+    const url = `${this.baseUrl}${path}`;
+    const prepared = prepareRequest(url, init, apiKey);
     scope.arm(this.timeouts.requestMs, "request_timeout");
     let response: Response;
     try {
       scope.signal.throwIfAborted();
-      response = await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, signal: scope.signal });
+      response = await this.fetchImpl(url, { ...prepared, signal: scope.signal });
     } catch (error) {
       throw scope.failure(error, "network", apiKey);
     }

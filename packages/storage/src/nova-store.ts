@@ -7,7 +7,7 @@ import {
   SettingsPatchSchema,
   type AppSettings,
   type Conversation,
-  type ConversationSummary,
+  type ConversationPage,
   type KeyCheckResult,
   type KeyStorage,
   type Message,
@@ -41,6 +41,38 @@ import type {
   UsageRecordInput,
 } from "./types";
 
+/** SQLite primary result codes of a damaged file (extended codes keep them in the low byte). */
+const SQLITE_CORRUPT = 11;
+const SQLITE_NOTADB = 26;
+
+/** The database file is damaged: it opened, but `PRAGMA quick_check` found problems. */
+export class CorruptDatabaseError extends Error {
+  constructor(readonly problems: string[]) {
+    super(`Database integrity check failed: ${problems.slice(0, 3).join("; ").slice(0, 300)}`);
+    this.name = "CorruptDatabaseError";
+  }
+}
+
+/** Whether opening failed because the file is damaged or not a database (vs. locked, missing…). */
+export function isCorruptDatabaseError(error: unknown): boolean {
+  if (error instanceof CorruptDatabaseError) return true;
+  // node:sqlite errors carry the SQLite result code as `errcode`.
+  if (typeof error !== "object" || error === null || !("errcode" in error)) return false;
+  if (typeof error.errcode !== "number") return false;
+  const primary = error.errcode & 0xff;
+  return primary === SQLITE_CORRUPT || primary === SQLITE_NOTADB;
+}
+
+/** Page-level damage beyond the header only shows on read; detect it before anything is written. */
+function assertIntact(db: DatabaseSync): void {
+  const problems = db
+    .prepare("PRAGMA quick_check")
+    .all()
+    .map((row) => readText(row, "quick_check"))
+    .filter((result) => result !== "ok");
+  if (problems.length > 0) throw new CorruptDatabaseError(problems);
+}
+
 export interface NovaStoreOptions {
   /** Clock used for every stored timestamp (tests inject a fake one). */
   now?: () => number;
@@ -51,24 +83,44 @@ const DEFAULT_LIST_LIMIT = 200;
 const PREVIEW_MAX_CHARS = 120;
 const SETTINGS_KEYS = ["theme", "defaultModelId", "companion", "privacy"] as const;
 
-/** Opens (creating if needed) and migrates the NOVA database. Refuses a newer schema. */
+/**
+ * Assistant message `m` that may have been billed but has no usage record at all: interrupted
+ * (its run never settled), complete or stopped, or failed after text arrived (rows settled before
+ * the runtime recorded null-cost usage). Shared by the unknown-cost count and supersedeMessage.
+ */
+const BILLED_WITHOUT_USAGE_RECORD = `m.role = 'assistant'
+  AND (m.status IN ('complete', 'stopped', 'interrupted') OR (m.status = 'error' AND m.content <> ''))
+  AND NOT EXISTS (SELECT 1 FROM usage_records u WHERE u.message_id = m.id)`;
+
+/**
+ * Opens (creating if needed) and migrates the NOVA database. Refuses a newer schema
+ * (UnsupportedSchemaError) and a damaged file (see isCorruptDatabaseError).
+ */
 export function openNovaStore(path: string, options: NovaStoreOptions = {}): NovaStore {
   const location = path === MEMORY ? MEMORY : resolve(path);
   const db = new DatabaseSync(location);
   try {
-    db.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
-    // Migrate (and refuse a newer schema) before any other write to the file.
+    // secure_delete: deleted rows (key ciphertext, conversations) are zeroed on disk, not just
+    // unlinked; the UI promises they are erased from this device.
+    db.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA secure_delete = ON;");
+    // Check, then migrate (and refuse a newer schema), before any other write to the file.
+    assertIntact(db);
     migrate(db);
     if (location !== MEMORY) db.exec("PRAGMA journal_mode = WAL");
-    // SQLite LIKE/lower() only fold ASCII; search must be case-insensitive for "É" too.
+    // SQLite LIKE/lower() only fold ASCII; search must be case-insensitive for "É" too, and match
+    // decomposed (NFD) text typed or pasted in composed form. The needle uses the same folding.
     db.function("nova_casefold", { deterministic: true }, (value) =>
-      typeof value === "string" ? value.toLowerCase() : null,
+      typeof value === "string" ? casefold(value) : null,
     );
   } catch (error) {
     db.close();
     throw error;
   }
   return new SqliteNovaStore(db, location, options.now ?? Date.now);
+}
+
+function casefold(value: string): string {
+  return value.normalize("NFKC").toLowerCase();
 }
 
 function applySettingsPatch(settings: AppSettings, patch: SettingsPatch): AppSettings {
@@ -196,6 +248,15 @@ class SqliteNovaStore implements NovaStore {
 
   deleteSecret(id: string): void {
     this.db.prepare("DELETE FROM secrets WHERE id = ?").run(id);
+    this.purgeWal();
+  }
+
+  /**
+   * secure_delete zeroes the freed cells in the database pages, but earlier WAL frames still hold
+   * the old page images until a checkpoint: copy them back and truncate the WAL after an erase.
+   */
+  private purgeWal(): void {
+    if (this.path !== MEMORY) this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
   }
 
   // -------------------------------------------------------------------------
@@ -300,8 +361,9 @@ class SqliteNovaStore implements NovaStore {
    * `query` is matched literally (no wildcards) and case-insensitively, Unicode included,
    * against titles and message contents. Ties on `updatedAt` keep the newest insert first.
    */
-  listConversations(options: { query?: string; limit?: number } = {}): ConversationSummary[] {
+  listConversations(options: { query?: string; limit?: number } = {}): ConversationPage {
     const query = options.query?.trim() ?? "";
+    const limit = options.limit ?? DEFAULT_LIST_LIMIT;
     const rows = this.db
       .prepare(
         `SELECT c.*,
@@ -318,14 +380,18 @@ class SqliteNovaStore implements NovaStore {
          LIMIT :limit`,
       )
       .all({
-        needle: query === "" ? null : query.toLowerCase(),
-        limit: options.limit ?? DEFAULT_LIST_LIMIT,
+        needle: query === "" ? null : casefold(query),
+        // One extra row tells whether older conversations exist beyond the page.
+        limit: limit + 1,
       });
-    return rows.map((row) => ({
-      ...toConversation(row),
-      messageCount: readNumber(row, "message_count"),
-      preview: toPreview(readTextOrNull(row, "last_content")),
-    }));
+    return {
+      items: rows.slice(0, limit).map((row) => ({
+        ...toConversation(row),
+        messageCount: readNumber(row, "message_count"),
+        preview: toPreview(readTextOrNull(row, "last_content")),
+      })),
+      hasMore: rows.length > limit,
+    };
   }
 
   /** Renaming does not bump `updatedAt`: list order reflects conversation activity. */
@@ -342,6 +408,7 @@ class SqliteNovaStore implements NovaStore {
 
   deleteConversation(id: string): boolean {
     const result = this.db.prepare("DELETE FROM conversations WHERE id = ?").run(id);
+    this.purgeWal();
     return Number(result.changes) > 0;
   }
 
@@ -435,11 +502,36 @@ class SqliteNovaStore implements NovaStore {
       );
   }
 
+  supersedeMessage(id: string, usage: { providerId: ProviderId; modelId: string }): boolean {
+    return withTransaction(this.db, () => {
+      // The unknown cost of the replaced answer must outlive it (message_id becomes null).
+      this.db
+        .prepare(
+          `INSERT INTO usage_records
+             (id, conversation_id, message_id, provider_id, model_id, served_model, served_provider, created_at)
+           SELECT :recordId, m.conversation_id, m.id, :providerId, coalesce(m.model_id, :modelId),
+             m.served_model, m.served_provider, :now
+           FROM messages m WHERE m.id = :id AND ${BILLED_WITHOUT_USAGE_RECORD}`,
+        )
+        .run({ recordId: randomUUID(), providerId: usage.providerId, modelId: usage.modelId, now: this.now(), id });
+      return this.deleteMessage(id);
+    });
+  }
+
   /**
    * Sums every usage record of the conversation (unreported token counts and costs count as 0).
-   * `messagesWithUnknownCost` counts the assistant messages that may have been billed (complete,
-   * stopped or interrupted, or failed after text arrived) but have no usage record carrying a cost,
-   * so `cost` is then only a lower bound. A failure before any text (e.g. HTTP 402/429) is not billed.
+   * `messagesWithUnknownCost` counts the generations that may have been billed without a known
+   * cost, so `cost` is then only a lower bound. Each generation is counted once, by the first
+   * matching rule:
+   * 1. a usage record whose cost is null. The runtime writes one when a possibly billed generation
+   *    settles without a reported cost (complete, stopped, or failed after the provider started
+   *    answering), and `supersedeMessage` writes one for a retried answer that had none, so the
+   *    fact outlives the message (`message_id` becomes null);
+   * 2. an assistant message with no usage record at all whose status says it may have been
+   *    billed: `interrupted` (the app stopped mid-stream, the run never settled), `complete` or
+   *    `stopped`, or `error` with text (rows settled before rule 1 existed).
+   * A message with a usage record is only ever counted through rule 1. A failure before the
+   * provider started answering (e.g. HTTP 402/429) records nothing and is not billed.
    */
   conversationUsage(conversationId: string): UsageTotals {
     const totals = this.db
@@ -452,12 +544,12 @@ class SqliteNovaStore implements NovaStore {
       .get(conversationId);
     const unknown = this.db
       .prepare(
-        `SELECT count(*) AS n FROM messages m
-         WHERE m.conversation_id = ? AND m.role = 'assistant'
-           AND (m.status IN ('complete', 'stopped', 'interrupted') OR (m.status = 'error' AND m.content <> ''))
-           AND NOT EXISTS (SELECT 1 FROM usage_records u WHERE u.message_id = m.id AND u.cost IS NOT NULL)`,
+        `SELECT
+           (SELECT count(*) FROM usage_records u WHERE u.conversation_id = :id AND u.cost IS NULL)
+           + (SELECT count(*) FROM messages m
+              WHERE m.conversation_id = :id AND ${BILLED_WITHOUT_USAGE_RECORD}) AS n`,
       )
-      .get(conversationId);
+      .get({ id: conversationId });
     if (!totals || !unknown) throw new Error("Aggregate query returned no row");
     return {
       promptTokens: readNumber(totals, "prompt_tokens"),

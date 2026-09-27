@@ -2,10 +2,11 @@
 // The plaintext key never leaves this service except towards the provider (and the vault).
 import { randomUUID } from "node:crypto";
 import type { RuntimeLogger } from "@nova/agent-runtime";
-import { ProviderError, type ModelProvider } from "@nova/providers";
+import { ProviderError, providerErrorInfo, type ModelProvider } from "@nova/providers";
 import {
   keyHint,
   type KeyStorage,
+  type ProviderErrorInfo,
   type ProviderConnectionView,
   type SetKeyRequest,
   type VaultLevel,
@@ -13,7 +14,7 @@ import {
 import type { NovaStore, ProviderConnectionRecord } from "@nova/storage";
 import { describeError } from "../logger";
 import { ServiceError } from "../service-error";
-import { VaultError, type SecretVault } from "../vault";
+import { VaultError, type DecryptedSecret, type SecretVault } from "../vault";
 
 export interface ConnectionServiceDeps {
   store: NovaStore;
@@ -95,12 +96,26 @@ export class ConnectionService {
     });
   }
 
-  /** Re-checks the stored key: `valid`, `invalid` (rejected key) or `error` (check not completed). */
+  /**
+   * Re-checks the stored key: `valid`, `invalid` (rejected key) or `error` (check not completed).
+   * A stored key that cannot be decrypted is recorded as `error`, then refused as `key_unreadable`.
+   */
   test(): Promise<ProviderConnectionView> {
     return this.serialize(async () => {
       const { store, provider } = this.deps;
       const record = store.getConnection(provider.id);
-      const apiKey = record ? await this.resolveApiKey() : null;
+      let apiKey: string | null = null;
+      try {
+        apiKey = record ? await this.resolveApiKey() : null;
+      } catch (error) {
+        if (record && error instanceof ServiceError && error.code === "key_unreadable") {
+          // The card must stop claiming a verified key that can no longer be read.
+          const lastError = providerErrorInfo("key_unreadable");
+          store.upsertConnection({ ...record, state: "error", check: null, lastError, updatedAt: this.now() });
+          this.logger.warn("provider key unreadable", { providerId: provider.id });
+        }
+        throw error;
+      }
       if (!record || !apiKey) throw new ServiceError("no_key", "No key configured for this provider");
       let verification: Verification;
       try {
@@ -130,7 +145,33 @@ export class ConnectionService {
     });
   }
 
-  /** Plaintext key for provider calls, from session memory or the vault; null when none is set. */
+  /**
+   * Records a fact observed while chatting: the provider rejected the key (`invalid_key`). Ignored
+   * when the key has changed since that request was sent, or for any other error.
+   */
+  recordChatFailure(apiKey: string, error: ProviderErrorInfo): Promise<void> {
+    if (error.code !== "invalid_key") return Promise.resolve();
+    return this.serialize(async () => {
+      const { store, provider } = this.deps;
+      const record = store.getConnection(provider.id);
+      const current = record ? await this.resolveApiKey().catch(() => null) : null;
+      if (!record || current !== apiKey) return;
+      store.upsertConnection({
+        ...record,
+        state: "invalid",
+        check: null,
+        lastError: error,
+        lastCheckedAt: this.now(),
+        updatedAt: this.now(),
+      });
+      this.logger.info("provider key rejected while chatting", { providerId: provider.id });
+    });
+  }
+
+  /**
+   * Plaintext key for provider calls, from session memory or the vault; null when none is set.
+   * Throws `key_unreadable` when a stored key exists but the vault cannot decrypt it.
+   */
   async resolveApiKey(): Promise<string | null> {
     const { store, vault, provider } = this.deps;
     const record = store.getConnection(provider.id);
@@ -138,7 +179,14 @@ export class ConnectionService {
     if (record.storage === "session") return this.sessionKeys.get(provider.id) ?? null;
     const secret = record.secretRef ? store.getSecret(record.secretRef) : null;
     if (!secret) return null;
-    const { plain, shouldReEncrypt } = await vault.decrypt(secret.ciphertext);
+    let decrypted: DecryptedSecret;
+    try {
+      decrypted = await vault.decrypt(secret.ciphertext);
+    } catch (error) {
+      if (!(error instanceof VaultError)) throw error;
+      throw new ServiceError("key_unreadable", "Stored key cannot be decrypted");
+    }
+    const { plain, shouldReEncrypt } = decrypted;
     if (shouldReEncrypt) await this.reEncrypt(record.storage, secret.id, plain);
     return plain;
   }

@@ -34,6 +34,22 @@ describe("mapHttpError", () => {
     expect(mapHttpError(429, body(429, "Rate limited"), date, NOW).retryAfterSec).toBe(90);
   });
 
+  it("maps the in-flight budget 402 to a rate limit with its Retry-After, not to missing credits", () => {
+    const inFlight = body(402, "Too many concurrent requests", { limit_source: "openrouter_in_flight_budget" });
+    expect(mapHttpError(402, inFlight, new Headers({ "Retry-After": "4" }), NOW)).toMatchObject({
+      code: "rate_limited",
+      httpStatus: 402,
+      retryAfterSec: 4,
+      retryable: true,
+    });
+    expect(mapHttpError(402, inFlight, new Headers(), NOW)).toMatchObject({ code: "rate_limited", retryAfterSec: null });
+    const withHeader = mapHttpError(402, body(402, "Wait"), new Headers({ "Retry-After": "2" }), NOW);
+    expect(withHeader).toMatchObject({ code: "rate_limited", retryAfterSec: 2 });
+    const creditsBody = body(402, "Insufficient credits", { limit_source: "account" });
+    const credits = mapHttpError(402, creditsBody, new Headers(), NOW);
+    expect(credits).toMatchObject({ code: "insufficient_credits", retryable: false });
+  });
+
   it("includes moderation reasons from a 403", () => {
     const info = mapHttpError(
       403,

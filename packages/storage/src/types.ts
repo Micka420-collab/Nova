@@ -2,7 +2,7 @@
 import type {
   AppSettings,
   Conversation,
-  ConversationSummary,
+  ConversationPage,
   KeyCheckResult,
   KeyStorage,
   Message,
@@ -75,6 +75,7 @@ export interface NovaStore {
 
   putSecret(record: SecretRecord): void;
   getSecret(id: string): SecretRecord | null;
+  /** Deletes a secret and overwrites its bytes on disk (secure_delete + WAL checkpoint). */
   deleteSecret(id: string): void;
 
   getConnection(providerId: ProviderId): ProviderConnectionRecord | null;
@@ -86,12 +87,18 @@ export interface NovaStore {
 
   createConversation(input: { title: string; modelId: string | null }): Conversation;
   getConversation(id: string): Conversation | null;
-  /** Most recently updated first. `query` matches titles and message contents (case-insensitive). */
-  listConversations(options?: { query?: string; limit?: number }): ConversationSummary[];
+  /**
+   * Most recently updated first, at most `limit` (default 200) with `hasMore` when older ones
+   * exist. `query` matches titles and message contents (case-insensitive, Unicode-normalized).
+   */
+  listConversations(options?: { query?: string; limit?: number }): ConversationPage;
   renameConversation(id: string, title: string): Conversation | null;
   /** Sets `modelId` and bumps `updatedAt`. */
   touchConversation(id: string, modelId: string | null): void;
-  /** Deletes the conversation with its messages and usage records. Returns false if absent. */
+  /**
+   * Deletes the conversation with its messages and usage records, overwriting the freed bytes
+   * (secure_delete + WAL checkpoint). Returns false if absent.
+   */
   deleteConversation(id: string): boolean;
 
   insertMessage(input: NewMessage): Message;
@@ -100,8 +107,16 @@ export interface NovaStore {
   /** Chronological order. */
   listMessages(conversationId: string): Message[];
   deleteMessage(id: string): boolean;
+  /**
+   * Deletes an answer replaced by a retry. When it may have been billed and has no usage record
+   * (e.g. interrupted), first records a null-cost usage record for it so the unknown cost stays
+   * counted. `usage.modelId` is used only if the message has none. Returns false if absent.
+   */
+  supersedeMessage(id: string, usage: { providerId: ProviderId; modelId: string }): boolean;
 
+  /** `usage.cost` null records a possibly billed generation whose cost is unknown. */
   recordUsage(input: UsageRecordInput): void;
+
   conversationUsage(conversationId: string): UsageTotals;
 
   /**

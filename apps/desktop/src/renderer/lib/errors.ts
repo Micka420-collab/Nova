@@ -1,6 +1,12 @@
 // Turns IPC/provider failures into the French copy shown to the user. Never exposes raw exceptions.
-import { NovaIpcError, redactSecrets, type IpcErrorCode, type ProviderErrorInfo } from "@nova/shared";
-import { IPC_ERROR_COPY, PROVIDER_ERROR_COPY, rateLimitedTitle, type ErrorCopy } from "../copy/fr";
+import {
+  NovaIpcError,
+  redactSecrets,
+  type AppSettings,
+  type IpcErrorCode,
+  type ProviderErrorInfo,
+} from "@nova/shared";
+import { IPC_ERROR_ACTIONS, IPC_ERROR_COPY, PROVIDER_ERROR_COPY, rateLimitedTitle, type ErrorCopy } from "../copy/fr";
 
 export interface UiError {
   code: IpcErrorCode;
@@ -24,7 +30,21 @@ export function describeProviderError(info: ProviderErrorInfo): ErrorCopy {
 
 export function describeUiError(error: UiError): ErrorCopy {
   if (error.providerError) return describeProviderError(error.providerError);
-  return { title: IPC_ERROR_COPY[error.code], detail: "", action: null };
+  return { title: IPC_ERROR_COPY[error.code], detail: "", action: IPC_ERROR_ACTIONS[error.code] ?? null };
+}
+
+const DATA_POLICY_PATTERN = /data[\s_-]*(policy|collection|retention)|privacy/i;
+
+/**
+ * `no_provider` usually means a transient outage. The data policy is only mentioned when the
+ * provider says so, or as a secondary hint when the user refuses data retention.
+ */
+export function mentionsDataPolicy(
+  info: ProviderErrorInfo,
+  dataCollection: AppSettings["privacy"]["providerDataCollection"] | null,
+): boolean {
+  if (info.code !== "no_provider") return false;
+  return dataCollection === "deny" || DATA_POLICY_PATTERN.test(info.providerMessage ?? "");
 }
 
 /** Title and optional description, ready for a toast. */

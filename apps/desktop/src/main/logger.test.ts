@@ -35,6 +35,20 @@ describe("createFileLogger", () => {
     expect(raw).toContain("boom [secret masqué]");
   });
 
+  it("redacts keys that follow a newline or a tab", () => {
+    const dir = tempDir();
+    const logger = createFileLogger({ dir });
+    const key = "sk-or-v1-0123456789abcdef0123456789abcdef";
+    logger.error(`upstream said\n${key}`, {
+      error: new Error(`line one\n${key}\n\tat somewhere`),
+      detail: `tab\t${key}`,
+      header: `proxy:\nAuthorization: Bearer ${key}`,
+    });
+    const raw = readFileSync(logger.file, "utf8");
+    expect(raw).not.toContain("0123456789abcdef");
+    expect(raw).toContain("[secret masqué]");
+  });
+
   it("rotates by size and keeps a bounded number of files", () => {
     const dir = tempDir();
     const logger = createFileLogger({ dir, maxBytes: 200, maxFiles: 3 });

@@ -19,6 +19,8 @@ const scramble = (bytes: Uint8Array): Uint8Array => bytes.map((byte) => byte ^ 0
 
 class FakeVault implements SecretVault {
   shouldReEncrypt = false;
+  /** Simulates a locked or reset keyring. */
+  unreadable = false;
   readonly encryptCalls: { allowWeak: boolean }[] = [];
   constructor(
     public level: VaultLevel,
@@ -38,6 +40,7 @@ class FakeVault implements SecretVault {
   }
 
   async decrypt(cipher: Uint8Array) {
+    if (this.unreadable) throw new VaultError("Secret decryption failed");
     return { plain: new TextDecoder().decode(scramble(cipher)), shouldReEncrypt: this.shouldReEncrypt };
   }
 }
@@ -236,6 +239,27 @@ describe("ConnectionService key lifetime", () => {
   });
 });
 
+describe("ConnectionService.recordChatFailure", () => {
+  it("marks the connection invalid when a chat was refused with the current key", async () => {
+    const { service } = setup("os");
+    await service.setKey({ apiKey: KEY, storage: "vault" });
+    const refused = providerErrorInfo("invalid_key", { httpStatus: 401, providerMessage: "User not found." });
+
+    await service.recordChatFailure(KEY, providerErrorInfo("rate_limited", { httpStatus: 429 }));
+    expect(service.get().state).toBe("valid");
+    await service.recordChatFailure(KEY, refused);
+    expect(service.get()).toMatchObject({ state: "invalid", check: null, lastError: refused, keyHint: "aaaa" });
+  });
+
+  it("ignores a refusal of a key that has been replaced since", async () => {
+    const { service } = setup("os");
+    await service.setKey({ apiKey: KEY, storage: "vault" });
+    await service.setKey({ apiKey: OTHER_KEY, storage: "session" });
+    await service.recordChatFailure(KEY, providerErrorInfo("invalid_key", { httpStatus: 401 }));
+    expect(service.get()).toMatchObject({ state: "valid", keyHint: "bbbb" });
+  });
+});
+
 describe("ConnectionService.test", () => {
   it("reports valid, invalid and error outcomes of a re-check", async () => {
     const { service, provider } = setup("os");
@@ -250,6 +274,26 @@ describe("ConnectionService.test", () => {
     provider.outcome = CHECK;
     await expect(service.test()).resolves.toMatchObject({ state: "valid", check: CHECK, lastError: null });
     expect(provider.checked).toEqual([KEY, KEY, KEY, KEY]);
+  });
+
+  it("records an undecryptable key as an error and refuses with key_unreadable", async () => {
+    const { service, vault } = setup("os");
+    await service.setKey({ apiKey: KEY, storage: "vault" });
+    vault.unreadable = true;
+
+    await expect(service.resolveApiKey()).rejects.toEqual(
+      new ServiceError("key_unreadable", "Stored key cannot be decrypted"),
+    );
+    await expect(service.test()).rejects.toMatchObject({ name: "ServiceError", code: "key_unreadable" });
+    expect(service.get()).toMatchObject({
+      state: "error",
+      check: null,
+      keyHint: "aaaa",
+      lastError: { code: "key_unreadable" },
+    });
+
+    vault.unreadable = false;
+    await expect(service.test()).resolves.toMatchObject({ state: "valid", lastError: null });
   });
 
   it("refuses to test without a key", async () => {

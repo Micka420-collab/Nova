@@ -5,13 +5,21 @@ import { BrowserWindow, app, dialog, net, safeStorage, session, shell } from "el
 import { ChatRunner } from "@nova/agent-runtime";
 import { OpenRouterProvider } from "@nova/providers";
 import { IPC_CHANNELS, type ChatStreamEvent } from "@nova/shared";
-import { UnsupportedSchemaError, openNovaStore, type NovaStore } from "@nova/storage";
+import { openNovaStore, type NovaStore } from "@nova/storage";
 import { createMainApi } from "./api";
 import { registerIpcRoutes } from "./ipc";
 import { buildIpcRoutes } from "./ipc-routes";
 import { createFileLogger, describeError, type Logger } from "./logger";
 import { handleAppProtocol, registerAppScheme } from "./protocol";
 import { hardenSession, hardenWebContents, isTrustedSender, type SecurityContext } from "./security";
+import {
+  CORRUPT_DATABASE_CHOICES,
+  QUIT_CHOICE,
+  RESET_CHOICE,
+  classifyStoreOpenFailure,
+  corruptDatabaseMessage,
+  quarantineDatabase,
+} from "./store-recovery";
 import { APP_ENTRY_URL, resolveLaunchOverrides } from "./security-policy";
 import { createAppService } from "./services/app-service";
 import { CatalogService } from "./services/catalog-service";
@@ -83,23 +91,52 @@ function forwardChatEvent(event: ChatStreamEvent): void {
   }
 }
 
+/** Opens the store; on failure explains it and, for a damaged file, offers to set it aside. */
 function openStore(dataDir: string, logger: Logger): NovaStore | null {
+  const databasePath = join(dataDir, "nova.sqlite");
   try {
     mkdirSync(dataDir, { recursive: true });
-    return openNovaStore(join(dataDir, "nova.sqlite"));
+    return openNovaStore(databasePath);
   } catch (error) {
     logger.error("store open failed", { error: describeError(error) });
-    if (error instanceof UnsupportedSchemaError) {
+    const failure = classifyStoreOpenFailure(error);
+    if (failure === "newer_schema") {
       dialog.showErrorBox(
         "Mise à jour de NOVA nécessaire",
         "Vos données ont été enregistrées par une version plus récente de NOVA. Installez la dernière version pour les ouvrir. Elles n'ont pas été modifiées.",
       );
-    } else {
-      dialog.showErrorBox(
-        "NOVA ne peut pas démarrer",
-        `La base de données locale n'a pas pu être ouverte. Détails dans le journal : ${logger.file}`,
-      );
+      return null;
     }
+    if (failure === "corrupt") return recoverCorruptStore(databasePath, logger);
+    dialog.showErrorBox(
+      "NOVA ne peut pas démarrer",
+      `La base de données locale (${databasePath}) n'a pas pu être ouverte. Détails dans le journal : ${logger.file}`,
+    );
+    return null;
+  }
+}
+
+/** Nothing is renamed without the user's explicit choice; a second failure is reported, not retried. */
+function recoverCorruptStore(databasePath: string, logger: Logger): NovaStore | null {
+  const choice = dialog.showMessageBoxSync({
+    type: "error",
+    ...corruptDatabaseMessage(databasePath),
+    buttons: [...CORRUPT_DATABASE_CHOICES],
+    defaultId: QUIT_CHOICE,
+    cancelId: QUIT_CHOICE,
+    noLink: true,
+  });
+  if (choice !== RESET_CHOICE) return null;
+  try {
+    const moved = quarantineDatabase(databasePath, new Date());
+    logger.warn("damaged database set aside", { files: moved });
+    return openNovaStore(databasePath);
+  } catch (error) {
+    logger.error("store reset failed", { error: describeError(error) });
+    dialog.showErrorBox(
+      "NOVA ne peut pas démarrer",
+      `La base de données (${databasePath}) n'a pas pu être remplacée. Détails dans le journal : ${logger.file}`,
+    );
     return null;
   }
 }
@@ -133,6 +170,8 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
     getSettings: () => store.getSettings(),
     emit: chatEvents.emit,
     logger,
+    // A key refused mid-chat becomes the connection's recorded state (Nomi, composer, Home read it).
+    onProviderError: (error, apiKey) => connections.recordChatFailure(apiKey, error),
   });
   const api = createMainApi({
     store,

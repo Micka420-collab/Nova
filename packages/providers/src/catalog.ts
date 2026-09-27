@@ -2,8 +2,11 @@
 import type { ModelInfo, ModelPricing } from "@nova/shared";
 import { asFiniteNumber, asRecord, asString, asStringArray } from "./coerce";
 
-/** `author/model[:variant]`; the author prefix is required. */
-const MODEL_ID = /^([^/\s]+)\/\S+$/;
+/**
+ * `author/model[:variant]`; the author prefix is required. Alias ids (`~author/model-latest`)
+ * keep their id for requests, but their author is the plain organisation.
+ */
+const MODEL_ID = /^~?([^/\s~][^/\s]*)\/\S+$/;
 
 /** OpenRouter's marker for variable pricing (routers). */
 const VARIABLE_PRICE = -1;

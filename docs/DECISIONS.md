@@ -16,6 +16,7 @@ Format : contexte → décision → alternatives considérées → conséquences
 | [ADR-008](#adr-008--raisonnement-des-modèles--signalé-jamais-conservé) | Raisonnement des modèles : signalé, jamais conservé | Acceptée | 2026-09-27 |
 | [ADR-009](#adr-009--chaîne-dapprovisionnement) | Chaîne d'approvisionnement | Acceptée | 2026-09-27 |
 | [ADR-010](#adr-010--polices-et-icônes-embarquées) | Polices et icônes embarquées | Acceptée | 2026-09-27 |
+| [ADR-011](#adr-011--fins-de-génération-sans-succès-coût-inconnu-relance) | Fins de génération sans succès, coût inconnu, relance | Acceptée, implémentée | 2026-09-27 |
 
 ---
 
@@ -105,7 +106,8 @@ Format : contexte → décision → alternatives considérées → conséquences
 
 - Sous Linux sans trousseau, l'utilisateur ressaisit sa clé à chaque session, sauf consentement au coffre faible.
 - Le texte chiffré dépend du compte et de la machine : il n'est pas transférable.
-- La CI Linux exécute les E2E avec un trousseau gnome-keyring privé et déverrouillé (`apps/desktop/e2e/run-with-keyring.sh`) pour couvrir le niveau `os`.
+- Tests du niveau `os` sous Linux : le chargeur Electron de Playwright force `--password-store=basic`, donc les E2E Playwright n'exercent sous Linux que le coffre faible ou la clé de session. Le niveau `os` est vérifié par `apps/desktop/e2e/vault-smoke.mjs`, qui lance l'application réelle hors Playwright : avec le trousseau gnome-keyring privé et déverrouillé (`dbus-run-session -- bash e2e/run-with-keyring.sh …`), il constate le niveau `os` (backend `gnome_libsecret`) ; sans trousseau, le niveau `weak` (`basic_text`). La CI lance les deux cas sous Linux et `--expect os` sous Windows et macOS.
+- Non couvert à ce jour : chiffrement au coffre `os`, redémarrage et relecture de la clé sous Linux, de bout en bout (aucun test versionné).
 
 ## ADR-005 — Renderer isolé, protocole `nova://`, IPC validé
 
@@ -118,9 +120,9 @@ Format : contexte → décision → alternatives considérées → conséquences
 - `contextIsolation`, `sandbox`, pas de `nodeIntegration`. Le preload expose une API fixe (`window.novaBridge`, type `NovaBridge`) et rien d'autre.
 - Protocole privilégié `nova://` qui sert uniquement les fichiers construits du renderer, avec une CSP stricte. Pas de `file://`.
 - IPC typé : chaque requête est validée par un schéma zod dans le main (`packages/shared/src/ipc.ts`) et l'origine de l'émetteur est vérifiée. Le main renvoie toujours une enveloppe `IpcResult` (jamais d'exception brute).
-- Demandes de permission du navigateur (micro, caméra, notifications…) refusées par défaut.
+- Demandes de permission du navigateur (micro, caméra, notifications, lecture du presse-papiers…) refusées. Seule exception : `clipboard-sanitized-write` (écriture de texte dans le presse-papiers), accordée uniquement à l'origine de l'application (`nova://app`, ou le serveur de développement en `pnpm dev`), pour les boutons « Copier » ; sans elle, `navigator.clipboard.writeText` échoue sous Electron 44 (`apps/desktop/src/main/security.ts`).
 - Navigation verrouillée, ouverture de fenêtres refusée. Liens externes : `https` uniquement, domaines en liste d'autorisation, ouverts dans le navigateur du système.
-- Fuses Electron configurés à la mise en paquet (désactivation de `RunAsNode` et des options d'inspection Node, intégrité de l'archive).
+- Fuses Electron configurés à la mise en paquet (désactivation de `RunAsNode` et des options d'inspection Node, chargement depuis l'archive uniquement, intégrité de l'archive). L'intégrité de l'archive n'est appliquée par Electron que sous macOS et Windows : sous Linux, une archive `app.asar` modifiée n'est pas détectée (limite connue, suivie dans `STATUS.md`).
 
 **Alternatives considérées.** `file://` (origine large partagée par tous les fichiers locaux) ; serveur HTTP local (port accessible aux autres processus de la machine) ; interface chargée depuis un site distant (dépendance réseau, surface d'attaque).
 
@@ -214,6 +216,22 @@ Format : contexte → décision → alternatives considérées → conséquences
 
 **Conséquences.** Les avis de licence (OFL, ISC) doivent accompagner l'application distribuée — à vérifier dans le paquet avant toute distribution.
 
+## ADR-011 — Fins de génération sans succès, coût inconnu, relance
+
+- **Date** : 2026-09-27 · **Statut** : acceptée ; implémentée et testée (correctifs de revue)
+
+**Contexte.** Un flux OpenRouter peut se terminer « normalement » sans donner une réponse complète : limite de jetons de sortie atteinte, filtre de contenu du fournisseur, ou aucun texte. Le coût d'une génération peut aussi manquer. Enfin, une relance qui efface la réponse précédente avant d'obtenir la nouvelle laisse l'utilisateur sans rien si elle échoue.
+
+**Décision.**
+
+- Trois codes d'erreur fournisseur s'ajoutent (`ProviderErrorCode`) : `truncated` (fin sur `finish_reason: "length"`, texte partiel conservé), `filtered` (fin sur `finish_reason: "content_filter"`), `empty_response` (flux terminé sans texte de réponse). Ces fins ne sont jamais présentées comme une réponse complète.
+- Coût inconnu : l'usage est quand même enregistré dans `usage_records`, avec `cost` à `NULL`. Les jetons restent comptés ; le total de coût est présenté comme une borne basse (« au moins »).
+- Relance : la réponse précédente reste affichée et stockée jusqu'à ce que la nouvelle commence ; un échec avant ce point ne fait rien perdre.
+
+**Alternatives considérées.** Traiter ces fins comme un succès (fausse réussite affichée) ; ignorer les générations sans coût (jetons facturés invisibles) ; supprimer la réponse dès la relance (perte en cas d'échec).
+
+**Conséquences.** Chaque nouveau code a son message dans la microcopie du renderer ; les totaux d'usage comptent à part les générations au coût inconnu (`messagesWithUnknownCost`).
+
 ---
 
 ## Dépendances et justification
@@ -235,6 +253,7 @@ Dépendances déclarées au 2026-09-27 (voir les `package.json`).
 | `@fontsource-variable/manrope`, `@fontsource-variable/jetbrains-mono` | ui | Polices embarquées (OFL 1.1). |
 | `vitest`, `jsdom`, `@testing-library/react` | racine, desktop, ui | Tests unitaires et de composants. |
 | `@playwright/test` | desktop | E2E de l'application Electron construite. |
+| `@axe-core/playwright` | desktop (développement) | Audit d'accessibilité automatisé dans les E2E (scénario 15 : aucune violation grave ou critique). Licence MPL-2.0 ; dépendance de test uniquement, absente de l'application distribuée. |
 | `oxlint`, `typescript`, `@types/node`, `@types/react`, `@types/react-dom` | racine, desktop, ui | Lint et vérification de types. |
 | `@resvg/resvg-js` | racine | Rendu des icônes SVG en PNG (`pnpm icons`). |
 
