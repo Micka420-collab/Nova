@@ -1,0 +1,123 @@
+/* Styles of the atelier settings sections (Budget, Permissions, Internet, Audit). Tokens only (--nv-*). */
+
+.nova-aset {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nv-space-4);
+}
+
+.nova-aset-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nv-space-2);
+}
+
+.nova-aset-loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nv-space-2);
+}
+
+.nova-aset-empty {
+  margin: 0;
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-aset-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-md);
+}
+
+.nova-aset-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--nv-text-sm);
+}
+
+.nova-aset-table th,
+.nova-aset-table td {
+  padding: var(--nv-space-2) var(--nv-space-3);
+  border-bottom: 1px solid var(--nv-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.nova-aset-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.nova-aset-table th {
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-xs);
+  font-weight: 560;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.nova-aset-table tr[data-status="denied"] td {
+  color: var(--nv-text-secondary);
+}
+
+.nova-aset-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.nova-aset-target {
+  overflow-wrap: anywhere;
+}
+
+.nova-aset-select {
+  min-height: var(--nv-control-md);
+}
+
+.nova-aset-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--nv-space-3);
+  align-items: end;
+}
+
+.nova-aset-presets {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nv-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nova-aset-presets li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-2);
+}
+
+.nova-aset-rules {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nv-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nova-aset-rule {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: start;
+  gap: var(--nv-space-2);
+}
+
+.nova-aset-tag {
+  align-self: center;
+  padding: 0 var(--nv-space-2);
+  border-radius: var(--nv-radius-pill);
+  background: var(--nv-raised);
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-xs);
+}

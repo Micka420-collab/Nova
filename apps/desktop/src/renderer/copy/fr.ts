@@ -1,5 +1,9 @@
 // Every user-facing string of the renderer (French). Code and comments stay in English.
 import type { ConnectionState, IpcErrorCode, KeyStorage, ProviderErrorCode, VaultLevel } from "@nova/shared";
+import { atelierCopy } from "./fr-atelier";
+import { diffCopy } from "./fr-diff";
+import { extensionsCopy } from "./fr-extensions";
+import { atelierSettingsCopy } from "./fr-settings-atelier";
 
 export interface ErrorCopy {
   title: string;
@@ -472,6 +476,10 @@ export const fr = {
     sections: {
       providers: "Fournisseurs",
       models: "Modèles",
+      budget: "Budget",
+      permissions: "Permissions",
+      internet: "Internet",
+      audit: "Journal d'audit",
       privacy: "Confidentialité",
       appearance: "Apparence",
       companion: "Compagnon",
@@ -559,4 +567,9 @@ export const fr = {
     skipToContent: "Aller au contenu",
     mainLabel: "Contenu",
   },
+  // J2-A atelier surfaces; each block lives in its own module so lanes do not collide.
+  atelier: atelierCopy,
+  diff: diffCopy,
+  extensions: extensionsCopy,
+  atelierSettings: atelierSettingsCopy,
 } as const;

@@ -84,7 +84,7 @@ function unavailableAtelierBridge(record: (name: string) => void): Pick<NovaBrid
   };
 }
 
-type AtelierGroup =
+export type AtelierGroup =
   | "workspace"
   | "files"
   | "search"
@@ -176,6 +176,38 @@ export interface FakeSeed {
   hasMoreConversations?: boolean;
   /** Connection returned by `connection.setKey` (default: verified). */
   setKeyResult?: ProviderConnectionView;
+  /**
+   * In-memory implementations of J2-A groups (see `test/atelier-fake.ts`); methods left out keep
+   * answering `unavailable`, like main before a group is wired.
+   */
+  atelier?: AtelierOverrides;
+}
+
+export type AtelierOverrides = { [G in AtelierGroup]?: Partial<NovaBridge[G]> };
+
+function withAtelier(
+  base: Pick<NovaBridge, AtelierGroup>,
+  overrides: AtelierOverrides | undefined,
+  record: (name: string) => void,
+): Pick<NovaBridge, AtelierGroup> {
+  if (!overrides) return base;
+  const merged: Record<string, unknown> = { ...base };
+  for (const group of Object.keys(overrides) as AtelierGroup[]) {
+    const methods = overrides[group] ?? {};
+    const wrapped: Record<string, unknown> = {};
+    for (const [name, method] of Object.entries(methods)) {
+      // Calls are recorded like the J1 groups; `onEvent` subscriptions are not calls.
+      wrapped[name] =
+        typeof method === "function" && name !== "onEvent"
+          ? (...args: unknown[]) => {
+              record(`${group}.${name}`);
+              return (method as (...a: unknown[]) => unknown)(...args);
+            }
+          : method;
+    }
+    merged[group] = { ...base[group], ...wrapped };
+  }
+  return merged as Pick<NovaBridge, AtelierGroup>;
 }
 
 export interface FakeBridge {
@@ -227,7 +259,11 @@ export function createFakeBridge(seed: FakeSeed = {}): FakeBridge {
   }
 
   const bridge: NovaBridge = {
-    ...unavailableAtelierBridge((name) => calls.push(name)),
+    ...withAtelier(
+      unavailableAtelierBridge((name) => calls.push(name)),
+      seed.atelier,
+      (name) => calls.push(name),
+    ),
     app: {
       info: () =>
         reply("app.info", () => ({

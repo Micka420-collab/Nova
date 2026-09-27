@@ -1,0 +1,113 @@
+/* Settings layout and J1 sections. */
+
+/* Settings */
+
+.nova-settings {
+  padding: var(--nv-space-6) var(--nv-space-5);
+}
+
+.nova-settings__title {
+  margin-bottom: var(--nv-space-5);
+  font-size: var(--nv-text-2xl);
+}
+
+.nova-settings__layout {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: var(--nv-space-6);
+  max-width: 1040px;
+}
+
+.nova-settings__nav ul {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nova-settings__tab {
+  width: 100%;
+  min-height: var(--nv-control-md);
+  padding: 0 var(--nv-space-3);
+  border: 0;
+  border-radius: var(--nv-radius-sm);
+  background: transparent;
+  color: var(--nv-text-secondary);
+  font-weight: var(--nv-weight-medium);
+  text-align: left;
+}
+
+.nova-settings__tab:hover,
+.nova-settings__tab[aria-current="page"] {
+  background: var(--nv-raised-hover);
+  color: var(--nv-text);
+}
+
+.nova-settings__content {
+  display: grid;
+  align-content: start;
+  gap: var(--nv-space-4);
+  min-width: 0;
+}
+
+.nova-settings__content > .nv-button {
+  justify-self: start;
+}
+
+.nova-settings__section-title {
+  font-size: var(--nv-text-xl);
+}
+
+.nova-setting {
+  display: grid;
+  justify-items: start;
+  gap: var(--nv-space-2);
+}
+
+.nova-shortcuts {
+  display: grid;
+  gap: var(--nv-space-2);
+  margin: 0;
+}
+
+.nova-shortcuts__row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--nv-space-4);
+  padding-bottom: var(--nv-space-2);
+  border-bottom: 1px solid var(--nv-border);
+}
+
+.nova-shortcuts__row dd {
+  display: flex;
+  gap: var(--nv-space-1);
+  margin: 0;
+}
+
+.nova-gallery {
+  overflow-x: auto;
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-lg);
+}
+
+@media (max-width: 899px) {
+  .nova-settings__layout {
+    grid-template-columns: 1fr;
+    gap: var(--nv-space-4);
+  }
+
+  .nova-settings__nav ul {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .nova-settings__tab {
+    width: auto;
+  }
+
+  .nova-home,
+  .nova-onboarding {
+    padding-top: var(--nv-space-5);
+  }
+}

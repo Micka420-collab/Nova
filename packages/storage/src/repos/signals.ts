@@ -41,6 +41,13 @@ export interface SignalRepo {
   insert(input: NewSignal): SignalRecord;
   /** Signals in state `new`, oldest first. */
   listNew(): SignalRecord[];
+  get(id: string): SignalRecord | null;
+  /** Most recent first, all states; `workspaceId` null = every workspace. */
+  listRecent(limit: number, workspaceId?: string | null): SignalRecord[];
+  /** Existing signal of the same kind for the same source (dedup of one recorded fact). */
+  findBySource(kind: SignalKindValue, sourceRef: string): SignalRecord | null;
+  /** Returns false when the signal does not exist. */
+  setState(id: string, state: SignalStateValue): boolean;
 }
 
 function toSignal(row: Row): SignalRecord {
@@ -83,6 +90,33 @@ export function createSignalRepo(db: DatabaseSync, now: () => number = Date.now)
         .prepare("SELECT * FROM signals WHERE state = 'new' ORDER BY created_at, rowid")
         .all()
         .map(toSignal);
+    },
+
+    get(id) {
+      const row = db.prepare("SELECT * FROM signals WHERE id = ?").get(id);
+      return row ? toSignal(row) : null;
+    },
+
+    listRecent(limit, workspaceId = null) {
+      const bounded = Math.max(1, Math.min(500, Math.trunc(limit)));
+      const rows =
+        workspaceId === null
+          ? db.prepare("SELECT * FROM signals ORDER BY created_at DESC, rowid DESC LIMIT ?").all(bounded)
+          : db
+              .prepare("SELECT * FROM signals WHERE workspace_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?")
+              .all(workspaceId, bounded);
+      return rows.map(toSignal);
+    },
+
+    findBySource(kind, sourceRef) {
+      const row = db
+        .prepare("SELECT * FROM signals WHERE kind = ? AND source_ref = ? ORDER BY created_at DESC, rowid DESC LIMIT 1")
+        .get(kind, sourceRef);
+      return row ? toSignal(row) : null;
+    },
+
+    setState(id, state) {
+      return db.prepare("UPDATE signals SET state = ? WHERE id = ?").run(state, id).changes > 0;
     },
   };
 }

@@ -1,57 +1,76 @@
-// @nova/workspace — confined filesystem, project facts and checkpoints (E1/E2/E4, A2, A10).
-// Runs in the fs-worker (watcher, ripgrep, reads/writes) with main owning the workspace registry.
+// @nova/workspace — confined filesystem, ignore/exclusion rules, watcher, search, quick-open index,
+// project facts, checkpoints, git and C8 secret scanning (E1/E2/E4/E10, A2/A5/A10/A11, C8).
+// Pure Node (no Electron): used by the fs-worker (watcher, search, lists, reads, user writes) and by
+// main (checkpoints, git, agent file tools).
 //
-// Contract for the feature implementation:
-// - Confinement (S2): every relative path is resolved against the root with realpath; the result
-//   must stay inside the root; symlinks leaving it are listed (`outsideWorkspace`) but never followed.
-// - Versions: content hash = SHA-256 hex of the bytes on disk; writes require the expected hash
-//   (null = must not exist) and never overwrite on mismatch (FileWriteResult `conflict`).
-// - Ignore rules: .gitignore + .novaignore via `ignore`; watcher: chokidar, debounced batches
-//   (FilesEvent), overflow when a batch is too large.
-// - Checkpoints: before a tool write, the previous bytes are stored content-addressed in
-//   dataDir/checkpoints/objects/<sha256> and a checkpoint_files row is recorded; restore compares the
-//   current hash with afterHash (equal → restore, different → conflict, nothing written).
-// - Facts: marker files only (package.json scripts, lockfiles, pyproject.toml, Cargo.toml, go.mod,
-//   index.html); unknown stays null.
-import type {
-  Checkpoint,
-  CheckpointReason,
-  ContentHash,
-  FileContent,
-  FileEntry,
-  FileWriteResult,
-  RelativePath,
-  RestoreFileResult,
-  SearchQuery,
-  SearchResult,
-  WorkspaceFacts,
-} from "@nova/shared";
-
-export interface ConfinedFs {
-  readonly root: string;
-  /** Absolute path of a canonical relative path, or null when it escapes the root. */
-  resolve(path: RelativePath): Promise<string | null>;
-  list(path: RelativePath): Promise<FileEntry[]>;
-  read(path: RelativePath): Promise<FileContent>;
-  write(path: RelativePath, content: string, expectedHash: ContentHash | null): Promise<FileWriteResult>;
-}
-
-export interface FactsDetector {
-  detect(root: string, workspaceId: string): Promise<WorkspaceFacts>;
-}
-
-export interface TextSearcher {
-  search(root: string, query: SearchQuery, signal: AbortSignal): Promise<SearchResult>;
-}
-
-export interface CheckpointStore {
-  /** Snapshots the current content of `paths` before a change and returns the checkpoint. */
-  capture(input: {
-    workspaceId: string;
-    missionId: string | null;
-    label: string;
-    reason: CheckpointReason;
-    paths: RelativePath[];
-  }): Promise<Checkpoint>;
-  restoreFile(checkpointId: string, path: RelativePath): Promise<RestoreFileResult>;
-}
+// Invariants:
+// - Confinement (S2): workspace-relative canonical paths only; resolved with realpath against the
+//   canonical root; symlinks leaving the root are listed (`outsideWorkspace`) but never followed.
+// - Versions: content hash = SHA-256 hex of the bytes on disk; writes take the expected hash
+//   (null = must not exist) and never overwrite on mismatch (`conflict`).
+// - Checkpoints: bytes in dataDir/checkpoints/objects/<sha256> (gzip), rows via `CheckpointIndex`;
+//   restore never overwrites a file the user changed since (`conflict` + `proposeMerge`).
+// - Facts: marker files only; unknown stays null.
+export { canonicalRoot, isInsideRoot, resolveEntry, resolveExisting, resolveWriteTarget, toRelativePath } from "./confine";
+export { WorkspaceError, isWorkspaceError, type WorkspaceErrorCode } from "./errors";
+export { decodeText, detectEol, hashFile, sha256 } from "./hash";
+export {
+  ALWAYS_IGNORED_DIRS,
+  SENSITIVE_DEFAULT_PATTERNS,
+  createIgnoreMatcher,
+  type IgnoreMatcher,
+} from "./ignore-rules";
+export {
+  atomicWrite,
+  createEntry,
+  currentHash,
+  describeEntry,
+  ensureParentDirectories,
+  listDirectory,
+  moveEntry,
+  readBytesOrNull,
+  readWorkspaceFile,
+  writeWorkspaceFile,
+} from "./files";
+export { watchWorkspace, type WatchBatch, type WatchOptions, type WorkspaceWatcher } from "./watcher";
+export { SEARCH_LINE_MAX_CHARS, searchText, type TextSearchOptions } from "./search";
+export { FILE_INDEX_MAX, FileIndex, fuzzyScore, rankPaths, walkFiles } from "./file-index";
+export { INSTRUCTION_FILES, detectWorkspaceFacts, type FactsDetectorOptions } from "./facts";
+export { createObjectStore, type ObjectStore, type StoredObject } from "./object-store";
+export {
+  createCheckpointStore,
+  type CheckpointIndex,
+  type CheckpointStore,
+  type CheckpointStoreDeps,
+  type MergeProposal,
+  type PendingSnapshot,
+  type PurgeReport,
+  type RetentionPolicy,
+} from "./checkpoints";
+export {
+  GIT_DIFF_MAX_BYTES,
+  GIT_STATUS_MAX_ENTRIES,
+  createGitClient,
+  parsePorcelainV2,
+  type GitClient,
+  type GitClientOptions,
+  type GitCommitResult,
+} from "./git";
+export {
+  checkOutgoingContent,
+  redactSensitive,
+  scanForSecrets,
+  type OutgoingCheck,
+  type SecretFinding,
+  type SecretKind,
+} from "./sensitive";
+export {
+  createWorkspaceFileOps,
+  type FileChangeOutcome,
+  type FileChangeSummary,
+  type FileOpsDeps,
+  type ReadFileResult,
+  type TextEdit,
+  type WorkspaceFileOps,
+  type WriteOptions,
+} from "./file-ops";

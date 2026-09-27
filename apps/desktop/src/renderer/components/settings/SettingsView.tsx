@@ -24,10 +24,15 @@ import { ConfirmDialog } from "../layout/ConversationDialogs";
 import { ModelBrowser } from "../models/ModelBrowser";
 import { findModel } from "../models/filter";
 import { KeyCheckSummary, KeySetup } from "../setup/KeySetup";
+import { AuditSection, BudgetSection, InternetSection, PermissionsSection } from "./AtelierSections";
 
 const SECTIONS: readonly SettingsSection[] = [
   "providers",
   "models",
+  "budget",
+  "permissions",
+  "internet",
+  "audit",
   "privacy",
   "appearance",
   "companion",
@@ -315,6 +320,10 @@ function DiagnosticsSection() {
 const SECTION_VIEWS: Record<SettingsSection, () => JSX.Element | null> = {
   providers: ProvidersSection,
   models: ModelsSection,
+  budget: BudgetSection,
+  permissions: PermissionsSection,
+  internet: InternetSection,
+  audit: AuditSection,
   privacy: PrivacySection,
   appearance: AppearanceSection,
   companion: CompanionSection,

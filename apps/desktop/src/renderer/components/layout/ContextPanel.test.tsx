@@ -30,7 +30,7 @@ describe("ContextPanel", () => {
     await act(async () => {
       await store.getState().chooseModel(next.id, "conversation");
     });
-    const panel = screen.getByRole("complementary", { name: "Contexte" });
+    const panel = screen.getByRole("tabpanel", { name: "Contexte" });
     const requested = within(panel).getByText("Modèle demandé").nextElementSibling as HTMLElement;
     expect(requested.textContent).toContain("Modèle utilisé");
     expect(requested.textContent).not.toMatch(/^Modèle suivant/);
@@ -46,7 +46,7 @@ describe("ContextPanel", () => {
     const nav = await screen.findByRole("navigation", { name: "Navigation principale" });
     fireEvent.click(await within(nav).findByRole("button", { name: /^Atelier/ }));
     await screen.findByRole("region", { name: "Messages" });
-    const panel = screen.getByRole("complementary", { name: "Contexte" });
+    const panel = screen.getByRole("tabpanel", { name: "Contexte" });
     expect(within(panel).queryByText(/Prochain message/)).toBeNull();
   });
 });

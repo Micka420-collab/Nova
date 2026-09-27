@@ -1,0 +1,357 @@
+/* Workshop shell: zones, narrow layout, navigation, Nomi dock. Tokens only (--nv-*). */
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  overflow: hidden;
+}
+
+/* Skip link */
+
+.nova-skip {
+  position: fixed;
+  top: var(--nv-space-2);
+  left: var(--nv-space-2);
+  z-index: 2000;
+  padding: var(--nv-space-2) var(--nv-space-3);
+  border-radius: var(--nv-radius-sm);
+  background: var(--nv-raised);
+  color: var(--nv-text);
+  transform: translateY(-200%);
+}
+
+.nova-skip:focus {
+  transform: none;
+}
+
+/* Boot */
+
+.nova-boot {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: var(--nv-space-5);
+  height: 100%;
+  padding: var(--nv-space-5);
+}
+
+.nova-boot__status {
+  display: flex;
+  align-items: center;
+  gap: var(--nv-space-2);
+  color: var(--nv-text-secondary);
+}
+
+/* Workshop zones */
+
+.nova-workshop {
+  height: 100%;
+}
+
+.nova-zone {
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.nova-zone--nav,
+.nova-zone--context {
+  background: var(--nv-panel);
+}
+
+.nova-zone--context {
+  overflow-y: auto;
+}
+
+.nova-separator {
+  width: 1px;
+  background: var(--nv-border);
+  transition: background-color var(--nv-duration-fast) var(--nv-ease-standard);
+}
+
+.nova-separator[data-separator="hover"],
+.nova-separator[data-separator="active"],
+.nova-separator:focus-visible {
+  background: var(--nv-accent);
+}
+
+.nova-main {
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--nv-bg);
+}
+
+.nova-main:focus {
+  outline: none;
+}
+
+/* Narrow layout (< 900 px): top bar, drawer navigation, context overlay. */
+
+.nova-narrow {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+}
+
+.nova-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nv-space-2);
+  padding: var(--nv-space-2) var(--nv-space-3);
+  border-bottom: 1px solid var(--nv-border);
+  background: var(--nv-panel);
+}
+
+.nv-dialog.nova-drawer {
+  width: min(340px, calc(100vw - var(--nv-space-6)));
+  height: 100%;
+  max-height: 100%;
+  margin: 0;
+  padding: var(--nv-space-3);
+  border-radius: 0;
+  background: var(--nv-panel);
+}
+
+.nv-dialog.nova-drawer--left {
+  margin-right: auto;
+  border-width: 0 1px 0 0;
+}
+
+.nv-dialog.nova-drawer--right {
+  width: min(380px, calc(100vw - var(--nv-space-6)));
+  margin-left: auto;
+  border-width: 0 0 0 1px;
+}
+
+.nova-drawer .nv-dialog__body {
+  margin-top: var(--nv-space-3);
+}
+
+.nova-drawer .nova-zone {
+  height: auto;
+  overflow: visible;
+  background: transparent;
+}
+
+.nova-drawer .nova-context__title {
+  display: none;
+}
+
+/* Navigation */
+
+.nova-nav {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
+  height: 100%;
+}
+
+.nova-drawer .nova-nav {
+  height: calc(100vh - 96px);
+}
+
+.nova-nav__top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--nv-space-3);
+  padding: var(--nv-space-4) var(--nv-space-3) var(--nv-space-3);
+}
+
+.nova-nav__logo {
+  margin: 0 var(--nv-space-1) var(--nv-space-1);
+  color: var(--nv-text);
+}
+
+.nova-nav__new {
+  justify-content: flex-start;
+  overflow: hidden;
+}
+
+.nova-nav__middle {
+  overflow-y: auto;
+  padding: 0 var(--nv-space-2) var(--nv-space-3);
+}
+
+.nova-nav__heading {
+  margin: var(--nv-space-4) var(--nv-space-2) var(--nv-space-2);
+  font-size: var(--nv-text-xs);
+  font-weight: var(--nv-weight-medium);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--nv-text-secondary);
+}
+
+.nova-nav__link {
+  display: flex;
+  align-items: center;
+  gap: var(--nv-space-2);
+  width: 100%;
+  min-height: var(--nv-control-md);
+  padding: 0 var(--nv-space-2);
+  border: 0;
+  border-radius: var(--nv-radius-sm);
+  background: transparent;
+  color: var(--nv-text-secondary);
+  font-weight: var(--nv-weight-medium);
+  text-align: left;
+}
+
+.nova-nav__link:hover,
+.nova-nav__link[aria-current="page"] {
+  background: var(--nv-raised-hover);
+  color: var(--nv-text);
+}
+
+.nova-nav__list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nova-nav__empty,
+.nova-nav__more {
+  padding: var(--nv-space-2);
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-sm);
+}
+
+/* Focus target after a deletion: no ring on a heading that only holds the position. */
+.nova-nav__heading:focus {
+  outline: none;
+}
+
+.nova-conv__failed {
+  display: inline-flex;
+  flex: none;
+  color: var(--nv-danger);
+}
+
+.nova-nav__loading {
+  display: grid;
+  gap: var(--nv-space-2);
+  padding: 0 var(--nv-space-2);
+}
+
+.nova-nav__bottom {
+  display: grid;
+  gap: var(--nv-space-2);
+  padding: var(--nv-space-2) var(--nv-space-2) var(--nv-space-3);
+  border-top: 1px solid var(--nv-border);
+}
+
+.nova-conv {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: var(--nv-radius-sm);
+}
+
+.nova-conv:hover,
+.nova-conv:has([aria-current="page"]) {
+  background: var(--nv-raised-hover);
+}
+
+.nova-conv__open {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--nv-space-2);
+  border: 0;
+  border-radius: var(--nv-radius-sm);
+  background: transparent;
+  text-align: left;
+}
+
+.nova-conv__open[aria-current="page"] .nova-conv__title {
+  color: var(--nv-accent);
+}
+
+.nova-conv__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-weight: var(--nv-weight-medium);
+}
+
+.nova-conv__title-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nova-conv__meta {
+  font-size: var(--nv-text-xs);
+  color: var(--nv-text-secondary);
+}
+
+/* Actions stay reachable by keyboard: visible on hover and whenever focus is inside the row. */
+.nova-conv__actions {
+  display: flex;
+  gap: 2px;
+  padding-right: var(--nv-space-1);
+  opacity: 0;
+}
+
+.nova-conv:hover .nova-conv__actions,
+.nova-conv:focus-within .nova-conv__actions {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .nova-conv__actions {
+    opacity: 1;
+  }
+}
+
+/* Nomi dock */
+
+.nova-dock {
+  display: flex;
+  align-items: center;
+  gap: var(--nv-space-3);
+  width: 100%;
+  padding: var(--nv-space-2);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-md);
+  background: var(--nv-raised);
+  text-align: left;
+}
+
+.nova-dock:hover {
+  background: var(--nv-raised-hover);
+}
+
+.nova-dock--compact {
+  display: grid;
+  gap: var(--nv-space-1);
+  justify-items: start;
+}
+
+.nova-dock__figure {
+  flex: none;
+}
+
+.nova-dock__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.nova-dock__label {
+  font-weight: var(--nv-weight-medium);
+}
+
+.nova-dock__detail {
+  font-size: var(--nv-text-xs);
+  color: var(--nv-text-secondary);
+}

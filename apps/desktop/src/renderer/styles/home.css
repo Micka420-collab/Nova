@@ -1,0 +1,142 @@
+/* Home, onboarding and key setup. */
+
+/* Home and onboarding */
+
+.nova-home,
+.nova-onboarding,
+.nova-settings {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.nova-home,
+.nova-onboarding {
+  display: grid;
+  align-content: start;
+  gap: var(--nv-space-5);
+  padding: var(--nv-space-7) max(var(--nv-space-5), calc((100% - 760px) / 2));
+}
+
+.nova-home__title,
+.nova-onboarding__title {
+  font-size: var(--nv-text-3xl);
+}
+
+.nova-home__header {
+  display: grid;
+  gap: var(--nv-space-2);
+}
+
+.nova-onboarding__logo {
+  color: var(--nv-text);
+}
+
+.nova-recent {
+  display: grid;
+  gap: var(--nv-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nova-recent__item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px var(--nv-space-3);
+  width: 100%;
+  padding: var(--nv-space-2) var(--nv-space-3);
+  border: 0;
+  border-radius: var(--nv-radius-sm);
+  background: transparent;
+  text-align: left;
+}
+
+.nova-recent__item:hover {
+  background: var(--nv-raised-hover);
+}
+
+.nova-recent__title {
+  font-weight: var(--nv-weight-medium);
+}
+
+.nova-recent__preview {
+  grid-column: 1;
+  overflow: hidden;
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nova-recent__time {
+  grid-row: 1;
+  grid-column: 2;
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-xs);
+}
+
+/* Key setup */
+
+.nova-key-setup {
+  display: grid;
+  gap: var(--nv-space-4);
+  justify-items: stretch;
+}
+
+.nova-key-setup > .nv-button--ghost {
+  justify-self: start;
+}
+
+.nova-key-setup__explanation {
+  color: var(--nv-text-secondary);
+}
+
+.nova-key-setup__input {
+  font-family: var(--nv-font-mono);
+}
+
+.nova-choices {
+  display: grid;
+  gap: var(--nv-space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.nova-choices legend {
+  margin-bottom: var(--nv-space-2);
+}
+
+.nova-choice {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px var(--nv-space-3);
+  padding: var(--nv-space-3);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-md);
+  cursor: pointer;
+}
+
+.nova-choice:has(input:checked) {
+  border-color: var(--nv-accent);
+  background: var(--nv-accent-soft);
+}
+
+.nova-choice input {
+  grid-row: span 2;
+  margin-top: 3px;
+  accent-color: var(--nv-accent);
+}
+
+.nova-choice--ack {
+  border-style: dashed;
+}
+
+.nova-choice__label {
+  font-weight: var(--nv-weight-medium);
+}
+
+.nova-choice__hint {
+  font-size: var(--nv-text-sm);
+  color: var(--nv-text-secondary);
+}

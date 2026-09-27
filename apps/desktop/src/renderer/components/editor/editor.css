@@ -1,0 +1,381 @@
+/* Editor group (VISUAL §4.2, §5.1). Colors come from tokens; CodeMirror's own theme is code.css. */
+
+.nv-workbench-editor {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background: var(--nv-editor-bg, var(--nv-field));
+  color: var(--nv-text);
+}
+
+.nv-workbench-editor__panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.nv-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tabs */
+
+.nv-tabstrip {
+  flex: none;
+  background: var(--nv-panel);
+  border-bottom: 1px solid var(--nv-border);
+}
+
+.nv-tabstrip__list {
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.nv-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: none;
+  min-width: 120px;
+  max-width: 220px;
+  height: var(--nv-tab-h, 36px);
+  color: var(--nv-text-secondary);
+  border-radius: var(--nv-radius-sm) var(--nv-radius-sm) 0 0;
+  transition:
+    background-color var(--nv-duration-fast) var(--nv-ease-standard),
+    color var(--nv-duration-fast) var(--nv-ease-standard);
+}
+
+.nv-tab:hover {
+  background: var(--nv-raised-hover);
+  color: var(--nv-text);
+}
+
+/* The active tab is a notch in the strip: editor background, no bottom border. */
+.nv-tab[data-active] {
+  background: var(--nv-editor-bg, var(--nv-field));
+  color: var(--nv-text);
+  margin-bottom: -1px;
+  border-bottom: 1px solid var(--nv-editor-bg, var(--nv-field));
+}
+
+.nv-tab[data-dragging] {
+  opacity: 0.6;
+}
+
+.nv-tab__main {
+  display: flex;
+  align-items: center;
+  gap: var(--nv-space-2);
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 4px 0 var(--nv-space-3);
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--nv-text-sm);
+  cursor: pointer;
+  border-radius: inherit;
+}
+
+.nv-tab__main:focus-visible {
+  outline: 2px solid var(--nv-focus);
+  outline-offset: -2px;
+}
+
+.nv-tab__icon {
+  flex: none;
+}
+
+.nv-tab__name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.nv-tab__indicator {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-right: var(--nv-space-2);
+}
+
+.nv-tab__action {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--nv-radius-xs);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.nv-tab__action:hover {
+  background: var(--nv-raised);
+}
+
+.nv-tab__dot {
+  display: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--nv-accent);
+}
+
+/* Unsaved: the dot replaces the close cross until the tab is hovered. */
+.nv-tab[data-dirty] .nv-tab__dot {
+  display: block;
+}
+.nv-tab[data-dirty] .nv-tab__x {
+  display: none;
+}
+.nv-tab[data-dirty]:hover .nv-tab__dot {
+  display: none;
+}
+.nv-tab[data-dirty]:hover .nv-tab__x {
+  display: block;
+}
+.nv-tab:not([data-active]):not(:hover):not([data-dirty]) .nv-tab__close {
+  visibility: hidden;
+}
+
+/* Breadcrumbs + file info */
+
+.nv-editor-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nv-space-3);
+  flex: none;
+  min-height: 24px;
+  padding: 0 var(--nv-space-3);
+  font-size: var(--nv-text-xs);
+  color: var(--nv-text-secondary);
+  border-bottom: 1px solid var(--nv-border);
+}
+
+.nv-breadcrumbs {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.nv-breadcrumbs ol {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  white-space: nowrap;
+}
+
+.nv-breadcrumbs li {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.nv-breadcrumbs [aria-current="page"] {
+  color: var(--nv-text);
+}
+
+.nv-breadcrumbs__link,
+.nv-link-button {
+  padding: 0 2px;
+  border: 0;
+  border-radius: var(--nv-radius-xs);
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.nv-breadcrumbs__link:hover,
+.nv-link-button:hover {
+  color: var(--nv-text);
+  text-decoration: underline;
+}
+
+.nv-breadcrumbs__link:focus-visible,
+.nv-link-button:focus-visible {
+  outline: 2px solid var(--nv-focus);
+  outline-offset: 1px;
+}
+
+.nv-fileinfo {
+  display: flex;
+  flex: none;
+  gap: var(--nv-space-3);
+}
+
+/* States and banners */
+
+.nv-editor-banner {
+  flex: none;
+  margin: var(--nv-space-2) var(--nv-space-3) 0;
+}
+
+.nv-editor-banner__actions,
+.nv-editor-empty__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nv-space-2);
+}
+
+.nv-editor-empty__actions {
+  flex-direction: column;
+  align-items: center;
+}
+
+.nv-editor-empty__recent h4 {
+  margin: var(--nv-space-3) 0 var(--nv-space-1);
+  font-size: var(--nv-text-xs);
+  font-weight: var(--nv-weight-medium);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--nv-text-secondary);
+}
+
+.nv-editor-empty__recent ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--nv-font-mono);
+  font-size: var(--nv-text-sm);
+}
+
+.nv-editor-empty {
+  margin: auto;
+}
+
+.nv-editor-state {
+  margin: var(--nv-space-4);
+}
+
+.nv-editor-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: var(--nv-space-3) var(--nv-space-3) 0 56px;
+}
+
+.nv-editor-surface {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.nv-editor-surface > .cm-editor {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+
+/* Compare view */
+
+.nv-compare {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.nv-compare__header {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  flex: none;
+  padding: var(--nv-space-1) var(--nv-space-3);
+  font-size: var(--nv-text-xs);
+  color: var(--nv-text-secondary);
+  border-bottom: 1px solid var(--nv-border);
+}
+
+.nv-compare__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.nv-compare__footer {
+  display: flex;
+  align-items: center;
+  gap: var(--nv-space-2);
+  flex: none;
+  padding: var(--nv-space-2) var(--nv-space-3);
+  border-top: 1px solid var(--nv-border);
+  background: var(--nv-panel);
+}
+
+.nv-compare__hint {
+  flex: 1;
+  margin: 0;
+  font-size: var(--nv-text-xs);
+  color: var(--nv-text-secondary);
+}
+
+/* Tab context menu */
+
+.nv-menu {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: var(--nv-space-1);
+  background: var(--nv-raised);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-sm);
+  box-shadow: var(--nv-shadow-popover, var(--nv-shadow-raised));
+}
+
+.nv-menu__item {
+  padding: 6px var(--nv-space-3);
+  border: 0;
+  border-radius: var(--nv-radius-xs);
+  background: none;
+  color: var(--nv-text);
+  font: inherit;
+  font-size: var(--nv-text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.nv-menu__item:hover,
+.nv-menu__item:focus-visible {
+  background: var(--nv-raised-hover);
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="full"]) .nv-tab {
+    transition: none;
+  }
+}
+
+[data-motion="reduce"] .nv-tab {
+  transition: none;
+}
+
+.nv-breadcrumbs__sep {
+  display: inline-flex;
+}
+
+.nv-breadcrumbs__sep svg {
+  width: 12px;
+  height: 12px;
+}
+
+.nv-tab__x {
+  display: inline-flex;
+}

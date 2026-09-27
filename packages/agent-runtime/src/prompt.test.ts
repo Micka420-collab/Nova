@@ -97,3 +97,20 @@ describe("buildProviderMessages", () => {
     ]);
   });
 });
+
+describe("buildMissionSystemPrompt", () => {
+  it("names only the tools sent and states what the mode cannot do", async () => {
+    const { buildMissionSystemPrompt } = await import("./prompt");
+    const understand = buildMissionSystemPrompt({ mode: "understand", toolNames: ["read_file", "search_text"], webSearch: false });
+    expect(understand).toContain("Outils disponibles : read_file, search_text. Tu n'en as pas d'autres.");
+    expect(understand).toContain("tu ne modifies aucun fichier");
+    expect(understand).toContain("Tu n'as pas accès à Internet.");
+    expect(understand).not.toContain("edit_file");
+    expect(understand).not.toContain("sans shell");
+
+    const fix = buildMissionSystemPrompt({ mode: "fix", toolNames: ["read_file", "run_command", "web_search", "fetch_page"], webSearch: true });
+    expect(fix).toContain("sans shell");
+    expect(fix).toContain("cite les URL");
+    expect(buildMissionSystemPrompt({ mode: "discuss", toolNames: [], webSearch: false })).toContain("Tu n'as aucun outil");
+  });
+});

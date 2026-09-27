@@ -2,6 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import type { WorkspaceFacts } from "@nova/shared";
 import { readNumber, readText, readTextOrNull, type Row } from "../sqlite";
 
 /** Mirrors the permission profile union of @nova/shared. */
@@ -26,6 +27,11 @@ export interface WorkspaceRepo {
   get(id: string): WorkspaceRecord | null;
   /** Most recently opened first (default limit 20). */
   listRecent(limit?: number): WorkspaceRecord[];
+  /** D10 answer; null when the workspace does not exist. */
+  setInstructionFilesConsent(id: string, consent: InstructionFilesConsentValue): WorkspaceRecord | null;
+  /** Last detected facts (workspace_facts), null when never detected. */
+  getFacts(id: string): WorkspaceFacts | null;
+  putFacts(facts: WorkspaceFacts): void;
 }
 
 const DEFAULT_RECENT_LIMIT = 20;
@@ -73,6 +79,26 @@ export function createWorkspaceRepo(db: DatabaseSync, now: () => number = Date.n
         .prepare("SELECT * FROM workspaces ORDER BY last_opened_at DESC, rowid DESC LIMIT ?")
         .all(limit)
         .map(toWorkspace);
+    },
+
+    setInstructionFilesConsent(id, consent) {
+      const row = db
+        .prepare("UPDATE workspaces SET instruction_files_consent = ? WHERE id = ? RETURNING *")
+        .get(consent, id);
+      return row ? toWorkspace(row) : null;
+    },
+
+    getFacts(id) {
+      const row = db.prepare("SELECT facts_json FROM workspace_facts WHERE workspace_id = ?").get(id);
+      // Written only by putFacts from a typed value.
+      return row ? (JSON.parse(readText(row, "facts_json")) as WorkspaceFacts) : null;
+    },
+
+    putFacts(facts) {
+      db.prepare(
+        `INSERT INTO workspace_facts (workspace_id, facts_json, detected_at) VALUES (?, ?, ?)
+         ON CONFLICT (workspace_id) DO UPDATE SET facts_json = excluded.facts_json, detected_at = excluded.detected_at`,
+      ).run(facts.workspaceId, JSON.stringify(facts), facts.detectedAt);
     },
   };
 }

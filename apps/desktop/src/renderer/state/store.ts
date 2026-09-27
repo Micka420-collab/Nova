@@ -3,16 +3,38 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import type {
   AppInfo,
   AppSettings,
+  Approval,
+  ApprovalScope,
   ChatStreamEvent,
+  CompanionAction,
   ConversationDetail,
+  GitStatus,
+  Mission,
+  MissionContractInput,
+  MissionEvent,
+  MissionPlanResult,
+  MissionTaskDraft,
   ModelCatalog,
   NovaApi,
   ProviderConnectionView,
   ProviderErrorInfo,
+  ReviewDecision,
+  ReviewResult,
   SetKeyRequest,
   SettingsPatch,
+  WorkMode,
+  Workspace,
+  WorkspaceFacts,
 } from "@nova/shared";
 import { NovaIpcError } from "@nova/shared";
+import {
+  applyMissionEvent,
+  applyMissionEvents,
+  viewFromDetail,
+  viewFromPlan,
+  withApproval,
+  type MissionView,
+} from "../components/missions/timeline";
 import { toUiError, type UiError } from "../lib/errors";
 import {
   applyActiveStreams,
@@ -29,11 +51,68 @@ export type Route = "home" | "chat" | "settings";
 export type SettingsSection =
   | "providers"
   | "models"
+  | "budget"
+  | "permissions"
+  | "internet"
+  | "audit"
   | "privacy"
   | "appearance"
   | "companion"
   | "shortcuts"
   | "diagnostics";
+
+/**
+ * Shell disposition (VISUAL.md §3): `converse` puts the thread in the center and the workbench on
+ * the right; `build` puts the workbench (editor, diff, mission card) in the center and the agent
+ * panel on the right.
+ */
+export type ShellLayout = "converse" | "build";
+/** Créer (guided, comfortable) or Expert (diff, terminal, ids; compact) — UX.md §6. */
+export type DisplayMode = "create" | "expert";
+/** What the explorer column shows, chosen from the rail. */
+export type ExplorerView = "conversations" | "files" | "search" | "missions";
+
+/**
+ * Documents of the workbench, shown as tabs. `editor` is the editor group of the editor lane (its
+ * own file tabs live inside it); the others are owned by this shell.
+ */
+export type WorkbenchDoc =
+  | { kind: "context" }
+  | { kind: "editor" }
+  | { kind: "mission"; missionId: string }
+  | { kind: "diff"; missionId: string }
+  | { kind: "checkpoints"; missionId: string | null }
+  | { kind: "extensions" };
+
+export function docKey(doc: WorkbenchDoc): string {
+  switch (doc.kind) {
+    case "mission":
+    case "diff":
+      return `${doc.kind}:${doc.missionId}`;
+    case "checkpoints":
+      return `checkpoints:${doc.missionId ?? "all"}`;
+    default:
+      return doc.kind;
+  }
+}
+
+export type DockTab = "terminal";
+
+/**
+ * A request to show a file (citation chip, diff "open", Nomi). The editor lane consumes it and
+ * acknowledges with `consumeReveal(nonce)`; `nonce` makes repeated requests for the same place distinct.
+ */
+export interface RevealRequest {
+  path: string;
+  line: number | null;
+  nonce: number;
+}
+
+/** A request to show a terminal session in the dock (the terminal lane consumes it). */
+export interface TerminalRequest {
+  sessionId: string | null;
+  nonce: number;
+}
 export type Loadable = "idle" | "loading" | "ready" | "error";
 /** Model choice for the conversation shown in the chat view, the next new conversation, or the default. */
 export type ModelTarget = "conversation" | "new" | "default";
@@ -51,8 +130,57 @@ export interface UiState {
   navOpen: boolean;
   contextOverlayOpen: boolean;
   modelPicker: { open: boolean; target: ModelTarget };
+  layout: ShellLayout;
+  displayMode: DisplayMode;
+  explorer: ExplorerView;
+  explorerOpen: boolean;
+  /** Agent panel (build layout) / workbench column (converse layout). */
+  agentOpen: boolean;
+  workbenchOpen: boolean;
+  dockOpen: boolean;
+  dockTab: DockTab;
+  docs: WorkbenchDoc[];
+  /** Key (`docKey`) of the document shown in the workbench. */
+  activeDoc: string;
+  reveal: RevealRequest | null;
+  terminalRequest: TerminalRequest | null;
+  /** Quick open (Ctrl/Cmd+P) of the editor lane. */
+  quickOpen: boolean;
+  /** Ask the agent panel to move focus to this approval card (explicit user navigation only). */
+  approvalFocus: { approvalId: string; nonce: number } | null;
 }
 
+export interface WorkspaceState {
+  current: Workspace | null;
+  facts: WorkspaceFacts | null;
+  status: Loadable;
+  error: UiError | null;
+  /** null = not read yet; `{ available: false }` = no git here. */
+  git: GitStatus | null;
+}
+
+/** Plan being prepared from the agent composer, before the contract sheet launches it. */
+export type PlanState =
+  | { status: "idle" }
+  | { status: "planning"; goal: string; mode: WorkMode }
+  | { status: "ready"; goal: string; mode: WorkMode; result: MissionPlanResult }
+  | { status: "starting"; goal: string; mode: WorkMode; result: MissionPlanResult }
+  | { status: "error"; goal: string; mode: WorkMode; error: UiError; result: MissionPlanResult | null };
+
+export interface MissionsState {
+  list: Mission[];
+  listStatus: Loadable;
+  listError: UiError | null;
+  /** Timelines of the missions seen in this session (loaded or followed live), by id. */
+  views: Record<string, MissionView>;
+  /** Mission shown by the agent panel; null = the goal composer / chat. */
+  selectedId: string | null;
+  detailStatus: Loadable;
+  detailError: UiError | null;
+  plan: PlanState;
+  /** Estimates of the plans launched in this session (the end card compares them with the observed cost). */
+  estimates: Record<string, MissionPlanResult["estimate"]>;
+}
 /** Unsent composer text of a conversation, with the error of its last failed send (one lifetime). */
 export interface Draft {
   text: string;
@@ -85,6 +213,12 @@ export interface AppData extends ChatSlice {
    */
   failed: Record<string, true>;
   ui: UiState;
+  workspace: WorkspaceState;
+  missions: MissionsState;
+  /** Approvals known to this renderer (pending ones first come from events or `approvals.list`). */
+  approvals: Record<string, Approval>;
+  /** Mode chosen in the agent composer (A12); `discuss` = plain conversation. */
+  workMode: WorkMode;
 }
 
 export interface AppActions {
@@ -113,6 +247,39 @@ export interface AppActions {
   loadCatalog(refresh: boolean): Promise<void>;
   setUi(patch: Partial<UiState>): void;
   openModelPicker(target: ModelTarget): void;
+
+  // Shell
+  toggleLayout(): void;
+  toggleDisplayMode(): void;
+  showExplorer(view: ExplorerView): void;
+  openDoc(doc: WorkbenchDoc): void;
+  closeDoc(key: string): void;
+  revealFile(path: string, line: number | null): void;
+  consumeReveal(nonce: number): void;
+  revealTerminal(sessionId: string | null): void;
+  /** Applies a Nomi navigation (`CompanionActResult.navigate`) to the shell. */
+  navigateCompanion(action: CompanionAction): void;
+  /** Shows the approval card (its mission in the agent panel) and moves focus to it. */
+  focusApproval(approvalId: string): void;
+
+  // Workspace (the editor/files lane builds on `workspace.current`)
+  openWorkspace(): Promise<void>;
+  closeWorkspace(): Promise<void>;
+  refreshGit(): Promise<void>;
+
+  // Missions, approvals, review
+  setWorkMode(mode: WorkMode): void;
+  refreshMissions(): Promise<void>;
+  planMission(goal: string): Promise<void>;
+  discardPlan(): void;
+  startMission(missionId: string, tasks: MissionTaskDraft[] | null, contract: MissionContractInput): Promise<void>;
+  selectMission(id: string | null): void;
+  pauseMission(id: string): Promise<void>;
+  resumeMission(id: string): Promise<void>;
+  stopMission(id: string): Promise<void>;
+  refreshApprovals(): Promise<void>;
+  decideApproval(id: string, decision: "approve" | "deny", scope: ApprovalScope): Promise<void>;
+  reviewMission(missionId: string, decisions: ReviewDecision[]): Promise<ReviewResult>;
 }
 
 export type AppState = AppData & AppActions;
@@ -122,6 +289,7 @@ const PROVIDER = { providerId: "openrouter" } as const;
 /** Chat failures that main records on the provider connection (key refused, credits exhausted). */
 const CONNECTION_FAILURES = new Set(["invalid_key", "insufficient_credits"]);
 const LIST_REFRESH_DELAY_MS = 300;
+const GIT_REFRESH_DELAY_MS = 500;
 
 export function initialData(): AppData {
   return {
@@ -152,8 +320,56 @@ export function initialData(): AppData {
       navOpen: false,
       contextOverlayOpen: false,
       modelPicker: { open: false, target: "new" },
+      layout: "converse",
+      displayMode: "create",
+      explorer: "conversations",
+      explorerOpen: true,
+      agentOpen: true,
+      workbenchOpen: true,
+      dockOpen: false,
+      dockTab: "terminal",
+      docs: [{ kind: "context" }],
+      activeDoc: "context",
+      reveal: null,
+      terminalRequest: null,
+      approvalFocus: null,
+      quickOpen: false,
     },
+    workspace: { current: null, facts: null, status: "idle", error: null, git: null },
+    missions: {
+      list: [],
+      listStatus: "idle",
+      listError: null,
+      views: {},
+      selectedId: null,
+      detailStatus: "idle",
+      detailError: null,
+      plan: { status: "idle" },
+      estimates: {},
+    },
+    approvals: {},
+    workMode: "discuss",
   };
+}
+
+/** Pending approvals, oldest first (the approval shortcut goes to the oldest). */
+export function pendingApprovalList(state: Pick<AppData, "approvals">): Approval[] {
+  return Object.values(state.approvals)
+    .filter((approval) => approval.status === "pending")
+    .toSorted((a, b) => a.createdAt - b.createdAt);
+}
+
+export function selectedMissionView(state: AppData): MissionView | null {
+  const id = state.missions.selectedId;
+  return id ? (state.missions.views[id] ?? null) : null;
+}
+
+/** A mission of this session that is still running, waiting or suspended (newest first). */
+export function liveMission(state: AppData): MissionView | null {
+  const views = Object.values(state.missions.views).filter(
+    (view) => view.mission.state === "running" || view.mission.state === "waiting_approval",
+  );
+  return views.toSorted((a, b) => b.mission.updatedAt - a.mission.updatedAt)[0] ?? null;
 }
 
 /** Model used for the next message of `conversationId` (null = new conversation). */
@@ -300,11 +516,95 @@ export function createAppStore(client: NovaApi): AppStore {
       }
     };
 
+
+    // ---------------------------------------------------------------------------
+    // Atelier: missions, approvals, workspace
+
+    let gitTimer: ReturnType<typeof setTimeout> | null = null;
+    let missionsTimer: ReturnType<typeof setTimeout> | null = null;
+    let nonce = 0;
+    const nextNonce = () => ++nonce;
+
+    const scheduleGitRefresh = () => {
+      if (gitTimer) clearTimeout(gitTimer);
+      gitTimer = setTimeout(() => {
+        gitTimer = null;
+        void get().refreshGit();
+      }, GIT_REFRESH_DELAY_MS);
+    };
+
+    const scheduleMissionsRefresh = () => {
+      if (missionsTimer) clearTimeout(missionsTimer);
+      missionsTimer = setTimeout(() => {
+        missionsTimer = null;
+        void get().refreshMissions();
+      }, LIST_REFRESH_DELAY_MS);
+    };
+
+    const patchMissions = (patch: Partial<MissionsState>) => set((state) => ({ missions: { ...state.missions, ...patch } }));
+
+    /** Records a mission (from a result or an event) in the view and the list. */
+    const putMission = (mission: Mission) =>
+      set((state) => {
+        const view = state.missions.views[mission.id];
+        const views = view ? { ...state.missions.views, [mission.id]: { ...view, mission } } : state.missions.views;
+        const exists = state.missions.list.some((item) => item.id === mission.id);
+        const list = exists
+          ? state.missions.list.map((item) => (item.id === mission.id ? mission : item))
+          : [mission, ...state.missions.list];
+        return { missions: { ...state.missions, views, list } };
+      });
+
+    const putView = (view: MissionView) =>
+      set((state) => ({ missions: { ...state.missions, views: { ...state.missions.views, [view.mission.id]: view } } }));
+
+    const onMissionEvent = (event: MissionEvent) => {
+      const current = get().missions.views[event.missionId];
+      const next = applyMissionEvent(current, event);
+      const approval = event.type === "approval.requested" || event.type === "approval.resolved" ? event.approval : null;
+      if (next && next !== current) {
+        putView(next);
+        const known = get().missions.list.some((item) => item.id === next.mission.id);
+        if (known || event.type === "mission.created") putMission(next.mission);
+      }
+      if (approval) set((state) => ({ approvals: { ...state.approvals, [approval.id]: approval } }));
+      if (!current && event.type !== "mission.created" && get().missions.selectedId === event.missionId) {
+        // An event of the shown mission before its detail arrived: the load includes it.
+        void loadMission(event.missionId);
+      }
+      const touchedFiles = event.type === "tool.finished" && event.display.kind === "file_change";
+      const ended = event.type === "mission.succeeded" || event.type === "mission.failed" || event.type === "mission.cancelled";
+      if (touchedFiles || ended || event.type === "review.decided") scheduleGitRefresh();
+      if (ended || event.type === "mission.created") scheduleMissionsRefresh();
+    };
+
+    let missionRequest = 0;
+    const loadMission = async (id: string) => {
+      const request = ++missionRequest;
+      const known = get().missions.views[id];
+      patchMissions({ detailStatus: known ? "ready" : "loading", detailError: null });
+      try {
+        const detail = await client.missions.get({ missionId: id, afterSeq: 0 });
+        const current = get().missions.views[id];
+        // Live events may have arrived meanwhile: merge instead of replacing.
+        putView(current ? applyMissionEvents({ ...current, budget: detail.budget ?? current.budget }, detail.events) : viewFromDetail(detail));
+        if (request === missionRequest) patchMissions({ detailStatus: "ready" });
+      } catch (error) {
+        if (request === missionRequest) patchMissions({ detailStatus: known ? "ready" : "error", detailError: toUiError(error) });
+      }
+    };
+
+    const resetAtelier = (): Partial<AppData> => {
+      const initial = initialData();
+      return { workspace: initial.workspace, missions: initial.missions, approvals: {} };
+    };
+
     return {
       ...initialData(),
 
       start() {
         const unsubscribe = client.chat.onEvent(onEvent);
+        const unsubscribeMissions = client.missions.onEvent(onMissionEvent);
         void get().loadCore();
         void get().refreshConversations();
         void get().loadCatalog(false);
@@ -316,7 +616,10 @@ export function createAppStore(client: NovaApi): AppStore {
           .catch(() => undefined);
         return () => {
           unsubscribe();
+          unsubscribeMissions();
           if (listTimer) clearTimeout(listTimer);
+          if (gitTimer) clearTimeout(gitTimer);
+          if (missionsTimer) clearTimeout(missionsTimer);
         };
       },
 
@@ -542,6 +845,282 @@ export function createAppStore(client: NovaApi): AppStore {
 
       openModelPicker(target) {
         set((state) => ({ ui: { ...state.ui, paletteOpen: false, modelPicker: { open: true, target } } }));
+      },
+
+      toggleLayout() {
+        set((state) => ({ ui: { ...state.ui, layout: state.ui.layout === "converse" ? "build" : "converse" } }));
+      },
+
+      toggleDisplayMode() {
+        set((state) => ({ ui: { ...state.ui, displayMode: state.ui.displayMode === "create" ? "expert" : "create" } }));
+      },
+
+      showExplorer(view) {
+        set((state) => ({ ui: { ...state.ui, explorer: view, explorerOpen: true } }));
+      },
+
+      openDoc(doc) {
+        const key = docKey(doc);
+        set((state) => {
+          const docs = state.ui.docs.some((item) => docKey(item) === key) ? state.ui.docs : [...state.ui.docs, doc];
+          return {
+            ui: {
+              ...state.ui,
+              docs,
+              activeDoc: key,
+              workbenchOpen: true,
+            },
+          };
+        });
+      },
+
+      closeDoc(key) {
+        set((state) => {
+          const index = state.ui.docs.findIndex((item) => docKey(item) === key);
+          if (index === -1) return {};
+          const docs = state.ui.docs.filter((_, i) => i !== index);
+          const neighbor = docs[index] ?? docs[index - 1];
+          const activeDoc = state.ui.activeDoc === key ? (neighbor ? docKey(neighbor) : "context") : state.ui.activeDoc;
+          return { ui: { ...state.ui, docs: docs.length > 0 ? docs : [{ kind: "context" }], activeDoc } };
+        });
+      },
+
+      revealFile(path, line) {
+        get().openDoc({ kind: "editor" });
+        set((state) => ({ ui: { ...state.ui, reveal: { path, line, nonce: nextNonce() } } }));
+      },
+
+      consumeReveal(requestNonce) {
+        set((state) => (state.ui.reveal?.nonce === requestNonce ? { ui: { ...state.ui, reveal: null } } : {}));
+      },
+
+      revealTerminal(sessionId) {
+        set((state) => ({
+          ui: { ...state.ui, dockOpen: true, dockTab: "terminal", terminalRequest: { sessionId, nonce: nextNonce() } },
+        }));
+      },
+
+      focusApproval(approvalId) {
+        const approval = get().approvals[approvalId];
+        const missionId = approval?.request.missionId ?? null;
+        if (missionId) get().selectMission(missionId);
+        set((state) => ({
+          ui: { ...state.ui, route: "chat", agentOpen: true, approvalFocus: { approvalId, nonce: nextNonce() } },
+        }));
+      },
+
+      navigateCompanion(action) {
+        switch (action.type) {
+          case "open_approval":
+            get().focusApproval(action.approvalId);
+            return;
+          case "show_changes":
+            get().openDoc({ kind: "diff", missionId: action.missionId });
+            return;
+          case "open_diff":
+            get().openDoc({ kind: "diff", missionId: action.missionId });
+            return;
+          case "start_mission":
+          case "stop_mission":
+            // Performed by main; its events update the timeline.
+            return;
+          case "explain_error":
+          case "watch_command":
+            if (action.sourceRef.kind === "terminal") get().revealTerminal(action.sourceRef.sessionId);
+            else if (action.sourceRef.kind === "tool_call" || action.sourceRef.kind === "mission") {
+              get().selectMission(action.sourceRef.missionId);
+              set((state) => ({ ui: { ...state.ui, route: "chat", agentOpen: true } }));
+            }
+            return;
+        }
+      },
+
+      async openWorkspace() {
+        set((state) => ({ workspace: { ...state.workspace, status: "loading", error: null } }));
+        let opened: Workspace | null;
+        try {
+          opened = await client.workspace.open();
+        } catch (error) {
+          set((state) => ({
+            workspace: { ...state.workspace, status: state.workspace.current ? "ready" : "error", error: toUiError(error) },
+          }));
+          throw error;
+        }
+        if (!opened) {
+          // The user cancelled the picker: nothing changes.
+          set((state) => ({ workspace: { ...state.workspace, status: state.workspace.current ? "ready" : "idle" } }));
+          return;
+        }
+        const workspace = opened;
+        set((state) => ({
+          ...resetAtelier(),
+          workspace: { current: workspace, facts: null, status: "ready", error: null, git: null },
+          ui: {
+            ...state.ui,
+            explorer: "files",
+            explorerOpen: true,
+            layout: state.ui.displayMode === "expert" ? "build" : state.ui.layout,
+            docs: state.ui.docs.some((doc) => doc.kind === "editor") ? state.ui.docs : [...state.ui.docs, { kind: "editor" }],
+          },
+        }));
+        client.workspace
+          .facts({ workspaceId: workspace.id, refresh: false })
+          .then((facts) => {
+            if (get().workspace.current?.id === workspace.id) set((state) => ({ workspace: { ...state.workspace, facts } }));
+          })
+          // Facts are optional context (stack banner, test command); unknown stays unknown.
+          .catch(() => undefined);
+        void get().refreshGit();
+        void get().refreshMissions();
+        void get().refreshApprovals();
+      },
+
+      async closeWorkspace() {
+        const current = get().workspace.current;
+        if (!current) return;
+        await client.workspace.close({ workspaceId: current.id });
+        set((state) => ({
+          ...resetAtelier(),
+          ui: {
+            ...state.ui,
+            explorer: "conversations",
+            layout: "converse",
+            docs: state.ui.docs.filter((doc) => doc.kind === "context" || doc.kind === "extensions"),
+            activeDoc: "context",
+            dockOpen: false,
+          },
+        }));
+      },
+
+      async refreshGit() {
+        const current = get().workspace.current;
+        if (!current) return;
+        try {
+          const git = await client.git.status({ workspaceId: current.id });
+          if (get().workspace.current?.id === current.id) set((state) => ({ workspace: { ...state.workspace, git } }));
+        } catch {
+          // Unknown stays unknown: the status bar shows no branch rather than a guess.
+        }
+      },
+
+      setWorkMode(mode) {
+        set({ workMode: mode });
+      },
+
+      async refreshMissions() {
+        const workspaceId = get().workspace.current?.id ?? null;
+        if (get().missions.listStatus !== "ready") patchMissions({ listStatus: "loading" });
+        try {
+          const page = await client.missions.list({ workspaceId, limit: 50 });
+          if ((get().workspace.current?.id ?? null) !== workspaceId) return;
+          patchMissions({ list: page.items, listStatus: "ready", listError: null });
+        } catch (error) {
+          patchMissions({ listStatus: "error", listError: toUiError(error) });
+        }
+      },
+
+      async planMission(goal) {
+        const state = get();
+        const workspace = state.workspace.current;
+        const modelId = selectedModelId(state, state.activeId);
+        if (!workspace || !modelId) throw new Error("planMission() called without a workspace or a model");
+        const mode = state.workMode;
+        patchMissions({ plan: { status: "planning", goal, mode } });
+        try {
+          const result = await client.missions.plan({
+            workspaceId: workspace.id,
+            conversationId: state.activeId,
+            goal,
+            mode,
+            modelId,
+            contract: null,
+          });
+          const current = get().missions.views[result.mission.id];
+          putView(current ? { ...current, tasks: current.tasks.length > 0 ? current.tasks : result.tasks } : viewFromPlan(result));
+          putMission(result.mission);
+          patchMissions({ plan: { status: "ready", goal, mode, result } });
+        } catch (error) {
+          patchMissions({ plan: { status: "error", goal, mode, error: toUiError(error), result: null } });
+        }
+      },
+
+      discardPlan() {
+        patchMissions({ plan: { status: "idle" } });
+      },
+
+      async startMission(missionId, tasks, contract) {
+        const plan = get().missions.plan;
+        const result = plan.status === "ready" || plan.status === "starting" || plan.status === "error" ? plan.result : null;
+        if (!result || result.mission.id !== missionId || plan.status === "idle" || plan.status === "planning") {
+          throw new Error("startMission() called without the matching plan");
+        }
+        const { goal, mode } = plan;
+        patchMissions({ plan: { status: "starting", goal, mode, result } });
+        try {
+          const mission = await client.missions.start({ missionId, tasks, contract });
+          putMission(mission);
+          set((state) => ({
+            missions: {
+              ...state.missions,
+              plan: { status: "idle" },
+              selectedId: missionId,
+              estimates: { ...state.missions.estimates, [missionId]: result.estimate },
+            },
+          }));
+        } catch (error) {
+          patchMissions({ plan: { status: "error", goal, mode, error: toUiError(error), result } });
+        }
+      },
+
+      selectMission(id) {
+        patchMissions({ selectedId: id, detailError: null });
+        if (id) void loadMission(id);
+      },
+
+      async pauseMission(id) {
+        putMission(await client.missions.pause({ missionId: id }));
+      },
+
+      async resumeMission(id) {
+        putMission(await client.missions.resume({ missionId: id }));
+      },
+
+      async stopMission(id) {
+        putMission(await client.missions.stop({ missionId: id }));
+      },
+
+      async refreshApprovals() {
+        const workspaceId = get().workspace.current?.id ?? null;
+        try {
+          const pending = await client.approvals.list({ workspaceId, missionId: null, status: "pending" });
+          set((state) => {
+            const approvals = { ...state.approvals };
+            for (const approval of pending) approvals[approval.id] = approval;
+            return { approvals };
+          });
+        } catch {
+          // Pending approvals also arrive as mission events; a failed list only delays them.
+        }
+      },
+
+      async decideApproval(id, decision, scope) {
+        const approval = await client.approvals.decide({ approvalId: id, decision, scope });
+        set((state) => {
+          const missionId = approval.request.missionId;
+          const view = missionId ? state.missions.views[missionId] : undefined;
+          return {
+            approvals: { ...state.approvals, [approval.id]: approval },
+            ...(view && missionId
+              ? { missions: { ...state.missions, views: { ...state.missions.views, [missionId]: withApproval(view, approval) } } }
+              : {}),
+          };
+        });
+      },
+
+      async reviewMission(missionId, decisions) {
+        const result = await client.missions.review({ missionId, decisions });
+        scheduleGitRefresh();
+        return result;
       },
     };
   });

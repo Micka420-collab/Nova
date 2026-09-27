@@ -33,12 +33,35 @@ export interface NewApproval {
   expiresAt: number | null;
 }
 
+export interface ApprovalFilter {
+  workspaceId?: string | null;
+  missionId?: string | null;
+  status?: ApprovalStatusValue | null;
+  /** Default 200, max 1 000. */
+  limit?: number;
+}
+
 export interface ApprovalRepo {
   /** Inserts a `pending` approval request. */
   insert(input: NewApproval): ApprovalRecord;
+  get(id: string): ApprovalRecord | null;
   /** Pending requests of a workspace, oldest first. */
   listPending(workspaceId: string): ApprovalRecord[];
+  /** Filtered list (null/absent filters match anything), oldest first. */
+  list(filter: ApprovalFilter): ApprovalRecord[];
+  /**
+   * Resolves a PENDING request (approved with a scope, or denied). Returns the updated record, or
+   * null when it is not pending anymore (already decided or expired): decisions are final.
+   */
+  decide(id: string, decision: { status: "approved"; scope: ApprovalScopeValue } | { status: "denied" }): ApprovalRecord | null;
+  /** Marks a mission's pending requests `expired` (mission stopped); returns them. */
+  expireForMission(missionId: string): ApprovalRecord[];
+  /** Marks every pending request `expired` (startup: nobody awaits them anymore); returns them. */
+  expireAllPending(): ApprovalRecord[];
 }
+
+const LIST_DEFAULT = 200;
+const LIST_MAX = 1_000;
 
 function toApproval(row: Row): ApprovalRecord {
   return {
@@ -78,6 +101,53 @@ export function createApprovalRepo(db: DatabaseSync, now: () => number = Date.no
         );
       if (!row) throw new Error("Approval insert returned no row");
       return toApproval(row);
+    },
+
+    get(id) {
+      const row = db.prepare("SELECT * FROM approvals WHERE id = ?").get(id);
+      return row ? toApproval(row) : null;
+    },
+
+    list(filter) {
+      const limit = Math.min(Math.max(1, Math.trunc(filter.limit ?? LIST_DEFAULT)), LIST_MAX);
+      return db
+        .prepare(
+          `SELECT * FROM approvals
+           WHERE (?1 IS NULL OR workspace_id = ?1)
+             AND (?2 IS NULL OR mission_id = ?2)
+             AND (?3 IS NULL OR status = ?3)
+           ORDER BY created_at, rowid LIMIT ?4`,
+        )
+        .all(filter.workspaceId ?? null, filter.missionId ?? null, filter.status ?? null, limit)
+        .map(toApproval);
+    },
+
+    decide(id, decision) {
+      const scope = decision.status === "approved" ? decision.scope : null;
+      const row = db
+        .prepare(
+          `UPDATE approvals SET status = ?, scope = ?, decided_at = ?
+           WHERE id = ? AND status = 'pending' RETURNING *`,
+        )
+        .get(decision.status, scope, now(), id);
+      return row ? toApproval(row) : null;
+    },
+
+    expireForMission(missionId) {
+      return db
+        .prepare(
+          `UPDATE approvals SET status = 'expired', decided_at = ?
+           WHERE mission_id = ? AND status = 'pending' RETURNING *`,
+        )
+        .all(now(), missionId)
+        .map(toApproval);
+    },
+
+    expireAllPending() {
+      return db
+        .prepare("UPDATE approvals SET status = 'expired', decided_at = ? WHERE status = 'pending' RETURNING *")
+        .all(now())
+        .map(toApproval);
     },
 
     listPending(workspaceId) {

@@ -1,0 +1,214 @@
+/* File tree (VISUAL §5.2). Row height and spacing follow the density tokens when present. */
+
+.nova-tree {
+  position: relative;
+  min-height: 100%;
+  font-family: var(--nv-font-ui);
+  font-size: var(--nv-text-sm);
+  color: var(--nv-text-secondary);
+}
+
+.nova-tree__list {
+  margin: 0;
+  padding: var(--nv-space-1) 0;
+  list-style: none;
+}
+
+.nova-tree__row,
+.nova-tree__placeholder,
+.nova-tree__edit {
+  --nova-tree-indent: calc(var(--nova-tree-depth, 0) * 12px);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--nv-tree-row, 28px);
+  padding: 0 var(--nv-space-2) 0 calc(var(--nv-space-2) + var(--nova-tree-indent));
+  border-radius: var(--nv-radius-xs);
+  background-image: linear-gradient(var(--nv-indent-guide, var(--nv-border)), var(--nv-indent-guide, var(--nv-border)));
+  background-size: 1px 100%;
+  background-position: calc(var(--nv-space-2) + var(--nova-tree-indent) - 6px) 0;
+  background-repeat: no-repeat;
+}
+
+.nova-tree__row[aria-level="1"],
+.nova-tree__placeholder[aria-level="1"] {
+  background-image: none;
+}
+
+.nova-tree__row {
+  cursor: pointer;
+  color: var(--nv-text-secondary);
+  transition: background-color var(--nv-duration-fast) var(--nv-ease-standard);
+}
+
+.nova-tree__row:hover {
+  background-color: var(--nv-raised-hover);
+  color: var(--nv-text);
+}
+
+.nova-tree__row--selected {
+  background-color: var(--nv-raised);
+  color: var(--nv-text);
+  box-shadow: inset 2px 0 0 var(--nv-accent);
+}
+
+.nova-tree__row:focus-visible {
+  outline: 2px solid var(--nv-focus);
+  outline-offset: -2px;
+}
+
+.nova-tree__row--ignored {
+  color: var(--nv-text-muted, var(--nv-text-secondary));
+}
+
+.nova-tree__row--ignored .nova-tree__name {
+  opacity: 0.85;
+}
+
+.nova-tree__row--outside {
+  cursor: default;
+  color: var(--nv-text-muted, var(--nv-text-secondary));
+}
+
+.nova-tree__row--error {
+  color: var(--nv-danger);
+}
+
+.nova-tree__chevron {
+  display: inline-flex;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  transition: transform var(--nv-duration-fast) var(--nv-ease-standard);
+}
+
+.nova-tree__chevron[data-open] {
+  transform: rotate(90deg);
+}
+
+.nova-tree__icon {
+  flex: none;
+}
+
+.nova-tree__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nova-tree__meta {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 20px;
+}
+
+.nova-tree__git {
+  font-family: var(--nv-font-mono);
+  font-size: 11px;
+  font-weight: var(--nv-weight-medium);
+}
+
+.nova-tree__git[data-letter="M"] {
+  color: var(--nv-amber);
+}
+.nova-tree__git[data-letter="A"] {
+  color: var(--nv-accent);
+}
+.nova-tree__git[data-letter="D"],
+.nova-tree__git[data-letter="!"] {
+  color: var(--nv-danger);
+}
+.nova-tree__git[data-letter="R"] {
+  color: var(--nv-info);
+}
+.nova-tree__git[data-letter="?"] {
+  color: var(--nv-text-muted, var(--nv-text-secondary));
+}
+
+.nova-tree__nomi-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--nv-radius-pill);
+  background: var(--nv-accent);
+}
+
+.nova-tree__edit {
+  flex-wrap: wrap;
+  padding-left: calc(var(--nv-space-2) + var(--nova-tree-indent) + 22px);
+}
+
+.nova-tree__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 26px;
+  padding: 0 var(--nv-space-2);
+  border: 1px solid var(--nv-border-strong);
+  border-radius: var(--nv-radius-xs);
+  background: var(--nv-field);
+  color: var(--nv-text);
+  font: inherit;
+}
+
+.nova-tree__input:focus-visible {
+  outline: 2px solid var(--nv-focus);
+  outline-offset: 0;
+}
+
+.nova-tree__input[aria-invalid="true"] {
+  border-color: var(--nv-danger);
+}
+
+.nova-tree__input-error {
+  flex-basis: 100%;
+  margin: 2px 0 4px;
+  color: var(--nv-danger);
+  font-size: var(--nv-text-xs);
+}
+
+.nova-tree__empty {
+  margin: 0;
+  padding: var(--nv-space-3) var(--nv-space-4);
+  color: var(--nv-text-secondary);
+}
+
+.nova-tree__menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 200px;
+  margin: 0;
+  padding: var(--nv-space-1);
+  list-style: none;
+  background: var(--nv-raised);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-sm);
+  box-shadow: var(--nv-shadow-popover, var(--nv-shadow-raised));
+}
+
+.nova-tree__menu-item {
+  display: block;
+  width: 100%;
+  min-height: var(--nv-row, 32px);
+  padding: 0 var(--nv-space-3);
+  border: 0;
+  border-radius: var(--nv-radius-xs);
+  background: transparent;
+  color: var(--nv-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nova-tree__menu-item:hover,
+.nova-tree__menu-item:focus-visible {
+  background: var(--nv-raised-hover);
+  outline: none;
+}
+
+.nova-tree__menu-item:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--nv-focus);
+}

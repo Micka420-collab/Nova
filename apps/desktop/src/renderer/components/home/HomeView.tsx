@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Callout } from "@nova/ui";
+import { Button, Callout, useToast } from "@nova/ui";
 import type { ProviderConnectionView } from "@nova/shared";
 import { fr } from "../../copy/fr";
 import { formatRelative } from "../../lib/format";
@@ -12,8 +12,69 @@ import { SendFailure } from "../chat/SendFailure";
 import { useSendMessage } from "../chat/useSendMessage";
 import { findModel } from "../models/filter";
 import { Onboarding } from "../setup/Onboarding";
+import { errorToast } from "../../lib/errors";
 
 const RECENT_COUNT = 5;
+const copy = fr.atelier.home;
+
+/** "Ouvrir un dossier" (UX.md minute 3): same weight as the new idea; facts once a folder is open. */
+function FolderCard() {
+  const workspace = useApp((state) => state.workspace.current);
+  const facts = useApp((state) => state.workspace.facts);
+  const git = useApp((state) => state.workspace.git);
+  const loading = useApp((state) => state.workspace.status === "loading");
+  const openWorkspace = useApp((state) => state.openWorkspace);
+  const setUi = useApp((state) => state.setUi);
+  const setWorkMode = useApp((state) => state.setWorkMode);
+  const toast = useToast();
+  const open = () => {
+    openWorkspace().catch((error: unknown) => toast.show(errorToast(error, fr.atelier.shell.folderOpenFailed)));
+  };
+  const stack = facts ? [...facts.frameworks, ...facts.languages, facts.testRunner?.name ?? null].filter(Boolean).join(" · ") : "";
+  return (
+    <section className="nova-card nova-home__folder" aria-labelledby="home-open-folder">
+      <div className="nova-card__header">
+        <h2 id="home-open-folder" className="nova-card__title">
+          {workspace ? copy.currentFolder(workspace.name) : copy.openFolderTitle}
+        </h2>
+      </div>
+      {workspace ? (
+        <>
+          <p className="nova-note">
+            <code>{workspace.displayPath}</code>
+          </p>
+          <ul className="nova-home__facts">
+            {facts ? <li>{stack ? copy.facts(stack) : copy.factsUnknown}</li> : null}
+            {git ? <li>{git.available ? copy.git(git.branch ?? fr.atelier.statusBar.detached) : copy.gitNone}</li> : null}
+            <li>{copy.nothingSent}</li>
+          </ul>
+          <div className="nova-home__folder-actions">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => {
+                setWorkMode("understand");
+                setUi({ route: "chat", agentOpen: true });
+              }}
+            >
+              {copy.goToAgent}
+            </Button>
+            <Button variant="ghost" size="sm" loading={loading} onClick={open}>
+              {copy.openFolderAction}
+            </Button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="nova-lead">{copy.openFolderBody}</p>
+          <Button variant="secondary" loading={loading} onClick={open}>
+            {copy.openFolderAction}
+          </Button>
+        </>
+      )}
+    </section>
+  );
+}
 
 export function HomeView() {
   const connection = useApp((state) => state.connection);
@@ -96,6 +157,8 @@ export function HomeView() {
         />
       </section>
 
+      <FolderCard />
+
       {recent.length > 0 ? (
         <section className="nova-card" aria-labelledby="home-resume">
           <h2 id="home-resume" className="nova-card__title">
@@ -114,10 +177,6 @@ export function HomeView() {
           </ul>
         </section>
       ) : null}
-
-      <Callout tone="info" className="nova-home__note">
-        {fr.home.milestoneNote}
-      </Callout>
     </div>
   );
 }

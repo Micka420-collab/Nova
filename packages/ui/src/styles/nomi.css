@@ -463,3 +463,181 @@
     transform: none;
   }
 }
+
+/*
+ * Activities, accessories and variants (NOMI.md §6–§8). Accessories only exist in the DOM while
+ * their state × activity pair is real (see `nomiAccessory`); each has a static pose kept under
+ * reduced motion, and at most one animated property.
+ */
+
+.nv-nomi__top-pose {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform var(--nv-duration-slow) var(--nv-ease-standard);
+}
+
+/* Raised brow: an approval is waiting for an answer. */
+.nv-nomi[data-state="waiting"][data-waiting="active"] .nv-nomi__top-pose {
+  transform: translateY(-0.6px) rotate(-4deg);
+}
+
+/* A suspended mission (budget reached) is not an active wait: no pulse, no glow. */
+.nv-nomi[data-waiting="suspended"] .nv-nomi__figure,
+.nv-nomi[data-waiting="suspended"] .nv-nomi__satellite {
+  animation: none;
+}
+
+.nv-nomi__accessory {
+  animation: nv-nomi-accessory-in var(--nv-duration-slow) var(--nv-ease-out) 1 both;
+}
+
+.nv-nomi__glasses {
+  fill: var(--nv-nomi-head);
+  fill-opacity: 0.14;
+  stroke: var(--nv-nomi-edge);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+
+.nv-nomi[data-activity="reading"] .nv-nomi__gaze-pose {
+  transform: translate(0, 1.2px);
+}
+
+.nv-nomi__tool rect,
+.nv-nomi__probe-disc circle:first-child,
+.nv-nomi__pocket path {
+  fill: var(--nv-nomi-top);
+  stroke: var(--nv-nomi-edge);
+  stroke-width: 1;
+}
+
+.nv-nomi__tool-tip {
+  fill: var(--nv-accent);
+}
+
+/* Pivot at the bottom of the handle so the motion reads as a small tap. */
+.nv-nomi__tool-swing {
+  transform-origin: 0 4.5px;
+  transform: rotate(-35deg);
+}
+
+.nv-nomi__card rect {
+  fill: var(--nv-nomi-head);
+  stroke: var(--nv-nomi-edge);
+  stroke-width: 1;
+}
+
+.nv-nomi__card-line {
+  fill: none;
+  stroke: var(--nv-nomi-eye);
+  stroke-width: 1;
+  stroke-linecap: round;
+}
+
+.nv-nomi__probe-tube {
+  fill: none;
+  stroke: var(--nv-nomi-edge);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+
+.nv-nomi__probe-disc {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.nv-nomi__probe-core {
+  fill: var(--nv-accent);
+}
+
+/* A file is dragged over Nomi: it looks at the pocket. */
+.nv-nomi__pocket {
+  animation-duration: 180ms;
+}
+
+.nv-nomi[data-drag-over] .nv-nomi__gaze-pose {
+  transform: translate(-2px, 1px);
+}
+
+.nv-nomi[data-drag-over] .nv-nomi__head-pose {
+  transform: rotate(-4deg);
+}
+
+.nv-nomi[data-state="working"][data-activity="editing"] .nv-nomi__tool-swing {
+  animation: nv-nomi-tap 1.6s linear infinite;
+}
+
+.nv-nomi[data-state="working"] .nv-nomi__card-line--live {
+  animation: nv-nomi-card-line 1.6s ease-in-out infinite;
+}
+
+.nv-nomi[data-state="thinking"][data-activity="debugging"] .nv-nomi__probe-disc {
+  animation: nv-nomi-probe 1.2s ease-in-out infinite alternate;
+}
+
+/* Only the orbit layers get a compositor hint, and only while they really spin. */
+.nv-nomi[data-state="thinking"] .nv-nomi__orbit,
+.nv-nomi[data-state="thinking"] .nv-nomi__sat,
+.nv-nomi[data-state="working"] .nv-nomi__orbit,
+.nv-nomi[data-state="working"] .nv-nomi__sat {
+  will-change: transform;
+}
+
+/* Quiet mode: half-closed eyes, orbit parked, dimmed, still. */
+.nv-nomi[data-quiet] {
+  --_sat-angle: 90deg;
+  opacity: 0.7;
+}
+
+.nv-nomi[data-quiet] .nv-nomi__eye {
+  transform: scaleY(0.5);
+}
+
+/* Single focus: a static instance keeps its pose without motion; offscreen figures pause. */
+.nv-nomi[data-quiet],
+.nv-nomi[data-quiet] *,
+.nv-nomi--static,
+.nv-nomi--static * {
+  animation: none !important;
+}
+
+.nv-nomi--paused,
+.nv-nomi--paused * {
+  animation-play-state: paused !important;
+}
+
+/* Opacity only: accessory groups carry their placement in the SVG `transform` attribute. */
+@keyframes nv-nomi-accessory-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes nv-nomi-tap {
+  0%,
+  100% {
+    transform: rotate(-35deg);
+  }
+  50% {
+    transform: rotate(-41deg);
+  }
+}
+
+@keyframes nv-nomi-card-line {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes nv-nomi-probe {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.12);
+  }
+}

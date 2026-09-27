@@ -1,45 +1,51 @@
-// @nova/permissions — permission engine (S1), runs in MAIN only.
+// @nova/permissions — permission engine (S1), runs in MAIN only (paths.ts and isolation.ts use node:fs).
 //
-// Contract for the feature implementation:
 // - `evaluate` is pure and synchronous over an `EvaluationContext` snapshot (rules, profile,
 //   contract, isolation, taint): table-driven tests cover it without Electron or SQLite.
-// - Precedence: deny rules > mission contract > remembered approvals > profile > default `ask`.
-// - Built-in denials are not overridable: outside workspace / excluded path (S2, C8), a mode that does
-//   not include the tool (A12), an operation needing an isolation level that is unavailable (S3).
-// - `external` operations and `always_ask` commands (push, force, reset --hard, rm -rf…) are never
-//   `rememberable` (S6). Untrusted content in context (`tainted`) turns external effects into `ask`
-//   unless the contract explicitly allows them (W5).
+// - Tiers (engine.ts header): deny rules > built-in denials > mode/contract restrictions > always-ask
+//   > contract pre-approvals > remembered approvals > profile > default `ask`.
+// - `external` operations and dangerous commands (push, force, reset --hard, rm -rf…) are never
+//   `rememberable` (S6). Untrusted content in context (`tainted`) turns outbound effects into `ask`
+//   unless the contract names the host (W5).
 // - D2: the `autonomous` profile is allowed at L0; the UI shows a banner (PermissionProfileState).
-// Every decision is recorded (tool.permission event + audit_log) by the caller, never skipped.
+// - Every decision is recorded in audit_log by the main permissions service (never skipped).
 import type {
   ApprovalScope,
-  IsolationLevel,
-  MissionContract,
   PermissionDecision,
-  PermissionProfile,
   PermissionRequest,
-  PermissionRule,
+  ToolName,
   WorkMode,
 } from "@nova/shared";
+import type { EvaluationContext } from "./engine";
 
-export interface EvaluationContext {
-  profile: PermissionProfile;
-  /** Contract of the running mission; null for calls outside a mission. */
-  contract: MissionContract | null;
-  /** Stored rules relevant to the workspace (global + workspace + mission scope), any order. */
-  rules: readonly PermissionRule[];
-  /** Best isolation level available on this machine. */
-  isolationLevel: IsolationLevel;
-  /** Excluded-path matcher (C8: .env, keys, `.novaignore` exclusions). */
-  isExcludedPath(path: string): boolean;
-}
+export { evaluate, permissionEngine, type EngineDecision, type EvaluationContext } from "./engine";
+export { classifyCommand, isKnownCommand, type CommandClassification, type CommandRisk } from "./commands";
+export { DEFAULT_EXCLUDED_PATTERNS, createExcludedPathMatcher } from "./excluded";
+export { explainDecision, MODE_LABELS, OPERATION_LABELS, PROFILE_LABELS, type ExplanationFacts } from "./explain";
+export { globToRegExp, matchesGlob } from "./glob";
+export {
+  ISOLATION_DESCRIPTIONS,
+  detectIsolation,
+  type DetectIsolationOptions,
+  type IsolationCandidate,
+  type IsolationReport,
+} from "./isolation";
+export {
+  BUILTIN_TOOL_OPERATIONS,
+  MODE_OPERATIONS,
+  MODE_TOOLS,
+  effectiveOperation,
+  modeBuiltinTools,
+  type ModeAllowance,
+} from "./modes";
+export { resolveInWorkspace, type ResolveFailure, type ResolvedPath } from "./paths";
 
 export interface PermissionEngine {
   evaluate(request: PermissionRequest, context: EvaluationContext): PermissionDecision;
 }
 
-/** Tools a work mode may use (A12); the engine denies any other tool with reason `mode_forbids`. */
-export type ModeToolPolicy = Readonly<Record<WorkMode, ReadonlySet<string>>>;
+/** Tools a work mode may use (A12); the engine denies any other operation with reason `mode_forbids`. */
+export type ModeToolPolicy = Readonly<Record<WorkMode, ReadonlySet<ToolName>>>;
 
 /** What remembering an approval creates (`policies` row), decided by the approval service in main. */
 export interface RememberedApproval {

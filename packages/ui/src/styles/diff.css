@@ -1,0 +1,213 @@
+/* Diff primitives (VISUAL.md §5.3): file header, hunks, lines. Tokens only; density via
+ * --nv-diff-line / --nv-code-size with comfortable fallbacks. */
+
+.nv-diff-file {
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-md, 12px);
+  background: var(--nv-panel);
+  overflow: clip;
+}
+
+.nv-diff-file + .nv-diff-file {
+  margin-top: var(--nv-space-2);
+}
+
+.nv-diff-file--current {
+  border-color: var(--nv-accent);
+}
+
+.nv-diff-file__header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--nv-space-2);
+  min-height: 40px;
+  padding: 0 var(--nv-space-3) 0 var(--nv-space-1);
+  background: var(--nv-panel);
+  border-bottom: 1px solid var(--nv-border);
+}
+
+.nv-diff-file__toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--nv-radius-sm);
+  background: transparent;
+  color: var(--nv-text-secondary);
+  cursor: pointer;
+}
+
+.nv-diff-file__toggle:hover {
+  background: var(--nv-raised-hover, var(--nv-raised));
+  color: var(--nv-text);
+}
+
+.nv-diff-file__path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--nv-text-sm, 13px);
+}
+
+.nv-diff-file__dir {
+  color: var(--nv-text-muted, var(--nv-text-secondary));
+}
+
+.nv-diff-file__name {
+  color: var(--nv-text);
+  font-weight: 560;
+}
+
+.nv-diff-file__counts {
+  font-family: var(--nv-font-mono, monospace);
+  font-size: var(--nv-text-xs, 12px);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.nv-diff-file__add {
+  color: var(--nv-diff-add-fg, var(--nv-accent));
+}
+
+.nv-diff-file__del {
+  color: var(--nv-diff-del-fg, var(--nv-danger));
+}
+
+.nv-diff-file__actions {
+  display: inline-flex;
+  gap: var(--nv-space-1);
+  margin-left: auto;
+}
+
+.nv-diff-file__note {
+  padding: var(--nv-space-2) var(--nv-space-3);
+}
+
+.nv-diff-hunk {
+  border-top: 1px solid var(--nv-border);
+}
+
+.nv-diff-hunk:first-child {
+  border-top: 0;
+}
+
+.nv-diff-hunk--current {
+  box-shadow: inset 2px 0 0 var(--nv-accent);
+}
+
+.nv-diff-hunk--conflict .nv-diff-hunk__lines {
+  opacity: 0.6;
+}
+
+.nv-diff-hunk__header {
+  display: flex;
+  align-items: center;
+  gap: var(--nv-space-2);
+  min-height: 28px;
+  padding: 0 var(--nv-space-3);
+  background: var(--nv-editor-bg, var(--nv-panel));
+}
+
+.nv-diff-hunk__range {
+  font-family: var(--nv-font-mono, monospace);
+  font-size: var(--nv-text-2xs, 11px);
+  color: var(--nv-text-muted, var(--nv-text-secondary));
+}
+
+.nv-diff-hunk__context {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--nv-text-xs, 12px);
+  color: var(--nv-text-secondary);
+}
+
+.nv-diff-hunk__actions {
+  display: inline-flex;
+  gap: var(--nv-space-1);
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity var(--nv-duration-fast) var(--nv-ease-standard);
+}
+
+.nv-diff-hunk:hover .nv-diff-hunk__actions,
+.nv-diff-hunk:focus-within .nv-diff-hunk__actions,
+.nv-diff-hunk--current .nv-diff-hunk__actions,
+.nv-diff-hunk--actions-visible .nv-diff-hunk__actions {
+  opacity: 1;
+}
+
+.nv-diff-hunk__conflict {
+  padding: var(--nv-space-2) var(--nv-space-3);
+}
+
+.nv-diff-hunk__lines {
+  font-family: var(--nv-font-mono, monospace);
+  font-size: var(--nv-code-size, 13px);
+  background: var(--nv-editor-bg, var(--nv-panel));
+  overflow-x: auto;
+}
+
+.nv-diff-line {
+  display: grid;
+  grid-template-columns: 44px 44px 16px 1fr;
+  min-height: var(--nv-diff-line, 20px);
+  line-height: var(--nv-diff-line, 20px);
+}
+
+.nv-diff-line__num {
+  padding-right: var(--nv-space-2);
+  color: var(--nv-gutter-fg, var(--nv-text-secondary));
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+.nv-diff-line__sign {
+  text-align: center;
+  user-select: none;
+}
+
+.nv-diff-line__text {
+  white-space: pre;
+  color: var(--nv-text);
+}
+
+.nv-diff-line--add {
+  background: var(--nv-diff-add-bg);
+}
+
+.nv-diff-line--add .nv-diff-line__sign {
+  color: var(--nv-diff-add-fg);
+}
+
+.nv-diff-line--del {
+  background: var(--nv-diff-del-bg);
+}
+
+.nv-diff-line--del .nv-diff-line__sign {
+  color: var(--nv-diff-del-fg);
+}
+
+.nv-diff-hunk__more {
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  border: 0;
+  background: var(--nv-raised);
+  color: var(--nv-text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nv-diff-hunk__actions {
+    transition: none;
+  }
+}

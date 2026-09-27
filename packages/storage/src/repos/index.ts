@@ -13,12 +13,23 @@
 //   and hashes only; bytes live in dataDir). Schema changes are new migrations, never edits.
 export {
   createApprovalRepo,
+  type ApprovalFilter,
   type ApprovalRecord,
   type ApprovalRepo,
   type ApprovalScopeValue,
   type ApprovalStatusValue,
   type NewApproval,
 } from "./approvals";
+export {
+  createAuditRepo,
+  type AuditActorValue,
+  type AuditDataSummary,
+  type AuditDecisionValue,
+  type AuditFilter,
+  type AuditRecord,
+  type AuditRepo,
+  type NewAuditEntry,
+} from "./audit";
 export {
   createMissionRepo,
   type IsolationLevelValue,
@@ -31,6 +42,7 @@ export {
   type OperationClassValue,
   type WorkModeValue,
 } from "./missions";
+export { createPolicyRepo, type NewPolicy, type PolicyRepo } from "./policies";
 export {
   createSignalRepo,
   type NewSignal,
