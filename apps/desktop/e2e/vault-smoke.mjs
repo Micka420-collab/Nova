@@ -41,12 +41,13 @@ for (let waited = 0; waited < 30_000 && vault === null; waited += 250) {
 }
 child.kill();
 await new Promise((resolve) => child.once("exit", resolve));
-rmSync(userDataDir, { recursive: true, force: true });
 
 if (vault === null) {
   console.error("[vault-smoke] FAILED: no 'vault detected' log line within 30 s");
+  console.error(existsSync(logFile) ? readFileSync(logFile, "utf8").slice(-4000) : "[vault-smoke] no log file was written");
   process.exit(1);
 }
+rmSync(userDataDir, { recursive: true, force: true });
 const ok = vault.level === expected;
 process.stdout.write(`[vault-smoke] detected level=${vault.level} backend=${vault.backend} expected=${expected}\n`);
 if (!ok) console.error(`[vault-smoke] FAILED (exit 1)`);
