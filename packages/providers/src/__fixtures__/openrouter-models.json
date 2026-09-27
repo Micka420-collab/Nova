@@ -1,0 +1,759 @@
+{
+ "_source": "GET https://openrouter.ai/api/v1/models, captured 2026-09-27, trimmed to representative entries",
+ "data": [
+  {
+   "id": "typesafe/jev-router",
+   "canonical_slug": "typesafe/jev-router",
+   "hugging_face_id": null,
+   "name": "TypeSafe: Jev Router",
+   "created": 1790363560,
+   "description": "Jev Router picks the best model and reasoning effort for each request, balancing quality, speed, and cost. It runs on [Jev](https://openrouter.ai/~typesafe/jev-latest), TypeSafe's first System One model, and adapts as your...",
+   "context_length": 1000000,
+   "architecture": {
+    "modality": "text+image+file+audio+video->text",
+    "input_modalities": [
+     "audio",
+     "file",
+     "image",
+     "text",
+     "video"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Router",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "-1",
+    "completion": "-1"
+   },
+   "top_provider": {
+    "context_length": null,
+    "max_completion_tokens": null,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [],
+   "default_parameters": {},
+   "supported_voices": null,
+   "knowledge_cutoff": null,
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/typesafe/jev-router/endpoints"
+   }
+  },
+  {
+   "id": "deepseek/deepseek-v4.1-flash",
+   "canonical_slug": "deepseek/deepseek-v4.1-flash-20260910",
+   "hugging_face_id": "deepseek-ai/DeepSeek-V4.1-Flash",
+   "name": "DeepSeek: DeepSeek V4.1 Flash",
+   "created": 1789021285,
+   "description": "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
+   "context_length": 1048576,
+   "architecture": {
+    "modality": "text+image->text",
+    "input_modalities": [
+     "text",
+     "image"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "DeepSeek",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000000035",
+    "completion": "0.00000029",
+    "input_cache_read": "0.000000001"
+   },
+   "top_provider": {
+    "context_length": 1040000,
+    "max_completion_tokens": 384000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "frequency_penalty",
+    "include_reasoning",
+    "logit_bias",
+    "logprobs",
+    "max_tokens",
+    "min_p",
+    "presence_penalty",
+    "reasoning",
+    "reasoning_effort",
+    "repetition_penalty",
+    "response_format",
+    "seed",
+    "stop",
+    "structured_outputs",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_k",
+    "top_logprobs",
+    "top_p"
+   ],
+   "default_parameters": {},
+   "supported_voices": null,
+   "knowledge_cutoff": null,
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/deepseek/deepseek-v4.1-flash-20260910/endpoints"
+   },
+   "benchmarks": {
+    "design_arena": [],
+    "artificial_analysis": {
+     "intelligence_index": 39.5,
+     "coding_index": null,
+     "agentic_index": null
+    }
+   },
+   "reasoning": {
+    "mandatory": false,
+    "default_enabled": true,
+    "supported_efforts": [
+     "max",
+     "high",
+     "low"
+    ],
+    "default_effort": "high"
+   }
+  },
+  {
+   "id": "deepseek/deepseek-v4-flash",
+   "canonical_slug": "deepseek/deepseek-v4-flash-20260423",
+   "hugging_face_id": "deepseek-ai/DeepSeek-V4-Flash",
+   "name": "DeepSeek: DeepSeek V4 Flash 0423",
+   "created": 1777000666,
+   "description": "DeepSeek V4 Flash is an efficiency-optimized Mixture-of-Experts model from DeepSeek with 284B total parameters and 13B activated parameters, supporting a 1M-token context window. It is designed for fast inference and...",
+   "context_length": 1048576,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "DeepSeek",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.0000000469",
+    "completion": "0.0000000938",
+    "input_cache_read": "0.00000000938"
+   },
+   "top_provider": {
+    "context_length": 1048576,
+    "max_completion_tokens": 131072,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "frequency_penalty",
+    "include_reasoning",
+    "logit_bias",
+    "logprobs",
+    "max_completion_tokens",
+    "max_tokens",
+    "min_p",
+    "presence_penalty",
+    "reasoning",
+    "reasoning_effort",
+    "repetition_penalty",
+    "response_format",
+    "seed",
+    "stop",
+    "structured_outputs",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_a",
+    "top_k",
+    "top_logprobs",
+    "top_p"
+   ],
+   "default_parameters": {},
+   "supported_voices": null,
+   "knowledge_cutoff": null,
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/deepseek/deepseek-v4-flash-20260423/endpoints"
+   },
+   "benchmarks": {
+    "design_arena": [
+     {
+      "arena": "models",
+      "category": "3d",
+      "elo": 1210,
+      "win_rate": 49.3,
+      "rank": 46
+     },
+     {
+      "arena": "models",
+      "category": "asciiart",
+      "elo": 1123,
+      "win_rate": 42.8,
+      "rank": 54
+     },
+     {
+      "arena": "models",
+      "category": "codecategories",
+      "elo": 1214,
+      "win_rate": 48.9,
+      "rank": 48
+     },
+     {
+      "arena": "models",
+      "category": "dataviz",
+      "elo": 1138,
+      "win_rate": 40.7,
+      "rank": 81
+     },
+     {
+      "arena": "models",
+      "category": "gamedev",
+      "elo": 1211,
+      "win_rate": 50.2,
+      "rank": 46
+     },
+     {
+      "arena": "models",
+      "category": "svg",
+      "elo": 1164,
+      "win_rate": 48.4,
+      "rank": 37
+     },
+     {
+      "arena": "models",
+      "category": "uicomponent",
+      "elo": 1172,
+      "win_rate": 44.7,
+      "rank": 63
+     },
+     {
+      "arena": "models",
+      "category": "website",
+      "elo": 1215,
+      "win_rate": 49.1,
+      "rank": 51
+     }
+    ],
+    "artificial_analysis": {
+     "intelligence_index": 24.2,
+     "coding_index": 56.2,
+     "agentic_index": 22.2
+    }
+   },
+   "reasoning": {
+    "mandatory": false,
+    "supported_efforts": [
+     "xhigh",
+     "high"
+    ],
+    "default_effort": "high"
+   }
+  },
+  {
+   "id": "deepseek/deepseek-v3.2",
+   "canonical_slug": "deepseek/deepseek-v3.2-20251201",
+   "hugging_face_id": "deepseek-ai/DeepSeek-V3.2",
+   "name": "DeepSeek: DeepSeek V3.2",
+   "created": 1764594642,
+   "description": "DeepSeek-V3.2 is a large language model designed to harmonize high computational efficiency with strong reasoning and agentic tool-use performance. It introduces DeepSeek Sparse Attention (DSA), a fine-grained sparse attention mechanism...",
+   "context_length": 163840,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "DeepSeek",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.000000269",
+    "completion": "0.0000004",
+    "input_cache_read": "0.0000001345"
+   },
+   "top_provider": {
+    "context_length": 163840,
+    "max_completion_tokens": 65536,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "frequency_penalty",
+    "include_reasoning",
+    "logit_bias",
+    "logprobs",
+    "max_tokens",
+    "min_p",
+    "presence_penalty",
+    "reasoning",
+    "repetition_penalty",
+    "response_format",
+    "seed",
+    "stop",
+    "structured_outputs",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_k",
+    "top_logprobs",
+    "top_p"
+   ],
+   "default_parameters": {
+    "temperature": 1,
+    "top_p": 0.95,
+    "top_k": null,
+    "frequency_penalty": null,
+    "presence_penalty": null,
+    "repetition_penalty": null
+   },
+   "supported_voices": null,
+   "knowledge_cutoff": null,
+   "expiration_date": "2026-09-28",
+   "links": {
+    "details": "/api/v1/models/deepseek/deepseek-v3.2-20251201/endpoints"
+   },
+   "benchmarks": {
+    "design_arena": [
+     {
+      "arena": "models",
+      "category": "3d",
+      "elo": 1154,
+      "win_rate": 49.4,
+      "rank": 64
+     },
+     {
+      "arena": "models",
+      "category": "asciiart",
+      "elo": 1095,
+      "win_rate": 40.5,
+      "rank": 61
+     },
+     {
+      "arena": "models",
+      "category": "codecategories",
+      "elo": 1173,
+      "win_rate": 49.3,
+      "rank": 69
+     },
+     {
+      "arena": "models",
+      "category": "dataviz",
+      "elo": 1169,
+      "win_rate": 48.2,
+      "rank": 68
+     },
+     {
+      "arena": "models",
+      "category": "gamedev",
+      "elo": 1145,
+      "win_rate": 46.5,
+      "rank": 74
+     },
+     {
+      "arena": "models",
+      "category": "svg",
+      "elo": 1041,
+      "win_rate": 40.8,
+      "rank": 72
+     },
+     {
+      "arena": "models",
+      "category": "uicomponent",
+      "elo": 1157,
+      "win_rate": 46.8,
+      "rank": 68
+     },
+     {
+      "arena": "models",
+      "category": "website",
+      "elo": 1183,
+      "win_rate": 50.2,
+      "rank": 69
+     }
+    ],
+    "artificial_analysis": {
+     "intelligence_index": null,
+     "coding_index": 44.2,
+     "agentic_index": null
+    }
+   },
+   "reasoning": {
+    "mandatory": false,
+    "default_enabled": false
+   }
+  },
+  {
+   "id": "deepseek/deepseek-r1-distill-llama-70b",
+   "canonical_slug": "deepseek/deepseek-r1-distill-llama-70b",
+   "hugging_face_id": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
+   "name": "DeepSeek: R1 Distill Llama 70B",
+   "created": 1737663169,
+   "description": "DeepSeek R1 Distill Llama 70B is a distilled large language model based on [Llama-3.3-70B-Instruct](/meta-llama/llama-3.3-70b-instruct), using outputs from [DeepSeek R1](/deepseek/deepseek-r1). The model combines advanced distillation techniques to achieve high performance across...",
+   "context_length": 8192,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Llama3",
+    "instruct_type": "deepseek-r1"
+   },
+   "pricing": {
+    "prompt": "0.0000008",
+    "completion": "0.0000008"
+   },
+   "top_provider": {
+    "context_length": 8192,
+    "max_completion_tokens": 7372,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "frequency_penalty",
+    "include_reasoning",
+    "max_tokens",
+    "presence_penalty",
+    "reasoning",
+    "repetition_penalty",
+    "seed",
+    "stop",
+    "temperature",
+    "top_k",
+    "top_p"
+   ],
+   "default_parameters": {},
+   "supported_voices": null,
+   "knowledge_cutoff": "2024-07-31",
+   "expiration_date": "2026-09-28",
+   "links": {
+    "details": "/api/v1/models/deepseek/deepseek-r1-distill-llama-70b/endpoints"
+   },
+   "reasoning": {
+    "mandatory": false
+   }
+  },
+  {
+   "id": "deepseek/deepseek-r1",
+   "canonical_slug": "deepseek/deepseek-r1",
+   "hugging_face_id": "deepseek-ai/DeepSeek-R1",
+   "name": "DeepSeek: R1",
+   "created": 1737381095,
+   "description": "DeepSeek R1 is here: Performance on par with [OpenAI o1](/openai/o1), but open-sourced and with fully open reasoning tokens. It's 671B parameters in size, with 37B active in an inference pass....",
+   "context_length": 64000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "DeepSeek",
+    "instruct_type": "deepseek-r1"
+   },
+   "pricing": {
+    "prompt": "0.0000007",
+    "completion": "0.0000025"
+   },
+   "top_provider": {
+    "context_length": 64000,
+    "max_completion_tokens": 16000,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "frequency_penalty",
+    "include_reasoning",
+    "max_tokens",
+    "presence_penalty",
+    "reasoning",
+    "repetition_penalty",
+    "response_format",
+    "seed",
+    "stop",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_k",
+    "top_p"
+   ],
+   "default_parameters": {
+    "temperature": null,
+    "top_p": null,
+    "top_k": null,
+    "frequency_penalty": null,
+    "presence_penalty": null,
+    "repetition_penalty": null
+   },
+   "supported_voices": null,
+   "knowledge_cutoff": "2024-07-31",
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/deepseek/deepseek-r1/endpoints"
+   },
+   "benchmarks": {
+    "design_arena": [],
+    "artificial_analysis": {
+     "intelligence_index": 11.4,
+     "coding_index": 24.6,
+     "agentic_index": 1.1
+    }
+   },
+   "reasoning": {
+    "mandatory": true
+   }
+  },
+  {
+   "id": "inclusionai/ling-3.0-flash-sante:free",
+   "canonical_slug": "inclusionai/ling-3.0-flash-sante-20260904",
+   "hugging_face_id": null,
+   "name": "inclusionAI: Ling 3.0 Flash Sante (free)",
+   "created": 1788545946,
+   "description": "Ling 3.0 Flash Sante is a health and medicine-focused mixture-of-experts model from InclusionAI, built on Ling 3.0 Flash with 5.1B active parameters out of 124B total. It is designed for...",
+   "context_length": 262144,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0",
+    "completion": "0"
+   },
+   "top_provider": {
+    "context_length": 262144,
+    "max_completion_tokens": 32768,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "frequency_penalty",
+    "include_reasoning",
+    "logprobs",
+    "max_tokens",
+    "presence_penalty",
+    "reasoning",
+    "repetition_penalty",
+    "seed",
+    "stop",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_k",
+    "top_logprobs",
+    "top_p"
+   ],
+   "default_parameters": {},
+   "supported_voices": null,
+   "knowledge_cutoff": null,
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/inclusionai/ling-3.0-flash-sante-20260904/endpoints"
+   },
+   "reasoning": {
+    "mandatory": false,
+    "default_enabled": true
+   }
+  },
+  {
+   "id": "bytedance-seed/seed-2.0-code",
+   "canonical_slug": "bytedance-seed/seed-2.0-code-20260730",
+   "hugging_face_id": null,
+   "name": "ByteDance Seed: Seed-2.0-Code",
+   "created": 1786550701,
+   "description": "Seed 2.0 Code is a model from ByteDance Seed optimized for agentic coding. It is suited for frontend development, multilingual programming tasks, and coding-agent workflows in tools such as Claude...",
+   "context_length": 262144,
+   "architecture": {
+    "modality": "text+image+video->text",
+    "input_modalities": [
+     "text",
+     "image",
+     "video"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Other",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "0.0000005",
+    "completion": "0.000003",
+    "overrides": [
+     {
+      "min_prompt_tokens": 128000,
+      "prompt": "0.000001",
+      "completion": "0.000006"
+     }
+    ]
+   },
+   "top_provider": {
+    "context_length": 262144,
+    "max_completion_tokens": 131072,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "frequency_penalty",
+    "include_reasoning",
+    "max_tokens",
+    "reasoning",
+    "reasoning_effort",
+    "response_format",
+    "stop",
+    "structured_outputs",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_p"
+   ],
+   "default_parameters": {},
+   "supported_voices": null,
+   "knowledge_cutoff": null,
+   "expiration_date": "2026-11-11",
+   "links": {
+    "details": "/api/v1/models/bytedance-seed/seed-2.0-code-20260730/endpoints"
+   },
+   "reasoning": {
+    "mandatory": false,
+    "supported_efforts": [
+     "high",
+     "medium",
+     "low"
+    ],
+    "default_effort": "medium"
+   }
+  },
+  {
+   "id": "openrouter/auto-beta",
+   "canonical_slug": "openrouter/auto-beta",
+   "hugging_face_id": null,
+   "name": "Auto Router (Beta)",
+   "created": 1784311165,
+   "description": "The experimental version of our Auto Router where we test new improvements. Use it to get the latest and greatest version of our general purpose auto router, but expect beta...",
+   "context_length": 2000000,
+   "architecture": {
+    "modality": "text+image+file+audio+video->text+image",
+    "input_modalities": [
+     "text",
+     "image",
+     "audio",
+     "file",
+     "video"
+    ],
+    "output_modalities": [
+     "text",
+     "image"
+    ],
+    "tokenizer": "Router",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "-1",
+    "completion": "-1"
+   },
+   "top_provider": {
+    "context_length": null,
+    "max_completion_tokens": null,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [
+    "frequency_penalty",
+    "include_reasoning",
+    "logit_bias",
+    "logprobs",
+    "max_tokens",
+    "min_p",
+    "prediction",
+    "presence_penalty",
+    "reasoning",
+    "reasoning_effort",
+    "repetition_penalty",
+    "response_format",
+    "seed",
+    "stop",
+    "structured_outputs",
+    "temperature",
+    "tool_choice",
+    "tools",
+    "top_a",
+    "top_k",
+    "top_logprobs",
+    "top_p",
+    "web_search_options"
+   ],
+   "default_parameters": {},
+   "supported_voices": null,
+   "knowledge_cutoff": null,
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/openrouter/auto-beta/endpoints"
+   }
+  },
+  {
+   "id": "openrouter/fusion",
+   "canonical_slug": "openrouter/fusion",
+   "hugging_face_id": null,
+   "name": "OpenRouter: Fusion",
+   "created": 1781371647,
+   "description": "Fusion turns your prompt into a small multi-model deliberation. A panel of expert models (see below) analyzes your prompt in parallel with web search and web fetch enabled, then a...",
+   "context_length": 1000000,
+   "architecture": {
+    "modality": "text->text",
+    "input_modalities": [
+     "text"
+    ],
+    "output_modalities": [
+     "text"
+    ],
+    "tokenizer": "Router",
+    "instruct_type": null
+   },
+   "pricing": {
+    "prompt": "-1",
+    "completion": "-1"
+   },
+   "top_provider": {
+    "context_length": null,
+    "max_completion_tokens": null,
+    "is_moderated": false
+   },
+   "per_request_limits": null,
+   "supported_parameters": [],
+   "default_parameters": {
+    "temperature": null,
+    "top_p": null,
+    "top_k": null,
+    "frequency_penalty": null,
+    "presence_penalty": null,
+    "repetition_penalty": null
+   },
+   "supported_voices": null,
+   "knowledge_cutoff": null,
+   "expiration_date": null,
+   "links": {
+    "details": "/api/v1/models/openrouter/fusion/endpoints"
+   }
+  }
+ ]
+}

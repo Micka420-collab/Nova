@@ -1,0 +1,12 @@
+{
+  "name": "@nova/agent-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@nova/providers": "workspace:*",
+    "@nova/shared": "workspace:*",
+    "@nova/storage": "workspace:*"
+  }
+}

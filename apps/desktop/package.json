@@ -1,0 +1,43 @@
+{
+  "name": "@nova/desktop",
+  "productName": "NOVA",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NOVA — atelier personnel d'IA",
+  "author": "NOVA",
+  "type": "module",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "package": "electron-vite build && electron-builder --config electron-builder.yml",
+    "package:dir": "electron-vite build && electron-builder --config electron-builder.yml --dir",
+    "test:e2e": "electron-vite build && playwright test"
+  },
+  "devDependencies": {
+    "@nova/agent-runtime": "workspace:*",
+    "@nova/providers": "workspace:*",
+    "@nova/shared": "workspace:*",
+    "@nova/storage": "workspace:*",
+    "@nova/ui": "workspace:*",
+    "@playwright/test": "^1.63.0",
+    "@testing-library/react": "^16.3.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "cmdk": "^1.1.1",
+    "electron": "44.4.5",
+    "electron-builder": "^26.15.0",
+    "electron-vite": "^5.0.0",
+    "jsdom": "^30.1.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-markdown": "^10.1.0",
+    "react-resizable-panels": "^4.14.0",
+    "remark-gfm": "^4.0.1",
+    "vite": "^7.3.0",
+    "zod": "^4.6.0",
+    "zustand": "^5.0.15"
+  }
+}

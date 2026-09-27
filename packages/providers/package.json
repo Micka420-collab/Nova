@@ -1,0 +1,11 @@
+{
+  "name": "@nova/providers",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@nova/shared": "workspace:*",
+    "eventsource-parser": "^4.1.0"
+  }
+}

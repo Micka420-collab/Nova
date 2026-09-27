@@ -1,0 +1,16 @@
+node_modules/
+out/
+dist/
+release/
+coverage/
+*.log
+.DS_Store
+Thumbs.db
+.vite/
+test-results/
+playwright-report/
+apps/desktop/e2e/artifacts/
+.env
+.env.*
+!.env.example
+*.key

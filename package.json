@@ -1,0 +1,29 @@
+{
+  "name": "nova-workspace",
+  "private": true,
+  "version": "0.1.0",
+  "description": "NOVA — atelier personnel d'IA (desktop d'abord).",
+  "type": "module",
+  "packageManager": "pnpm@12.1.0",
+  "engines": {
+    "node": ">=24.10"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @nova/desktop dev",
+    "build": "pnpm --filter @nova/desktop build",
+    "package": "pnpm --filter @nova/desktop package",
+    "test": "vitest run",
+    "test:e2e": "pnpm --filter @nova/desktop test:e2e",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "oxlint --deny-warnings apps packages scripts",
+    "check": "pnpm lint && pnpm typecheck && pnpm test",
+    "icons": "node scripts/render-icons.mjs"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "@types/node": "^24.10.0",
+    "oxlint": "^1.85.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2"
+  }
+}
