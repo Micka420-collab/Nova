@@ -1,11 +1,13 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { _electron as electron, type ElectronApplication, type Page } from "@playwright/test";
 import type { MockOpenRouter } from "./mock-openrouter";
 
-export const appDir = fileURLToPath(new URL("..", import.meta.url));
+// resolve() drops the trailing separator: on Windows "…\desktop\" would escape the closing quote
+// of the Electron command line and break the argument.
+export const appDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 export const artifactsDir = join(appDir, "e2e", "artifacts");
 
 export function makeUserDataDir(): string {
