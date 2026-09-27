@@ -40,7 +40,7 @@ Objectif : un socle sur lequel chaque jalon peut s'appuyer sans le refaire.
 - [x] Documents de référence dans `docs/` (première version, à relire)
 - [x] Tokens de design, polices, icônes et assets de marque dans `packages/ui` — commits `a08ad93`, `996fd02` (logo en ruban, icônes régénérées)
 - [x] Nomi : états visuels branchés sur les événements du runtime — commit `a08ad93`
-- [ ] CI GitHub Actions verte : aucun run consigné à ce jour
+- [x] CI GitHub Actions verte sur Linux, Windows et macOS (run 36320963259)
 
 **Critère de sortie** : CI verte, c'est-à-dire `pnpm lint`, `pnpm typecheck` et `pnpm test` sur Linux (job `checks`, `ubuntu-latest` uniquement), puis build, E2E Playwright, `vault-smoke` et paquet non signé `electron-builder --dir` sur Linux, Windows et macOS (job `desktop`) ; les tokens validés sont reportés dans [`DESIGN_SYSTEM.md`](DESIGN_SYSTEM.md#tokens-validés). Les tests unitaires (dont `node:sqlite` et le coffre) ne tournent donc pas sous Windows ni macOS en CI.
 
@@ -68,7 +68,7 @@ Les cases cochées sont livrées dans `a08ad93` et couvertes par les tests unita
 - [x] E2E Playwright sur Linux sans écran (Xvfb) — coffre faible ou session uniquement, car Playwright force `--password-store=basic`
 - [x] Niveau de coffre `os` sous Linux constaté hors Playwright (`e2e/vault-smoke.mjs` avec trousseau privé)
 - [ ] Coffre `os` sous Linux de bout en bout : clé chiffrée, redémarrage, relecture (aucun test versionné)
-- [ ] Builds non signés et E2E en CI Windows et macOS (CI en attente)
+- [x] Builds non signés et E2E en CI Windows et macOS (run 36320963259)
 - [ ] Accessibilité du parcours de conversation : clavier, focus et audit axe-core faits ; lecteur d'écran non vérifié
 - [ ] Scénario 1 avec un vrai compte OpenRouter
 
