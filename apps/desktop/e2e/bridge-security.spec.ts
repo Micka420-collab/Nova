@@ -82,7 +82,26 @@ test("the renderer has no Node access and only the fixed bridge", async () => {
   }));
   expect(surface.require).toBe("undefined");
   expect(surface.process).toBe("undefined");
-  expect(surface.bridgeGroups).toEqual(["app", "chat", "connection", "conversations", "models", "settings"]);
+  expect(surface.bridgeGroups).toEqual([
+    "app",
+    "approvals",
+    "chat",
+    "checkpoints",
+    "companion",
+    "connection",
+    "conversations",
+    "files",
+    "git",
+    "mcp",
+    "missions",
+    "models",
+    "permissions",
+    "search",
+    "settings",
+    "terminal",
+    "web",
+    "workspace",
+  ]);
   expect(surface.url).toBe("nova://app/index.html");
 });
 

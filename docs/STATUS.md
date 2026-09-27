@@ -39,6 +39,10 @@ Environnement commun, sauf mention contraire : Linux x64, Ubuntu 26.04, Node 24.
 | 2026-09-27 | Build empaqueté Linux lancé avec `NOVA_OPENROUTER_BASE_URL`, `NOVA_USER_DATA_DIR`, `ELECTRON_RENDERER_URL` | Linux x64, dossier empaqueté | Les trois variables ignorées | Voie principale |
 | 2026-09-27 | Catalogue OpenRouter en direct, puis vérification d'une clé invalide | Linux x64, réseau réel | 458 modèles reçus ; HTTP 401 traduit en `invalid_key` | Voie principale |
 | 2026-09-27 | CI GitHub Actions (`.github/workflows/ci.yml`), run 36320963259 (commit `98762932`) | ubuntu, windows, macos | 4 jobs verts : lint/types/unitaires ; sur chaque OS E2E 13/13, `vault-smoke` et `electron-builder --dir` | CI |
+| 2026-09-27 | J2-A phase 0 — `pnpm install` (`node-pty` compilé par node-gyp, N-API) puis un script lancé par le vrai binaire Electron qui ouvre un pty `echo nova-pty-ok` | Linux x64, Electron 44.4.5 (Node 24.21, ABI 149, N-API 10) | Sortie `nova-pty-ok`, code 0 ; `rgPath` résolu, `ripgrep 15.0.0` | Voie J2-A |
+| 2026-09-27 | J2-A phase 0 — `nova --nova-selftest=workers` sur le build `out/` puis sur `release/linux-unpacked/nova` (`electron-builder --dir`, fuses actifs) | Linux x64, Xvfb | `ok: true` : 4 workers (`pty-host`, `fs-worker`, `agent-runtime`, `mcp-host`) répondent au ping ; pty `nova-pty-ok` dans le pty-host ; `ripgrep 15.0.0` lancé par le fs-worker depuis `app.asar.unpacked` | Voie J2-A |
+| 2026-09-27 | J2-A phase 0 — `pnpm lint`, `pnpm typecheck`, `pnpm test` | Linux x64 | Lint et types sans erreur ; 42 fichiers, 578 tests réussis, 2 ignorés (migrations v1→v5, contrat partagé, workers, nonce CSP) | Voie J2-A |
+| 2026-09-27 | J2-A phase 0 — `electron-vite build && xvfb-run -a npx playwright test` | Linux x64, Xvfb | 16/16 réussis : les 13 existants + `atelier-foundations.spec.ts` 3 (workers et natifs, nonce de style, relais de port) | Voie J2-A |
 | en attente | Scénario 1 manuel avec un vrai compte OpenRouter (réponse en continu réelle) | | à faire : demande une clé avec crédit | |
 
 ## Non vérifié
@@ -49,7 +53,8 @@ Environnement commun, sauf mention contraire : Linux x64, Ubuntu 26.04, Node 24.
 - **Lecteur d'écran** (Orca, NVDA, VoiceOver) : aucun passage manuel.
 - **Signature des installeurs** : aucune (question Q3).
 - **Effacement sur disque** : `PRAGMA secure_delete` et le point de contrôle WAL après suppression sont en place et testés au niveau du store (absence des octets dans les fichiers) ; les limites physiques (SSD, instantanés) restent hors de portée — voir [`SECURITY.md`](SECURITY.md#effacement-des-données).
-- Paquet sans `node_modules` ni module natif (ADR-002) : non contrôlé sur le paquet.
+- Paquet : depuis ADR-012, `node_modules` contient uniquement `node-pty` et `@vscode/ripgrep` (+ binaire de la plateforme), désarchivés ; vérifié sous Linux (`release/linux-unpacked`), **pas encore sous Windows et macOS** (prébuilds de `node-pty`, `spawn-helper` sous macOS) : rejouer `--nova-selftest=workers` sur les paquets de la CI.
+- J2-A : les groupes IPC `workspace`, `files`, `search`, `terminal`, `missions`, `approvals`, `permissions`, `git`, `mcp`, `web`, `companion`, `checkpoints` existent au contrat mais répondent `unavailable` (phase 0) ; xterm.js n'est pas encore vérifié contre la CSP à nonce.
 - Avis de licence (OFL, ISC) présents dans le paquet.
 - Mesures de référence : taille de l'installeur, mémoire au repos, CPU du compagnon au repos (ADR-001).
 
@@ -95,4 +100,5 @@ Format attendu d'une cellule remplie : « Oui — 2026-mm-jj, commande ou run CI
 ## Historique de cette page
 
 - 2026-09-27 — squelette initial.
+- 2026-09-27 — J2-A phase 0 (socle) : dépendances, contrat partagé, migrations v2–v5, workers, nonce CSP.
 - 2026-09-27 — résultats de la tranche verticale (`a08ad93`, `996fd02`) : lint, types, tests unitaires, E2E Linux, coffre, paquet Linux.

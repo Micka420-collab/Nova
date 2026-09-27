@@ -119,6 +119,7 @@ export const IPC_ERROR_COPY: Record<IpcErrorCode, string> = {
   key_unreadable:
     "Ta clé enregistrée ne peut pas être lue : le trousseau du système est verrouillé ou a changé. Déverrouille-le, ou saisis ta clé à nouveau.",
   provider: "Le fournisseur a renvoyé une erreur.",
+  unavailable: "Cette fonction n'est pas disponible pour l'instant dans NOVA.",
   internal: "Erreur interne de NOVA. Réessaie ; si ça persiste, consulte les journaux (Réglages › Diagnostics).",
 };
 

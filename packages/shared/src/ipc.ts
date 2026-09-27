@@ -14,19 +14,87 @@ import type {
   UsageSummary,
 } from "./domain";
 
+import type { CompanionActRequest, CompanionActResult, CompanionEvent, CompanionState, CompanionStateRequest } from "./companion";
+import type { GitDiff, GitDiffRequest, GitStatus } from "./git";
+import { EntityIdSchema, ModelIdSchema } from "./ids";
+import type {
+  McpListRequest,
+  McpServerIdRequest,
+  McpServerInput,
+  McpServerUpdateRequest,
+  McpServerView,
+  McpSetToolPermissionRequest,
+  McpTestResult,
+  McpToolInfo,
+  McpToolsRequest,
+} from "./mcp";
+import type {
+  Mission,
+  MissionDetail,
+  MissionEvent,
+  MissionGetRequest,
+  MissionIdRequest,
+  MissionPage,
+  MissionPlanRequest,
+  MissionPlanResult,
+  MissionStartRequest,
+  MissionsListRequest,
+  ReviewDecideRequest,
+  ReviewResult,
+} from "./missions";
+import type {
+  Approval,
+  ApprovalDecideRequest,
+  ApprovalsListRequest,
+  PermissionProfileState,
+  PermissionsProfileRequest,
+  PermissionsSetProfileRequest,
+} from "./permissions";
+import type {
+  TerminalCreateRequest,
+  TerminalListRequest,
+  TerminalResizeRequest,
+  TerminalSession,
+  TerminalSessionRequest,
+} from "./terminal";
+import type { WebPolicy, WebPolicyGetRequest, WebPolicySetRequest } from "./web";
+import type {
+  Checkpoint,
+  CheckpointRestoreAllRequest,
+  CheckpointRestoreFileRequest,
+  CheckpointsListRequest,
+  FileContent,
+  FileEntry,
+  FileSearchQuery,
+  FileSearchResult,
+  FileWriteRequest,
+  FileWriteResult,
+  FilesCreateRequest,
+  FilesEvent,
+  FilesListRequest,
+  FilesMoveRequest,
+  FilesReadRequest,
+  FilesTrashRequest,
+  RestoreAllResult,
+  RestoreFileResult,
+  SearchQuery,
+  SearchResult,
+  Workspace,
+  WorkspaceConsentRequest,
+  WorkspaceFacts,
+  WorkspaceFactsRequest,
+  WorkspaceIdRequest,
+  WorkspaceRecentRequest,
+} from "./workspace";
+
 export { IPC_CHANNELS, type IpcChannel } from "./channels";
 
 // ---------------------------------------------------------------------------
 // Request schemas
 
 const providerId = z.literal("openrouter");
-const entityId = z.uuid();
-/** Model ids look like `author/model-name[:variant]`; kept permissive but bounded. */
-const modelId = z
-  .string()
-  .min(1)
-  .max(200)
-  .regex(/^[\w.\-~]+\/[\w.\-:~@]+$/, "identifiant de modèle invalide");
+const entityId = EntityIdSchema;
+const modelId = ModelIdSchema;
 
 export const ProviderRequestSchema = z.object({ providerId });
 
@@ -174,6 +242,8 @@ export type IpcErrorCode =
   /** A stored key exists but cannot be decrypted (keyring locked, changed or reset). */
   | "key_unreadable"
   | "provider"
+  /** The capability exists in the contract but is not available now (worker down, not built yet). */
+  | "unavailable"
   | "internal";
 
 export interface IpcError {
@@ -232,6 +302,87 @@ export interface NovaApi {
     /** Subscribe to streaming events; returns an unsubscribe function. */
     onEvent(listener: (event: ChatStreamEvent) => void): () => void;
   };
+
+  // J2-A. Push subscriptions are always named `onEvent` (MainApi omits them).
+  workspace: {
+    /** Native folder picker in main; null when the user cancels. */
+    open(): Promise<Workspace | null>;
+    recent(req: WorkspaceRecentRequest): Promise<Workspace[]>;
+    facts(req: WorkspaceFactsRequest): Promise<WorkspaceFacts>;
+    close(req: WorkspaceIdRequest): Promise<void>;
+    /** D10: answer to "read AGENTS.md / CLAUDE.md / .cursorrules of this project?". */
+    setInstructionConsent(req: WorkspaceConsentRequest): Promise<Workspace>;
+  };
+  files: {
+    /** One directory level (lazy tree), directories first then files, by name. */
+    list(req: FilesListRequest): Promise<FileEntry[]>;
+    read(req: FilesReadRequest): Promise<FileContent>;
+    write(req: FileWriteRequest): Promise<FileWriteResult>;
+    create(req: FilesCreateRequest): Promise<FileEntry>;
+    move(req: FilesMoveRequest): Promise<FileEntry>;
+    trash(req: FilesTrashRequest): Promise<void>;
+    onEvent(listener: (event: FilesEvent) => void): () => void;
+  };
+  search: {
+    text(req: SearchQuery): Promise<SearchResult>;
+    files(req: FileSearchQuery): Promise<FileSearchResult>;
+  };
+  terminal: {
+    /** Creates a user terminal; its data port arrives through the port registry (kind `terminal`, id = session id). */
+    create(req: TerminalCreateRequest): Promise<TerminalSession>;
+    list(req: TerminalListRequest): Promise<TerminalSession[]>;
+    /** Sends a fresh data port for an existing session (after a window reload); replays scrollback. */
+    attach(req: TerminalSessionRequest): Promise<TerminalSession>;
+    resize(req: TerminalResizeRequest): Promise<void>;
+    kill(req: TerminalSessionRequest): Promise<void>;
+  };
+  missions: {
+    plan(req: MissionPlanRequest): Promise<MissionPlanResult>;
+    start(req: MissionStartRequest): Promise<Mission>;
+    pause(req: MissionIdRequest): Promise<Mission>;
+    resume(req: MissionIdRequest): Promise<Mission>;
+    /** Idempotent; kills running processes; ends in `cancelled` with one terminal event. */
+    stop(req: MissionIdRequest): Promise<Mission>;
+    list(req: MissionsListRequest): Promise<MissionPage>;
+    get(req: MissionGetRequest): Promise<MissionDetail>;
+    review(req: ReviewDecideRequest): Promise<ReviewResult>;
+    onEvent(listener: (event: MissionEvent) => void): () => void;
+  };
+  approvals: {
+    list(req: ApprovalsListRequest): Promise<Approval[]>;
+    decide(req: ApprovalDecideRequest): Promise<Approval>;
+  };
+  permissions: {
+    getProfile(req: PermissionsProfileRequest): Promise<PermissionProfileState>;
+    setProfile(req: PermissionsSetProfileRequest): Promise<PermissionProfileState>;
+  };
+  git: {
+    status(req: WorkspaceIdRequest): Promise<GitStatus>;
+    diff(req: GitDiffRequest): Promise<GitDiff>;
+  };
+  mcp: {
+    list(req: McpListRequest): Promise<McpServerView[]>;
+    add(req: McpServerInput): Promise<McpServerView>;
+    update(req: McpServerUpdateRequest): Promise<McpServerView>;
+    remove(req: McpServerIdRequest): Promise<void>;
+    test(req: McpServerIdRequest): Promise<McpTestResult>;
+    tools(req: McpToolsRequest): Promise<McpToolInfo[]>;
+    setToolPermission(req: McpSetToolPermissionRequest): Promise<McpToolInfo>;
+  };
+  web: {
+    getPolicy(req: WebPolicyGetRequest): Promise<WebPolicy>;
+    setPolicy(req: WebPolicySetRequest): Promise<WebPolicy>;
+  };
+  companion: {
+    state(req: CompanionStateRequest): Promise<CompanionState>;
+    act(req: CompanionActRequest): Promise<CompanionActResult>;
+    onEvent(listener: (event: CompanionEvent) => void): () => void;
+  };
+  checkpoints: {
+    list(req: CheckpointsListRequest): Promise<Checkpoint[]>;
+    restoreFile(req: CheckpointRestoreFileRequest): Promise<RestoreFileResult>;
+    restoreAll(req: CheckpointRestoreAllRequest): Promise<RestoreAllResult>;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -284,6 +435,79 @@ export function createNovaClient(bridge: NovaBridge): NovaApi {
       retry: (req) => unwrap(bridge.chat.retry(req)),
       active: () => unwrap(bridge.chat.active()),
       onEvent: (listener) => bridge.chat.onEvent(listener),
+    },
+    workspace: {
+      open: () => unwrap(bridge.workspace.open()),
+      recent: (req) => unwrap(bridge.workspace.recent(req)),
+      facts: (req) => unwrap(bridge.workspace.facts(req)),
+      close: (req) => unwrap(bridge.workspace.close(req)),
+      setInstructionConsent: (req) => unwrap(bridge.workspace.setInstructionConsent(req)),
+    },
+    files: {
+      list: (req) => unwrap(bridge.files.list(req)),
+      read: (req) => unwrap(bridge.files.read(req)),
+      write: (req) => unwrap(bridge.files.write(req)),
+      create: (req) => unwrap(bridge.files.create(req)),
+      move: (req) => unwrap(bridge.files.move(req)),
+      trash: (req) => unwrap(bridge.files.trash(req)),
+      onEvent: (listener) => bridge.files.onEvent(listener),
+    },
+    search: {
+      text: (req) => unwrap(bridge.search.text(req)),
+      files: (req) => unwrap(bridge.search.files(req)),
+    },
+    terminal: {
+      create: (req) => unwrap(bridge.terminal.create(req)),
+      list: (req) => unwrap(bridge.terminal.list(req)),
+      attach: (req) => unwrap(bridge.terminal.attach(req)),
+      resize: (req) => unwrap(bridge.terminal.resize(req)),
+      kill: (req) => unwrap(bridge.terminal.kill(req)),
+    },
+    missions: {
+      plan: (req) => unwrap(bridge.missions.plan(req)),
+      start: (req) => unwrap(bridge.missions.start(req)),
+      pause: (req) => unwrap(bridge.missions.pause(req)),
+      resume: (req) => unwrap(bridge.missions.resume(req)),
+      stop: (req) => unwrap(bridge.missions.stop(req)),
+      list: (req) => unwrap(bridge.missions.list(req)),
+      get: (req) => unwrap(bridge.missions.get(req)),
+      review: (req) => unwrap(bridge.missions.review(req)),
+      onEvent: (listener) => bridge.missions.onEvent(listener),
+    },
+    approvals: {
+      list: (req) => unwrap(bridge.approvals.list(req)),
+      decide: (req) => unwrap(bridge.approvals.decide(req)),
+    },
+    permissions: {
+      getProfile: (req) => unwrap(bridge.permissions.getProfile(req)),
+      setProfile: (req) => unwrap(bridge.permissions.setProfile(req)),
+    },
+    git: {
+      status: (req) => unwrap(bridge.git.status(req)),
+      diff: (req) => unwrap(bridge.git.diff(req)),
+    },
+    mcp: {
+      list: (req) => unwrap(bridge.mcp.list(req)),
+      add: (req) => unwrap(bridge.mcp.add(req)),
+      update: (req) => unwrap(bridge.mcp.update(req)),
+      remove: (req) => unwrap(bridge.mcp.remove(req)),
+      test: (req) => unwrap(bridge.mcp.test(req)),
+      tools: (req) => unwrap(bridge.mcp.tools(req)),
+      setToolPermission: (req) => unwrap(bridge.mcp.setToolPermission(req)),
+    },
+    web: {
+      getPolicy: (req) => unwrap(bridge.web.getPolicy(req)),
+      setPolicy: (req) => unwrap(bridge.web.setPolicy(req)),
+    },
+    companion: {
+      state: (req) => unwrap(bridge.companion.state(req)),
+      act: (req) => unwrap(bridge.companion.act(req)),
+      onEvent: (listener) => bridge.companion.onEvent(listener),
+    },
+    checkpoints: {
+      list: (req) => unwrap(bridge.checkpoints.list(req)),
+      restoreFile: (req) => unwrap(bridge.checkpoints.restoreFile(req)),
+      restoreAll: (req) => unwrap(bridge.checkpoints.restoreAll(req)),
     },
   };
 }

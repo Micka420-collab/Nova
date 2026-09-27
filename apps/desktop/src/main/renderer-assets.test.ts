@@ -2,7 +2,16 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { RENDERER_CSP, contentTypeFor, resolveRendererFile, serveRendererRequest } from "./renderer-assets";
+import {
+  RENDERER_CSP,
+  STYLE_NONCE_META,
+  contentTypeFor,
+  createStyleNonce,
+  injectStyleNonce,
+  rendererCspWithNonce,
+  resolveRendererFile,
+  serveRendererRequest,
+} from "./renderer-assets";
 
 let base: string;
 let root: string;
@@ -58,12 +67,39 @@ describe("serveRendererRequest", () => {
     const response = await serveRendererRequest(root, { method: "GET", url: "nova://app/index.html" });
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
-    expect(response.headers.get("content-security-policy")).toBe(RENDERER_CSP);
+    const csp = response.headers.get("content-security-policy") ?? "";
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
-    await expect(response.text()).resolves.toBe("<!doctype html><title>NOVA</title>");
+    const body = await response.text();
+    const nonce = /<meta name="nova-style-nonce" content="([^"]+)">/.exec(body)?.[1];
+    expect(nonce).toMatch(/^[A-Za-z0-9+/]{22}==$/);
+    expect(csp).toBe(rendererCspWithNonce(nonce ?? ""));
+    expect(body).toBe(`<meta name="${STYLE_NONCE_META}" content="${nonce}"><!doctype html><title>NOVA</title>`);
     expect(RENDERER_CSP).toContain("default-src 'none'");
     expect(RENDERER_CSP).toContain("script-src 'self'");
     expect(RENDERER_CSP).not.toContain("unsafe");
+  });
+
+  it("gives every HTML load its own style nonce and leaves script-src strict", async () => {
+    const load = () => serveRendererRequest(root, { method: "GET", url: "nova://app/" });
+    const [first, second] = await Promise.all([load(), load()]);
+    const a = first.headers.get("content-security-policy") ?? "";
+    const b = second.headers.get("content-security-policy") ?? "";
+    expect(a).not.toBe(b);
+    for (const csp of [a, b]) {
+      expect(csp).toMatch(/style-src 'self' 'nonce-[A-Za-z0-9+/=]+'/);
+      expect(csp).toContain("script-src 'self';");
+      expect(csp).not.toContain("unsafe");
+    }
+    // Other assets keep the nonce-less policy.
+    const js = await serveRendererRequest(root, { method: "GET", url: "nova://app/assets/app.js" });
+    expect(js.headers.get("content-security-policy")).toBe(RENDERER_CSP);
+    expect(createStyleNonce()).not.toBe(createStyleNonce());
+  });
+
+  it("injects the nonce meta right after <head>", () => {
+    expect(injectStyleNonce('<html><head lang="fr"><title>x</title></head></html>', "abc")).toBe(
+      '<html><head lang="fr"><meta name="nova-style-nonce" content="abc"><title>x</title></head></html>',
+    );
   });
 
   it("answers 404 for escapes and directories, 405 for other methods, no body for HEAD", async () => {

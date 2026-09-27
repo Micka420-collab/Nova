@@ -1,6 +1,6 @@
 import { ChatRunner, RuntimeError, type RuntimeLogger } from "@nova/agent-runtime";
 import { ProviderError, providerErrorInfo, type ModelProvider, type ProviderStreamEvent } from "@nova/providers";
-import { IPC_CHANNELS, type AppInfo, type ChatStreamEvent, type IpcResult } from "@nova/shared";
+import { IPC_CHANNELS, PUSH_CHANNELS, type AppInfo, type ChatStreamEvent, type IpcResult } from "@nova/shared";
 import { openNovaStore, type NovaStore } from "@nova/storage";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -106,10 +106,27 @@ describe("toIpcError", () => {
 });
 
 describe("buildIpcRoutes", () => {
-  it("routes every request channel exactly once (the push channel excluded)", () => {
+  it("routes every request channel exactly once (push channels excluded)", () => {
     const { routes } = setup();
-    const expected = Object.values(IPC_CHANNELS).filter((channel) => channel !== IPC_CHANNELS.chatEvent);
+    const expected = Object.values(IPC_CHANNELS).filter((channel) => !PUSH_CHANNELS.includes(channel));
     expect([...routes.keys()].sort()).toEqual([...expected].sort());
+    expect(routes.size).toBe(expected.length);
+  });
+
+  it("answers a not-yet-wired J2-A group with the typed unavailable error, after validation", async () => {
+    const { call } = setup();
+    const workspaceId = "7f1c1b8e-7a8f-4d7c-9a51-1c2c3d4e5f60";
+    await expect(call(IPC_CHANNELS.filesRead, { workspaceId, path: "src/app.ts" })).resolves.toEqual({
+      ok: false,
+      error: { code: "unavailable", message: "files.read is not available yet" },
+    });
+    // Validation still runs first: traversal and absolute paths never reach a service.
+    for (const path of ["../etc/passwd", "/etc/passwd", "src/../../x", "C:/Windows", "a\\b", "a//b", "./a"]) {
+      await expect(call(IPC_CHANNELS.filesRead, { workspaceId, path })).resolves.toMatchObject({
+        ok: false,
+        error: { code: "invalid_request", message: "Invalid request: path" },
+      });
+    }
   });
 
   it("rejects invalid payloads with field names only, never the submitted values", async () => {

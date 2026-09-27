@@ -1,3 +1,16 @@
+export * from "./companion";
 export * from "./domain";
+export * from "./git";
+export * from "./ids";
 export * from "./ipc";
+export * from "./mcp";
+export * from "./missions";
+export * from "./paths";
+export * from "./permissions";
+export * from "./ports";
 export * from "./redact";
+export * from "./terminal";
+export * from "./tools";
+export * from "./web";
+export * from "./workspace";
+export { NOVA_PORT_MESSAGE, PUSH_CHANNELS, type NovaPortEnvelope, type NovaPortKind } from "./channels";

@@ -15,6 +15,89 @@ import {
   type ProviderConnectionView,
 } from "@nova/shared";
 
+const unsubscribeNothing = (): (() => void) => () => {};
+
+/**
+ * J2-A groups answer `unavailable`, like main before a group is wired (services/unavailable.ts).
+ * Feature work replaces a group here with an in-memory fake when its UI needs one.
+ */
+function unavailableAtelierBridge(record: (name: string) => void): Pick<NovaBridge, AtelierGroup> {
+  const no = (name: string) => (): Promise<IpcResult<never>> => {
+    record(name);
+    return Promise.resolve({ ok: false, error: { code: "unavailable", message: `${name} is not available yet` } });
+  };
+  return {
+    workspace: {
+      open: no("workspace.open"),
+      recent: no("workspace.recent"),
+      facts: no("workspace.facts"),
+      close: no("workspace.close"),
+      setInstructionConsent: no("workspace.setInstructionConsent"),
+    },
+    files: {
+      list: no("files.list"),
+      read: no("files.read"),
+      write: no("files.write"),
+      create: no("files.create"),
+      move: no("files.move"),
+      trash: no("files.trash"),
+      onEvent: unsubscribeNothing,
+    },
+    search: { text: no("search.text"), files: no("search.files") },
+    terminal: {
+      create: no("terminal.create"),
+      list: no("terminal.list"),
+      attach: no("terminal.attach"),
+      resize: no("terminal.resize"),
+      kill: no("terminal.kill"),
+    },
+    missions: {
+      plan: no("missions.plan"),
+      start: no("missions.start"),
+      pause: no("missions.pause"),
+      resume: no("missions.resume"),
+      stop: no("missions.stop"),
+      list: no("missions.list"),
+      get: no("missions.get"),
+      review: no("missions.review"),
+      onEvent: unsubscribeNothing,
+    },
+    approvals: { list: no("approvals.list"), decide: no("approvals.decide") },
+    permissions: { getProfile: no("permissions.getProfile"), setProfile: no("permissions.setProfile") },
+    git: { status: no("git.status"), diff: no("git.diff") },
+    mcp: {
+      list: no("mcp.list"),
+      add: no("mcp.add"),
+      update: no("mcp.update"),
+      remove: no("mcp.remove"),
+      test: no("mcp.test"),
+      tools: no("mcp.tools"),
+      setToolPermission: no("mcp.setToolPermission"),
+    },
+    web: { getPolicy: no("web.getPolicy"), setPolicy: no("web.setPolicy") },
+    companion: { state: no("companion.state"), act: no("companion.act"), onEvent: unsubscribeNothing },
+    checkpoints: {
+      list: no("checkpoints.list"),
+      restoreFile: no("checkpoints.restoreFile"),
+      restoreAll: no("checkpoints.restoreAll"),
+    },
+  };
+}
+
+type AtelierGroup =
+  | "workspace"
+  | "files"
+  | "search"
+  | "terminal"
+  | "missions"
+  | "approvals"
+  | "permissions"
+  | "git"
+  | "mcp"
+  | "web"
+  | "companion"
+  | "checkpoints";
+
 let sequence = 0;
 /** Deterministic UUID-shaped ids (the IPC schemas require UUIDs). */
 export function testId(): string {
@@ -144,6 +227,7 @@ export function createFakeBridge(seed: FakeSeed = {}): FakeBridge {
   }
 
   const bridge: NovaBridge = {
+    ...unavailableAtelierBridge((name) => calls.push(name)),
     app: {
       info: () =>
         reply("app.info", () => ({

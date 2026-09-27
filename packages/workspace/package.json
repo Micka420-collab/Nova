@@ -1,0 +1,13 @@
+{
+  "name": "@nova/workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@nova/shared": "workspace:*",
+    "chokidar": "^5.0.0",
+    "diff": "^9.0.0",
+    "ignore": "^7.0.10"
+  }
+}

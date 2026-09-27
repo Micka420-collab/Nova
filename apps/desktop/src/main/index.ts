@@ -7,6 +7,9 @@ import { OpenRouterProvider } from "@nova/providers";
 import { IPC_CHANNELS, type ChatStreamEvent } from "@nova/shared";
 import { openNovaStore, type NovaStore } from "@nova/storage";
 import { createMainApi } from "./api";
+import { resolveRipgrepPath, workerSpecs } from "./native-deps";
+import { SELFTEST_FLAG, runWorkerSelfTest } from "./selftest";
+import { WorkerPool } from "./workers";
 import { registerIpcRoutes } from "./ipc";
 import { buildIpcRoutes } from "./ipc-routes";
 import { createFileLogger, describeError, type Logger } from "./logger";
@@ -91,6 +94,15 @@ function forwardChatEvent(event: ChatStreamEvent): void {
   }
 }
 
+/** Supervised utilityProcess workers; each starts on first use (nothing runs until a feature needs it). */
+async function createWorkerPool(logger: Logger): Promise<WorkerPool> {
+  const ripgrepPath = await resolveRipgrepPath().catch((error: unknown) => {
+    logger.error("ripgrep not found", { error: describeError(error) });
+    return null;
+  });
+  return new WorkerPool(workerSpecs(import.meta.dirname, { ripgrepPath }), { logger });
+}
+
 /** Opens the store; on failure explains it and, for a damaged file, offers to set it aside. */
 function openStore(dataDir: string, logger: Logger): NovaStore | null {
   const databasePath = join(dataDir, "nova.sqlite");
@@ -150,6 +162,7 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
   }
   logger.info("store opened", { interruptedStreams: store.markInterruptedStreams() });
 
+  const workers = await createWorkerPool(logger);
   const context: SecurityContext = { devOrigin, logger };
   hardenSession(session.defaultSession, context);
   handleAppProtocol(join(import.meta.dirname, "../renderer"));
@@ -202,6 +215,7 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
     event.preventDefault();
     shutdown ??= (async () => {
       runner.stopAll();
+      workers.stopAll();
       const timeout = new Promise<void>((resolve) => setTimeout(resolve, QUIT_IDLE_TIMEOUT_MS));
       await Promise.race([runner.idle(), timeout]);
       store.close();
@@ -222,7 +236,23 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
   void vault.status().then((status) => logger.info("vault detected", { ...status }));
 }
 
-if (!app.requestSingleInstanceLock()) {
+if (process.argv.includes(SELFTEST_FLAG)) {
+  // Diagnostics mode (see selftest.ts): no window, no store, no single-instance lock.
+  const logger = createFileLogger({ dir: join(app.getPath("userData"), "logs"), fileName: "selftest.log" });
+  void app
+    .whenReady()
+    .then(async () => {
+      const pool = await createWorkerPool(logger);
+      const report = await runWorkerSelfTest(pool);
+      pool.stopAll();
+      process.stdout.write(`${JSON.stringify({ novaSelfTest: report })}\n`);
+      app.exit(report.ok ? 0 : 1);
+    })
+    .catch((error: unknown) => {
+      process.stdout.write(`${JSON.stringify({ novaSelfTest: { ok: false, error: describeError(error) } })}\n`);
+      app.exit(1);
+    });
+} else if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   const dataDir = app.getPath("userData");

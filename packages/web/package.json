@@ -1,0 +1,16 @@
+{
+  "name": "@nova/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "@nova/shared": "workspace:*",
+    "linkedom": "^0.18.13",
+    "turndown": "^7.2.4"
+  },
+  "devDependencies": {
+    "@types/turndown": "^5.0.6"
+  }
+}

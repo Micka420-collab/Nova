@@ -1,4 +1,5 @@
 // NovaStore contract: local product state in SQLite (node:sqlite). Project files are never stored here.
+import type { DatabaseSync } from "node:sqlite";
 import type {
   AppSettings,
   Conversation,
@@ -68,6 +69,11 @@ export interface UsageRecordInput {
 export interface NovaStore {
   /** Absolute path of the database file (or `:memory:`). */
   readonly path: string;
+  /**
+   * Raw migrated handle, for the domain repositories of `./repos` only (createWorkspaceRepo…).
+   * Do not run ad-hoc SQL from features: add a repository method instead.
+   */
+  readonly db: DatabaseSync;
   close(): void;
 
   getSettings(): AppSettings;

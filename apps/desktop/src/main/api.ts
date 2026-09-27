@@ -7,6 +7,7 @@ import type { AppService } from "./services/app-service";
 import type { CatalogService } from "./services/catalog-service";
 import type { ChatEventHub } from "./services/chat-events";
 import type { ConnectionService } from "./services/connection-service";
+import { unavailableAtelierApi, type AtelierApi } from "./services/unavailable";
 
 export type MainApi = { [G in keyof NovaApi]: Omit<NovaApi[G], "onEvent"> };
 
@@ -19,6 +20,11 @@ export interface MainApiDeps {
   chatEvents: Pick<ChatEventHub, "waitForEnd">;
   /** Bound on waiting for a stopped stream to persist before deleting its conversation. */
   stopTimeoutMs?: number;
+  /**
+   * J2-A groups implemented so far. A group left out answers every call with the `unavailable`
+   * IPC error (services/unavailable.ts); feature work adds its group here.
+   */
+  atelier?: Partial<AtelierApi>;
 }
 
 const DEFAULT_STOP_TIMEOUT_MS = 5_000;
@@ -31,6 +37,8 @@ export function createMainApi(deps: MainApiDeps): MainApi {
   const { store, runner, connections, catalog, chatEvents } = deps;
   const stopTimeoutMs = deps.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS;
   return {
+    ...unavailableAtelierApi(),
+    ...deps.atelier,
     app: deps.app,
     settings: {
       get: async () => store.getSettings(),

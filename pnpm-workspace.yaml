@@ -16,5 +16,8 @@ minimumReleaseAgeExclude:
 allowBuilds:
   electron: true
   esbuild: true
+  # Native terminal (ADR-012): N-API addon; Linux compiles from source (node-gyp), macOS/Windows use
+  # the prebuilds shipped inside the tarball. N-API makes the binary valid for Electron's ABI too.
+  node-pty: true
   # Squirrel installer tooling is unused (NSIS target); its install script is not needed.
   electron-winstaller: false

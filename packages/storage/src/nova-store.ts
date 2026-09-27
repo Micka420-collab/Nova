@@ -178,7 +178,7 @@ function toMessage(row: Row): Message {
 
 class SqliteNovaStore implements NovaStore {
   constructor(
-    private readonly db: DatabaseSync,
+    readonly db: DatabaseSync,
     readonly path: string,
     private readonly now: () => number,
   ) {}
