@@ -1,4 +1,5 @@
 // Security and runtime invariants exercised through the real app (built out/), at the bridge level.
+import { execFileSync } from "node:child_process";
 import { expect, test } from "@playwright/test";
 import type { ChatStreamEvent, ConversationDetail, IpcResult, NovaBridge } from "@nova/shared";
 import { launchNova, makeUserDataDir, readTreeAsText, removeDir, type LaunchedNova } from "./fixtures";
@@ -205,7 +206,13 @@ test("a crash during generation leaves an interrupted message, never a phantom s
     .poll(() => mock.requests.filter((request) => request.path === "/api/v1/chat/completions").length)
     .toBe(1);
   await nova.page.waitForTimeout(1200);
-  nova.app.process().kill("SIGKILL");
+  // A real crash takes the whole process tree down; on Windows killing only the main process
+  // leaves Chromium helpers holding the single-instance lock for a while.
+  const crashed = nova.app.process();
+  const exited = new Promise((resolve) => crashed.once("exit", resolve));
+  if (process.platform === "win32" && crashed.pid) execFileSync("taskkill", ["/pid", String(crashed.pid), "/T", "/F"]);
+  else crashed.kill("SIGKILL");
+  await exited;
   nova = null;
 
   nova = await launchNova({ userDataDir, mock });
