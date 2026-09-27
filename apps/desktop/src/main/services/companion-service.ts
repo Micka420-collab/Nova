@@ -27,42 +27,24 @@ import { redactSecrets } from "@nova/shared";
 import type {
   ChatStreamEvent,
   CompanionAction,
-  CompanionActRequest,
-  CompanionActResult,
   CompanionEvent,
   CompanionSignal,
   CompanionSignalKind,
   CompanionSourceRef,
-  CompanionState,
-  CompanionStateRequest,
   CompanionSuggestion,
   Mission,
   MissionEvent,
   MissionIdRequest,
 } from "@nova/shared";
-import type { SignalRecord, SignalRepo } from "@nova/storage";
+import type { SignalRecord, SignalRepo, SuggestionRepo } from "@nova/storage";
+import type { MainApi } from "../api";
 import { ServiceError } from "../service-error";
 
 /** Signals returned by `companion.state` (contract: newest first, ≤ 50). */
 const STATE_SIGNALS = 50;
 
-/** Shape of `createSuggestionRepo` (packages/storage/src/repos/suggestions.ts). */
-interface SuggestionRecord {
-  id: string;
-  signalId: string;
-  text: string;
-  action: unknown;
-  status: CompanionSuggestion["status"];
-  createdAt: number;
-  decidedAt: number | null;
-}
-interface SuggestionStore {
-  insert(input: { signalId: string; text: string; action: unknown }): SuggestionRecord;
-  get(id: string): SuggestionRecord | null;
-  latestForSignal(signalId: string): SuggestionRecord | null;
-  lastCreatedAt(): number | null;
-  decide(id: string, status: Exclude<CompanionSuggestion["status"], "proposed">): SuggestionRecord | null;
-}
+type SuggestionStore = Pick<SuggestionRepo, "insert" | "get" | "latestForSignal" | "lastCreatedAt" | "decide">;
+type SuggestionRecord = ReturnType<SuggestionRepo["insert"]>;
 type SignalStore = Pick<SignalRepo, "insert" | "get" | "findBySource" | "listRecent" | "setState">;
 
 export interface CompanionServiceDeps {
@@ -78,6 +60,8 @@ export interface CompanionServiceDeps {
   isFocused(): boolean;
   /** Conversation title for a chat failure notice (title and fact only, never content). */
   conversationTitle(conversationId: string): string | null;
+  /** A RUNNING terminal session (P5 watch): its workspace and command; null when unknown or ended. */
+  runningSession?(sessionId: string): Promise<{ workspaceId: string | null; command: string[] | null } | null>;
   now?: () => number;
   minIntervalMs?: number;
   setTimer?: (fn: () => void, ms: number) => { cancel(): void };
@@ -92,7 +76,7 @@ export interface WatchedCommand {
 
 export interface CompanionService {
   /** The `companion` IPC group (plug into `MainApiDeps.atelier.companion`). */
-  api: { state(req: CompanionStateRequest): Promise<CompanionState>; act(req: CompanionActRequest): Promise<CompanionActResult> };
+  api: MainApi["companion"];
   onMissionEvent(event: MissionEvent): void;
   onChatEvent(event: ChatStreamEvent): void;
   /** P5: report on this terminal session's next exit. */
@@ -314,6 +298,20 @@ export function createCompanionService(deps: CompanionServiceDeps): CompanionSer
         // the renderer opens the view through its own validated calls.
         const decided = deps.suggestions.decide(suggestionId, "accepted");
         return { suggestion: toSuggestion(decided ?? stored), performedByMain: false, navigate: action };
+      },
+
+      async watch({ sessionId }) {
+        const session = (await deps.runningSession?.(sessionId)) ?? null;
+        if (!session) return { status: "none", command: null };
+        return { status: service.watch(sessionId, session.workspaceId, session.command), command: session.command };
+      },
+
+      async setQuiet({ until }) {
+        service.setQuiet(until);
+      },
+
+      async notices() {
+        return policy.notices();
       },
     },
 

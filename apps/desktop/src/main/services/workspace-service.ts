@@ -2,14 +2,14 @@
 // fs-worker client shared by the files/search services. The absolute root never leaves main: the
 // renderer gets `displayPath` (home-abbreviated, display only) and uses workspace ids.
 import { basename, sep } from "node:path";
-import type { Workspace, WorkspaceFacts } from "@nova/shared";
-import type { WorkspaceRecord, WorkspaceRepo } from "@nova/storage";
+import { EditorSessionSnapshotSchema, type Workspace, type WorkspaceFacts } from "@nova/shared";
+import type { EditorStateRepo, WorkspaceRecord, WorkspaceRepo } from "@nova/storage";
 import { WorkspaceError, canonicalRoot, detectWorkspaceFacts, type GitClient } from "@nova/workspace";
 import type { IpcErrorCode } from "@nova/shared";
 import { ServiceError } from "../service-error";
 import type { WorkerNotify } from "../../workers/protocol";
 import type { FsMethod, FsMethods, FsOutcome } from "../../workers/fs/protocol";
-import type { AtelierApi } from "./unavailable";
+import type { AtelierApi } from "../api";
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -91,6 +91,8 @@ export function createFsClient(worker: FsWorkerPort, rootOf: (workspaceId: strin
 
 export interface WorkspaceServiceDeps {
   repo: WorkspaceRepo;
+  /** Pr3 editor layout per workspace (`editor_state`). */
+  editorState: EditorStateRepo;
   /** Native folder picker (dialog.showOpenDialog in main); null when cancelled. */
   pickFolder: () => Promise<string | null>;
   /** User home, for the display-only `~/…` path. */
@@ -154,16 +156,33 @@ export function createWorkspaceService(deps: WorkspaceServiceDeps): WorkspaceSer
     return facts;
   };
 
+  const reopen = async (workspaceId: string): Promise<Workspace> => {
+    const root = await rootOf(workspaceId);
+    const opened = repo.upsertByRootPath({ rootPath: root, name: basename(root) || root });
+    await fs.open(opened.id, root);
+    return toWorkspace(opened, homeDir);
+  };
+
   return {
     fs,
     rootOf,
-    async reopen(workspaceId) {
-      const root = await rootOf(workspaceId);
-      const opened = repo.upsertByRootPath({ rootPath: root, name: basename(root) || root });
-      await fs.open(opened.id, root);
-      return toWorkspace(opened, homeDir);
-    },
+    reopen,
     api: {
+      reopen: ({ workspaceId }) => reopen(workspaceId),
+
+      async getEditorState({ workspaceId }) {
+        record(workspaceId);
+        const saved = deps.editorState.get(workspaceId);
+        // The renderer owns the shape; an unreadable or older layout is dropped, never guessed.
+        const parsed = saved ? EditorSessionSnapshotSchema.safeParse(saved.state) : null;
+        return parsed?.success ? parsed.data : null;
+      },
+
+      async setEditorState({ workspaceId, state }) {
+        record(workspaceId);
+        deps.editorState.put(workspaceId, state);
+      },
+
       async open() {
         const picked = await deps.pickFolder();
         if (picked === null) return null;

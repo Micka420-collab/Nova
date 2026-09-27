@@ -2,6 +2,15 @@
 // Memory is capped by `maxChars`; when trimming, the head is cut after the next line break so the
 // replay rarely starts in the middle of a line or an escape sequence.
 
+const ESC = String.fromCharCode(0x1b);
+const BEL = String.fromCharCode(0x07);
+/** OSC (`ESC ] … BEL|ESC \`), CSI (`ESC [ … final`) and two-character ESC sequences. */
+const ESCAPES = new RegExp(`${ESC}\\][^${BEL}${ESC}]*(?:${BEL}|${ESC}\\\\)|${ESC}\\[[0-9;?]*[ -/]*[@-~]|${ESC}[@-_]`, "g");
+
+function stripEscapes(text: string): string {
+  return text.replace(ESCAPES, "");
+}
+
 export class Scrollback {
   private chunks: string[] = [];
   private size = 0;
@@ -17,6 +26,18 @@ export class Scrollback {
     this.chunks.push(data);
     this.size += data.length;
     if (this.size > this.maxChars) this.trim();
+  }
+
+  /**
+   * Plain-text end of the output (escape sequences removed, CR normalized), for the exit report
+   * (P5 test counts). Bounded by `maxChars`.
+   */
+  plainTail(maxChars: number): string {
+    // CSI / OSC / other ESC sequences: rendering only, never content.
+    const plain = stripEscapes(this.text())
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n");
+    return plain.length > maxChars ? plain.slice(plain.length - maxChars) : plain;
   }
 
   text(): string {

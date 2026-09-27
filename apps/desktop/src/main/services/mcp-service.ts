@@ -11,6 +11,8 @@
 //   `callTool` re-checks the per-tool rule (deny refused; ask requires the caller's approval) and
 //   returns a ToolResult with untrusted `mcp` provenance.
 import { randomUUID } from "node:crypto";
+import { readFile, stat } from "node:fs/promises";
+import { join } from "node:path";
 import type { RuntimeLogger } from "@nova/agent-runtime";
 import {
   MCP_HOST_EVENTS,
@@ -21,6 +23,7 @@ import {
   flagUntrustedText,
   httpEndpointProblem,
   httpTransportFactory,
+  parseProjectMcpJson,
   proposedPermission,
   qualifiedNameOf,
   refusedToolResult,
@@ -41,6 +44,7 @@ import {
   type JsonSchema,
   type McpConfigValue,
   type McpConfigValueInput,
+  type McpImportDraft,
   type McpServerConfig,
   type McpServerInput,
   type McpServerStatus,
@@ -129,17 +133,16 @@ export interface McpCallContext {
   approved: boolean;
 }
 
-/** McpToolInfo plus UI hints (see contract change request: fields belong in McpToolInfo). */
-export type McpToolView = McpToolInfo & {
-  descriptionFlags: UntrustedTextFlag[];
-  proposedPermission: McpToolPermission;
-};
+/** A tool as the manager shows it (the UI hints are part of McpToolInfo). */
+export type McpToolView = McpToolInfo;
 
 type McpApi = MainApi["mcp"];
 
 const SILENT: RuntimeLogger = { info: () => {}, warn: () => {}, error: () => {} };
 /** After a failed automatic connection, wait this long before retrying on the model path. */
 const AUTO_RETRY_MS = 60_000;
+/** A project `.mcp.json` is a few KB; anything bigger is not read. */
+const MCP_JSON_MAX_BYTES = 256 * 1024;
 /** Short secrets would be mostly revealed by a 4-character hint. */
 const HINT_MIN_LENGTH = 12;
 
@@ -185,7 +188,29 @@ export class McpService {
         if (!view) throw new ServiceError("not_found", "MCP tool not found");
         return view;
       },
+      logs: ({ serverId }) => this.stderrTail(serverId),
+      importProject: async ({ workspaceId }) => this.importProject(workspaceId),
     };
+  }
+
+  /** M3: drafts from `<workspace>/.mcp.json`; nothing is saved (variables are never expanded). */
+  private async importProject(workspaceId: string): Promise<McpImportDraft[]> {
+    const root = this.deps.workspaceRoot(workspaceId);
+    if (!root) throw new ServiceError("not_found", "Workspace not found");
+    let text: string;
+    try {
+      const file = join(root, ".mcp.json");
+      if ((await stat(file)).size > MCP_JSON_MAX_BYTES) throw new ServiceError("invalid_request", ".mcp.json is too large");
+      text = await readFile(file, "utf8");
+    } catch (error) {
+      if (error instanceof ServiceError) throw error;
+      throw new ServiceError("not_found", "No .mcp.json in this workspace");
+    }
+    try {
+      return parseProjectMcpJson(text, { scope: "workspace", workspaceId });
+    } catch {
+      throw new ServiceError("invalid_request", ".mcp.json is not a valid MCP configuration");
+    }
   }
 
   /** Redacted stderr tail of a stdio server (live, or from its last run). */

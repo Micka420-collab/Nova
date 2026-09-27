@@ -16,7 +16,7 @@ export const PTY_METHODS = {
 
 /** Worker → main events. */
 export const PTY_EVENTS = {
-  /** A session's process ended (params: TerminalSession). */
+  /** A session's process ended (params: TerminalSession & { outputTail: string }, tail redacted). */
   exit: "terminal.exit",
   /** A session changed owner or title (params: TerminalSession). */
   update: "terminal.update",

@@ -4,6 +4,7 @@
 // (ADR-012), so it is loaded lazily: a load failure answers `unavailable` instead of crashing.
 import type { MessagePortMain } from "electron";
 import type { ZodType } from "zod";
+import { redactSecrets } from "@nova/shared";
 import { resolveConfinedCwd } from "./pty/cwd";
 import { buildPtyEnv } from "./pty/env";
 import { killTree } from "./pty/kill-tree";
@@ -67,7 +68,7 @@ const sessions = new PtySessions({
     }
     return killTree(pty.pid);
   },
-  onExit: (session) => notify?.(PTY_EVENTS.exit, session),
+  onExit: (session, outputTail) => notify?.(PTY_EVENTS.exit, { ...session, outputTail: redactSecrets(outputTail) }),
   onUpdate: (session) => notify?.(PTY_EVENTS.update, session),
 });
 
@@ -95,7 +96,7 @@ function handler(run: (params: unknown, context: HandlerContext) => unknown): Wo
       return await run(params, context);
     } catch (error) {
       if (error instanceof PtyHostError) {
-        const code = error.reason === "failed" ? "failed" : "invalid_params";
+        const code = error.reason === "failed" ? "failed" : error.reason === "not_found" ? "not_found" : "invalid_params";
         throw new WorkerMethodError(code, error.message);
       }
       throw error;

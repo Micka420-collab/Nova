@@ -4,10 +4,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FilesEvent, SearchMatch } from "@nova/shared";
-import { createWorkspaceRepo, openNovaStore, type NovaStore } from "@nova/storage";
+import { createCheckpointRepo, createEditorStateRepo, createWorkspaceRepo, type NovaStore, openNovaStore } from "@nova/storage";
 import { createGitClient, sha256 } from "@nova/workspace";
-// Not yet re-exported from @nova/storage (see the lane report): imported from its module directly.
-import { createCheckpointRepo } from "../../../../../packages/storage/src/repos/checkpoints";
 import type { WorkerNotify } from "../../workers/protocol";
 import { createFsHandlers, type FsHandlers } from "../../workers/fs/handlers";
 import { createCheckpointsService } from "./checkpoints-service";
@@ -84,6 +82,7 @@ beforeEach(async () => {
   const git = createGitClient({ env: gitEnv });
   workspaces = createWorkspaceService({
     repo: createWorkspaceRepo(store.db),
+    editorState: createEditorStateRepo(store.db),
     pickFolder: async () => picked,
     homeDir: home,
     git,
@@ -126,6 +125,20 @@ describe("workspace service", () => {
 
     expect((await workspaces.api.setInstructionConsent({ workspaceId: id, consent: "allowed" })).instructionFilesConsent).toBe("allowed");
     await expect(workspaces.api.facts({ workspaceId: crypto.randomUUID(), refresh: false })).rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("reopens a recent workspace by id and keeps its editor layout (paths only)", async () => {
+    await put("a.txt", "hello");
+    const { id } = (await workspaces.api.open()) as { id: string };
+    await workspaces.api.close({ workspaceId: id });
+    expect(await workspaces.api.reopen({ workspaceId: id })).toMatchObject({ id, name: "shop" });
+    expect(await files.api.read({ workspaceId: id, path: "a.txt" })).toMatchObject({ content: "hello" });
+
+    expect(await workspaces.api.getEditorState({ workspaceId: id })).toBeNull();
+    const layout = { version: 1 as const, tabs: [{ path: "a.txt", pinned: true }], activePath: "a.txt", scroll: { "a.txt": 120 } };
+    await workspaces.api.setEditorState({ workspaceId: id, state: layout });
+    expect(await workspaces.api.getEditorState({ workspaceId: id })).toEqual(layout);
+    await expect(workspaces.api.reopen({ workspaceId: crypto.randomUUID() })).rejects.toMatchObject({ code: "not_found" });
   });
 
   it("re-registers the workspace after an fs-worker restart", async () => {
@@ -236,5 +249,45 @@ describe("checkpoints service with the agent file API", () => {
     expect(await readFile(join(project, "b.ts"), "utf8")).toBe("b-user\n");
     await expect(checkpoints.api.restoreFile({ checkpointId: crypto.randomUUID(), path: "a.ts" })).rejects.toMatchObject({ code: "not_found" });
     await expect(ops.searchText({ pattern: "x", isRegex: false, caseSensitive: false, wholeWord: false, include: [], exclude: [], maxResults: 1 })).rejects.toMatchObject({ code: "unavailable" });
+
+    // The conflicting file: undo the agent's change on top of the user's version, then apply it.
+    const proposal = await checkpoints.api.proposeMerge({ checkpointId: step.id, path: "b.ts" });
+    expect(proposal).toEqual({
+      status: "conflicting",
+      path: "b.ts",
+      currentHash: sha256("b-user\n"),
+      base: "b2\n",
+      current: "b-user\n",
+      target: "b1\n",
+    });
+    // The user's hand merge is written only over the version it was made from.
+    const merged = { checkpointId: step.id, path: "b.ts", merged: "b1 + user\n", expectedHash: sha256("b-user\n") };
+    expect(await checkpoints.api.applyMerge(merged)).toMatchObject({ status: "restored" });
+    expect(await readFile(join(project, "b.ts"), "utf8")).toBe("b1 + user\n");
+    expect(await checkpoints.api.applyMerge(merged)).toMatchObject({ status: "conflict" });
+  });
+
+  it("records a project replace in a user restore point that restores every file", async () => {
+    await put("a.ts", "old a\n");
+    await put("b.ts", "old b\n");
+    const { id } = (await workspaces.api.open()) as { id: string };
+    const checkpoints = createCheckpointsService({ workspaces, index: createCheckpointRepo(store.db), dataDir });
+    const userFiles = createFilesService({ workspaces, checkpoints: checkpoints.store, rgPath: null, trashItem: async () => {} });
+    const point = await checkpoints.api.create({ workspaceId: id, label: "Remplacer « old »", reason: "user_replace" });
+    for (const path of ["a.ts", "b.ts"]) {
+      const current = await userFiles.api.read({ workspaceId: id, path });
+      const next = (current.content ?? "").replace("old", "new");
+      expect(await userFiles.api.write({ workspaceId: id, path, content: next, expectedHash: current.hash, checkpointId: point.id })).toMatchObject({ status: "written" });
+    }
+    // A stale hash writes nothing and records nothing.
+    expect(await userFiles.api.write({ workspaceId: id, path: "a.ts", content: "x", expectedHash: sha256("old a\n"), checkpointId: point.id })).toMatchObject({ status: "conflict" });
+    const [listed] = await checkpoints.api.list({ workspaceId: id, missionId: null, limit: 5 });
+    expect(listed?.files.map((file) => file.path)).toEqual(["a.ts", "b.ts"]);
+    await checkpoints.api.restoreAll({ checkpointId: point.id });
+    expect(await readFile(join(project, "a.ts"), "utf8")).toBe("old a\n");
+    expect(await readFile(join(project, "b.ts"), "utf8")).toBe("old b\n");
+    // An agent checkpoint cannot be used by the renderer's write.
+    const agentPoint = checkpoints.store.create({ workspaceId: id, missionId: null, label: "Étape", reason: "tool_write" });
+    await expect(userFiles.api.write({ workspaceId: id, path: "a.ts", content: "y", expectedHash: null, checkpointId: agentPoint.id })).rejects.toMatchObject({ code: "invalid_request" });
   });
 });

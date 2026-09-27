@@ -9,6 +9,9 @@ import {
   type MissionContract,
   type PermissionProfileState,
   type PermissionRequest,
+  type PermissionRevokeRequest,
+  type PermissionRule,
+  type PermissionRulesRequest,
   type PermissionsProfileRequest,
   type PermissionsSetProfileRequest,
 } from "@nova/shared";
@@ -77,6 +80,30 @@ export class PermissionsService {
       to: req.profile,
     });
     return this.state(req.workspaceId);
+  }
+
+  /** Rules the user remembered ("pour cette mission / ce projet"), newest first. */
+  async listRules(req: PermissionRulesRequest): Promise<PermissionRule[]> {
+    this.state(req.workspaceId);
+    return this.deps.policies
+      .listForWorkspace(req.workspaceId)
+      .filter((rule) => rule.source === "user")
+      .toSorted((a, b) => b.createdAt - a.createdAt);
+  }
+
+  /** Revokes one remembered rule, or all of them ("Tout révoquer"); audited. Returns the count. */
+  async revokeRules(req: PermissionRevokeRequest): Promise<number> {
+    this.state(req.workspaceId);
+    let count: number;
+    if (req.ruleId === null) {
+      count = this.deps.policies.revokeUserRules(req.workspaceId);
+    } else {
+      const rule = this.deps.policies.listForWorkspace(req.workspaceId).find((item) => item.id === req.ruleId);
+      if (!rule || rule.source !== "user") throw new ServiceError("not_found", "Rule not found");
+      count = this.deps.policies.delete(rule.id) ? 1 : 0;
+    }
+    this.deps.audit.recordUserAction(req.workspaceId, "permissions.rules_revoked", req.ruleId, { count });
+    return count;
   }
 
   /**

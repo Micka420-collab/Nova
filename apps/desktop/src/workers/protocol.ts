@@ -22,7 +22,7 @@ export interface WorkerNotify {
   params: unknown;
 }
 
-export type WorkerErrorCode = "unknown_method" | "invalid_params" | "failed" | "unavailable";
+export type WorkerErrorCode = "unknown_method" | "invalid_params" | "not_found" | "failed" | "unavailable";
 
 export type WorkerResponse =
   | { kind: "response"; id: number; ok: true; result: unknown }

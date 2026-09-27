@@ -15,6 +15,9 @@ import {
 } from "@nova/shared";
 import type { PtyCreateParams, PtyResizeParams } from "./protocol";
 import { Scrollback } from "./scrollback";
+
+/** Output kept with an exit report (P5): enough for a test runner's summary. */
+const EXIT_TAIL_CHARS = 8 * 1024;
 import { shellName, type ShellChoice } from "./shell";
 
 export interface Disposable {
@@ -72,7 +75,8 @@ export interface PtySessionsDeps {
   env(): Record<string, string>;
   /** Ends the whole process tree of a session; resolves when every process was signalled. */
   killTree(pty: PtyProcess): Promise<void>;
-  onExit?(session: TerminalSession): void;
+  /** `outputTail`: plain end of the output (≤ 8 KB, not redacted: the receiver redacts). */
+  onExit?(session: TerminalSession, outputTail: string): void;
   onUpdate?(session: TerminalSession): void;
   now?(): number;
   highWatermark?: number;
@@ -308,7 +312,9 @@ export class PtySessions {
     session.info.exitCode = signal ? null : exitCode;
     session.exitMessage = { type: "exit", exitCode: session.info.exitCode, signal: signal || null };
     session.port?.postMessage(session.exitMessage);
-    if (this.sessions.get(session.info.id) === session) this.deps.onExit?.({ ...session.info });
+    if (this.sessions.get(session.info.id) === session) {
+      this.deps.onExit?.({ ...session.info }, session.scrollback.plainTail(EXIT_TAIL_CHARS));
+    }
     this.pruneExited();
   }
 

@@ -1,13 +1,9 @@
 import { readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { openNovaStore, type NovaStore } from "@nova/storage";
+import { createWebCacheRepo, createWebPolicyRepo, createWebSearchUsageRepo, createWorkspaceRepo, type NovaStore, openNovaStore } from "@nova/storage";
 import type { WebSearchOutcome, WebSearchRequest } from "@nova/web";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-// Repos are not re-exported from @nova/storage yet (lead wiring): import the modules directly.
-import { createWebCacheRepo, createWebSearchUsageRepo } from "../../../../../packages/storage/src/repos/web-cache";
-import { createWebPolicyRepo } from "../../../../../packages/storage/src/repos/web-policy";
-import { createWorkspaceRepo } from "../../../../../packages/storage/src/repos/workspaces";
 import { ServiceError } from "../service-error";
 import { WebService } from "./web-service";
 

@@ -1,36 +1,44 @@
 // `missions.*` IPC group (A1/A9/A11/A13): wires the mission controller (@nova/missions) to the
-// SQLite repos, the provider proxy (key stays here), the tool registry over the injected APIs,
-// the permission/approval/checkpoint gates of the other lanes, and the agent-runtime worker over
-// one MessagePort. Every controller refusal becomes a typed ServiceError.
-import { MessageChannelMain } from "electron";
+// SQLite repos, the provider proxy (key stays here), the tool registry over the other lanes'
+// services (files/checkpoints/git L2, web L4, MCP L5, command runner), the permission engine and
+// approvals of L1, and the agent-runtime worker over one MessagePort. Every controller refusal
+// becomes a typed ServiceError. No Electron import here: the runtime port is injected
+// (`openAgentRuntimePort` in workers/agent/main-port.ts), so this module is tested in Node.
 import type { RuntimeLogger } from "@nova/agent-runtime";
 import {
   MissionError,
   connectRuntime,
+  createApprovalBridge,
   createMissionController,
-  type ApprovalGate,
-  type CheckpointGate,
+  revertHunks,
+  unifiedPatch,
+  type ApprovalEventLike,
+  type ApprovalServiceLike,
   type MissionController,
   type PermissionGate,
   type PortLike,
   type ReviewFsGate,
   type RuntimeLink,
+  type ToolExecutionAudit,
 } from "@nova/missions";
 import type { ModelProvider } from "@nova/providers";
 import {
   DEFAULT_DAILY_BUDGET_USD,
   type Checkpoint,
+  type CheckpointReason,
   type CheckpointsListRequest,
   type IsolationLevel,
-  type McpToolInfo,
+  type MissionDiff,
+  type MissionDiffFile,
   type MissionEvent,
+  type RelativePath,
+  type RestoreFileResult,
 } from "@nova/shared";
 import { createMissionRepo, createWorkspaceRepo, type NovaStore } from "@nova/storage";
-import { createToolRegistry, type ToolDeps } from "@nova/tools";
+import { createToolRegistry, type McpToolOffer, type ToolDeps, type WorkspaceFileApi } from "@nova/tools";
+import { decodeText, readBytesOrNull, sha256 } from "@nova/workspace";
 import type { MainApi } from "../api";
 import { ServiceError } from "../service-error";
-import type { WorkerPool } from "../workers";
-import { portFromMessagePortMain } from "../../workers/agent/electron-port";
 import { createProviderProxyHost, type ProviderProxyHost } from "./provider-proxy";
 
 export interface MissionsServiceDeps {
@@ -39,24 +47,30 @@ export interface MissionsServiceDeps {
   resolveApiKey(): Promise<string | null>;
   /** Push to the renderer on IPC_CHANNELS.missionsEvent. */
   push(event: MissionEvent): void;
-  /** Tool back-ends (L2 fs/git, L4 web, L5 mcp, command runner) for a workspace. */
-  toolDeps(workspaceId: string): ToolDeps;
-  /** Enabled MCP tools of the workspace (L5); default none. */
-  mcpTools?(workspaceId: string): Promise<McpToolInfo[]>;
+  /** Tool back-ends of one workspace (L2 file ops/facts/git, L4 web, L5 MCP, command runner). */
+  toolDeps(workspaceId: string): Promise<ToolDeps>;
+  /** Enabled MCP tools of the workspace (L5 `McpService.listToolsForModel`); default none. */
+  mcpTools?(workspaceId: string): Promise<readonly McpToolOffer[]>;
+  /** L1 `PermissionsService` (evaluates and audits every decision). */
   permissions: PermissionGate;
-  approvals: ApprovalGate;
-  checkpoints: (CheckpointGate & { list(req: CheckpointsListRequest): Promise<Checkpoint[]> }) | null;
+  /** L1 `ApprovalsService`; its `emit` must be wired to `service.onApprovalEvent`. */
+  approvals: ApprovalServiceLike;
+  /** L2 checkpoints: `store.create` and `api.list`. Null disables writes and the review. */
+  checkpoints: {
+    create(input: { workspaceId: string; missionId: string | null; label: string; reason: CheckpointReason }): Checkpoint;
+    list(req: CheckpointsListRequest): Promise<Checkpoint[]>;
+  } | null;
+  /** Workspace operations of the review (see `createReviewFsGate`). */
   reviewFs: ReviewFsGate | null;
+  /** Bytes for `missions.diff`: checkpoint objects and the file on disk now. Null: no diff. */
+  diffFs: MissionDiffFs | null;
   isolationLevel(): IsolationLevel;
-  audit?: Parameters<typeof createMissionController>[0]["audit"];
+  /** L1 `AuditService.recordToolExecution`. */
+  audit?(entry: ToolExecutionAudit): void;
   fallbackModelIds?(modelId: string): string[];
   dailyLimitUsd?: number;
-  /**
-   * The agent-runtime link. Default: the `agent-runtime` worker of the pool with a fresh
-   * MessageChannelMain; tests pass an in-memory port.
-   */
-  runtimePort?: () => Promise<PortLike>;
-  workers?: Pick<WorkerPool, "get">;
+  /** A fresh port to the agent-runtime worker (production: `openAgentRuntimePort(workers)`). */
+  openRuntimePort(): Promise<PortLike>;
   logger?: RuntimeLogger;
 }
 
@@ -64,6 +78,51 @@ export interface MissionsService {
   api: MainApi["missions"];
   controller: MissionController;
   host: ProviderProxyHost;
+  /** Wire as L1 `ApprovalsService` `emit`. */
+  onApprovalEvent(event: ApprovalEventLike): void;
+}
+
+export interface MissionDiffFs {
+  /** Bytes of a checkpoint object (content before the mission). */
+  readObject(hash: string): Promise<Uint8Array>;
+  /** Current bytes of a workspace file; null when absent. */
+  readCurrent(workspaceId: string, path: RelativePath): Promise<Uint8Array | null>;
+}
+
+/** Above this, a file's diff is not computed (the review offers the whole-file decision). */
+const DIFF_MAX_BYTES = 2 * 1024 * 1024;
+
+/**
+ * A11: diff(before the mission → disk now) per file the mission wrote, with the SAME hunks
+ * `revertHunks` undoes, so a hunk shown is the hunk reverted.
+ */
+async function missionFileDiff(
+  fs: MissionDiffFs,
+  workspaceId: string,
+  file: { path: RelativePath; beforeHash: string | null },
+): Promise<MissionDiffFile> {
+  let before: Uint8Array | null;
+  let current: Uint8Array | null;
+  try {
+    before = file.beforeHash === null ? null : await fs.readObject(file.beforeHash);
+    current = await fs.readCurrent(workspaceId, file.path);
+  } catch {
+    return { path: file.path, change: "modified", beforeHash: file.beforeHash, currentHash: null, patch: null, missing: "unreadable" };
+  }
+  const currentHash = current === null ? null : sha256(current);
+  const change = before === null ? "created" : current === null ? "deleted" : "modified";
+  const base = { path: file.path, change, beforeHash: file.beforeHash, currentHash } as const;
+  if ((before?.byteLength ?? 0) > DIFF_MAX_BYTES || (current?.byteLength ?? 0) > DIFF_MAX_BYTES) {
+    return { ...base, patch: null, missing: "too_large" };
+  }
+  const beforeText = before === null ? null : decodeText(before);
+  const currentText = current === null ? null : decodeText(current);
+  if ((before !== null && beforeText === null) || (current !== null && currentText === null)) {
+    return { ...base, patch: null, missing: "binary" };
+  }
+  const patch = unifiedPatch(file.path, beforeText, currentText);
+  if (patch === null) return { ...base, patch: null, missing: "too_large" };
+  return patch === "" ? { ...base, patch: null, missing: "no_change" } : { ...base, patch, missing: null };
 }
 
 function toServiceError(error: unknown): unknown {
@@ -78,24 +137,16 @@ export function createMissionsService(deps: MissionsServiceDeps): MissionsServic
   let link: RuntimeLink | null = null;
   let linking: Promise<RuntimeLink> | null = null;
 
-  const openPort = async (): Promise<PortLike> => {
-    if (deps.runtimePort) return deps.runtimePort();
-    if (!deps.workers) throw new ServiceError("unavailable", "agent runtime not configured");
-    const { port1, port2 } = new MessageChannelMain();
-    await deps.workers.get("agent-runtime").request("channel.attach", null, [port1]);
-    return portFromMessagePortMain(port2);
-  };
-
-  // Late-bound: the controller needs the host's budget gate and the host needs the controller.
+  // Late-bound: the controller needs the host's proxy and the host needs the controller's budget.
   let controller: MissionController | null = null;
+  const controllerOf = (): MissionController => {
+    if (!controller) throw new Error("missions controller not ready");
+    return controller;
+  };
   const budget: MissionController["budget"] = {
     reserve: (missionId, estimate) => controllerOf().budget.reserve(missionId, estimate),
     settle: (missionId, reservationId, report) => controllerOf().budget.settle(missionId, reservationId, report),
     release: (missionId, reservationId) => controllerOf().budget.release(missionId, reservationId),
-  };
-  const controllerOf = (): MissionController => {
-    if (!controller) throw new Error("missions controller not ready");
-    return controller;
   };
 
   const host = createProviderProxyHost({
@@ -108,6 +159,12 @@ export function createMissionsService(deps: MissionsServiceDeps): MissionsServic
     ...(deps.logger ? { logger: deps.logger } : {}),
   });
 
+  const bridge = createApprovalBridge({
+    approvals: deps.approvals,
+    journal: { append: (event) => controllerOf().journal.append(event) },
+  });
+
+  const checkpoints = deps.checkpoints;
   controller = createMissionController({
     store: missions,
     push: deps.push,
@@ -115,7 +172,7 @@ export function createMissionsService(deps: MissionsServiceDeps): MissionsServic
     async runtime() {
       if (link) return link;
       linking ??= (async () => {
-        const port = await openPort();
+        const port = await deps.openRuntimePort();
         const next = connectRuntime(port, controllerOf().runtimeHandlers(host.streamModel));
         link = next;
         void next.closed.then(() => {
@@ -133,21 +190,26 @@ export function createMissionsService(deps: MissionsServiceDeps): MissionsServic
         return workspace ? { id: workspace.id, permissionProfile: workspace.permissionProfile } : null;
       },
     },
-    facts: (workspaceId) => deps.toolDeps(workspaceId).fs.facts({ workspaceId, refresh: false }),
+    facts: async (workspaceId) => (await deps.toolDeps(workspaceId)).facts(),
     async tools({ workspaceId }) {
       const mcpTools = (await deps.mcpTools?.(workspaceId).catch(() => [])) ?? [];
-      return { registry: createToolRegistry({ deps: deps.toolDeps(workspaceId), mcpTools }), mcpTools };
+      return { registry: createToolRegistry({ deps: await deps.toolDeps(workspaceId), mcpTools }), mcpTools };
     },
     commands: {
-      // Background processes are owned per workspace runner; stop them wherever they run.
+      // Background processes live in the workspace's runner; stop them wherever they run.
       stopAll: async (missionId) => {
         const record = missions.get(missionId);
-        if (record) await deps.toolDeps(record.workspaceId).commands?.stopAll(missionId);
+        if (record) await (await deps.toolDeps(record.workspaceId)).commands?.stopAll(missionId);
       },
     },
     permissions: deps.permissions,
-    approvals: deps.approvals,
-    checkpoints: deps.checkpoints,
+    approvals: bridge.gate,
+    checkpoints: checkpoints
+      ? {
+          create: (input) => checkpoints.create(input),
+          list: (req) => checkpoints.list(req),
+        }
+      : null,
     reviewFs: deps.reviewFs,
     isolationLevel: deps.isolationLevel,
     pricing: (modelId) => model(modelId)?.pricing ?? null,
@@ -170,6 +232,7 @@ export function createMissionsService(deps: MissionsServiceDeps): MissionsServic
   return {
     controller: ready,
     host,
+    onApprovalEvent: (event) => bridge.onEvent(event),
     api: {
       plan: guard(ready.plan),
       start: guard(ready.start),
@@ -179,6 +242,62 @@ export function createMissionsService(deps: MissionsServiceDeps): MissionsServic
       list: guard(ready.list),
       get: guard(ready.get),
       review: guard(ready.review),
+      diff: guard(async ({ missionId }): Promise<MissionDiff> => {
+        const record = missions.get(missionId);
+        if (!record) throw new ServiceError("not_found", "Mission not found");
+        const fs = deps.diffFs;
+        if (!fs) return { missionId, files: [] };
+        const review = await ready.reviewModel(missionId);
+        const files = await Promise.all(review.files.map((file) => missionFileDiff(fs, record.workspaceId, file)));
+        return { missionId, files };
+      }),
+    },
+  };
+}
+
+export interface ReviewFsDeps {
+  rootOf(workspaceId: string): Promise<string>;
+  /** L2 `checkpointsService.api.restoreFile` (refuses when the user changed the file since). */
+  restoreFile(req: { checkpointId: string; path: RelativePath }): Promise<RestoreFileResult>;
+  /** Bytes of a checkpoint object (`createObjectStore(checkpointObjectsDir(dataDir)).get`). */
+  readObject(hash: string): Promise<Uint8Array>;
+  /** Agent file API of the workspace (L2 `filesService.fileOpsFor`): checkpointed, hash-checked writes. */
+  fileOps(workspaceId: string): Promise<Pick<WorkspaceFileApi, "writeFile">>;
+  createCheckpoint(input: { workspaceId: string; missionId: string | null; label: string; reason: CheckpointReason }): Checkpoint;
+}
+
+/**
+ * A11 review operations over L2: current hash from disk, whole-file restore through the
+ * checkpoints, and per-hunk revert = inverse of the chosen hunks of diff(before mission → now),
+ * written through the agent file API with its own restore point (nothing is lost, even a revert).
+ */
+export function createReviewFsGate(deps: ReviewFsDeps): ReviewFsGate {
+  const readCurrent = async (workspaceId: string, path: RelativePath): Promise<{ bytes: Uint8Array; hash: string } | null> => {
+    const bytes = await readBytesOrNull(await deps.rootOf(workspaceId), path);
+    return bytes === null ? null : { bytes, hash: sha256(bytes) };
+  };
+  return {
+    async currentHash(workspaceId, path) {
+      return (await readCurrent(workspaceId, path))?.hash ?? null;
+    },
+    restoreFile: (checkpointId, path) => deps.restoreFile({ checkpointId, path }),
+    async revertHunks(input) {
+      const current = await readCurrent(input.workspaceId, input.path);
+      if (!current || current.hash !== input.expectedCurrentHash) return { status: "conflict" };
+      const currentText = decodeText(current.bytes);
+      const baseText = input.baseHash === null ? "" : decodeText(await deps.readObject(input.baseHash));
+      if (currentText === null || baseText === null) return { status: "conflict" };
+      const next = revertHunks(baseText, currentText, input.hunkIndexes);
+      if (next === null) return { status: "conflict" };
+      const checkpoint = deps.createCheckpoint({
+        workspaceId: input.workspaceId,
+        missionId: input.missionId,
+        label: `Revue : ${input.path}`,
+        reason: "before_restore",
+      });
+      const files = await deps.fileOps(input.workspaceId);
+      const outcome = await files.writeFile(input.path, next, { expectedHash: current.hash, checkpointId: checkpoint.id });
+      return outcome.status === "written" ? { status: "reverted" } : { status: "conflict" };
     },
   };
 }

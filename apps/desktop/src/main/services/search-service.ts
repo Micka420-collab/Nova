@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import type { SearchMatch, SearchQuery, SearchResult } from "@nova/shared";
 import { FS_NOTIFY, type FsSearchMatchesNotify } from "../../workers/fs/protocol";
-import type { AtelierApi } from "./unavailable";
+import type { AtelierApi } from "../api";
 import type { WorkspaceService } from "./workspace-service";
 
 export interface SearchService {

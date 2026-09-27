@@ -1,19 +1,18 @@
 // checkpoints.* in main (A10/A11): list, restore one file, restore all, plus the merge proposal
 // shown when a restore meets a file the user changed since. The store (object files + rows) lives
 // in main because it shares the database; roots come from the workspace registry.
-import type { ContentHash, RelativePath, RestoreFileResult } from "@nova/shared";
+import type { ContentHash, MergeProposal, RelativePath, RestoreFileResult } from "@nova/shared";
 import {
   createCheckpointStore,
   createObjectStore,
   type CheckpointIndex,
   type CheckpointStore,
-  type MergeProposal,
   type PurgeReport,
   type RetentionPolicy,
 } from "@nova/workspace";
 import { join } from "node:path";
 import { ServiceError } from "../service-error";
-import type { AtelierApi } from "./unavailable";
+import type { AtelierApi } from "../api";
 import { asService, type WorkspaceService } from "./workspace-service";
 
 /** A10 proposal: 30 days or 2 GB, whichever comes first. */
@@ -51,6 +50,11 @@ export function createCheckpointsService(deps: CheckpointsServiceDeps): Checkpoi
     ...(deps.now ? { now: deps.now } : {}),
   });
 
+  const proposeMerge = async (checkpointId: string, path: RelativePath): Promise<MergeProposal> =>
+    asService(store.proposeMerge({ checkpointId, path, root: await rootFor(checkpointId) }));
+  const applyMerge: CheckpointsService["applyMerge"] = async (input) =>
+    asService(store.applyMerge({ ...input, root: await rootFor(input.checkpointId) }));
+
   const rootFor = async (checkpointId: string): Promise<string> => {
     const checkpoint = store.get(checkpointId);
     if (!checkpoint) throw new ServiceError("not_found", "Checkpoint not found");
@@ -64,10 +68,16 @@ export function createCheckpointsService(deps: CheckpointsServiceDeps): Checkpoi
       restoreFile: async ({ checkpointId, path }) =>
         asService(store.restoreFile({ checkpointId, path, root: await rootFor(checkpointId) })),
       restoreAll: async ({ checkpointId }) => asService(store.restoreAll({ checkpointId, root: await rootFor(checkpointId) })),
+      create: async ({ workspaceId, label, reason }) => {
+        // The workspace must exist and be reachable; the restore point belongs to the user (no mission).
+        await deps.workspaces.rootOf(workspaceId);
+        return store.create({ workspaceId, missionId: null, label, reason });
+      },
+      proposeMerge: ({ checkpointId, path }) => proposeMerge(checkpointId, path),
+      applyMerge: (req) => applyMerge(req),
     },
-    proposeMerge: async (checkpointId, path) =>
-      asService(store.proposeMerge({ checkpointId, path, root: await rootFor(checkpointId) })),
-    applyMerge: async (input) => asService(store.applyMerge({ ...input, root: await rootFor(input.checkpointId) })),
+    proposeMerge,
+    applyMerge,
     purge: (policy = DEFAULT_CHECKPOINT_RETENTION) => store.purge(policy),
   };
 }

@@ -10,7 +10,8 @@ import {
   type WorkspaceFileOps,
 } from "@nova/workspace";
 import { FS_NOTIFY } from "../../workers/fs/protocol";
-import type { AtelierApi } from "./unavailable";
+import type { AtelierApi } from "../api";
+import { ServiceError } from "../service-error";
 import { asService, type WorkspaceService } from "./workspace-service";
 
 export interface FilesServiceDeps {
@@ -55,7 +56,30 @@ export function createFilesService(deps: FilesServiceDeps): FilesService {
     api: {
       list: (req) => fs.call("files.list", req),
       read: (req) => fs.call("files.read", req),
-      write: (req) => fs.call("files.write", req),
+      async write({ checkpointId, ...req }) {
+        if (!checkpointId) return fs.call("files.write", req);
+        // E4 project replace: the previous content goes into the user's restore point first.
+        const checkpoint = deps.checkpoints.get(checkpointId);
+        const usable =
+          checkpoint !== null &&
+          checkpoint.workspaceId === req.workspaceId &&
+          checkpoint.missionId === null &&
+          (checkpoint.reason === "user_replace" || checkpoint.reason === "manual");
+        if (!usable) throw new ServiceError("invalid_request", "Checkpoint cannot record this write");
+        const root = await deps.workspaces.rootOf(req.workspaceId);
+        const pending = await asService(
+          deps.checkpoints.snapshotBeforeWrite({ checkpointId, root, path: req.path, seenHash: req.expectedHash }),
+        );
+        try {
+          const result = await fs.call("files.write", req);
+          if (result.status === "written") await pending.commit(req.content);
+          else pending.discard();
+          return result;
+        } catch (error) {
+          pending.discard();
+          throw error;
+        }
+      },
       create: (req) => fs.call("files.create", req),
       move: (req) => fs.call("files.move", req),
       async trash({ workspaceId, path }) {

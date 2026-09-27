@@ -7,7 +7,7 @@
 //   runtime (`createAgentSession`), read-only until `takeOver`.
 import { randomUUID } from "node:crypto";
 import type { MessagePortMain } from "electron";
-import type { NovaPortEnvelope, TerminalSession } from "@nova/shared";
+import type { NovaPortEnvelope, TerminalEvent, TerminalSession } from "@nova/shared";
 import type { WorkerNotify } from "../../workers/protocol";
 import { PTY_EVENTS, PTY_METHODS, type PtyCommand, type PtyCreateParams } from "../../workers/pty/protocol";
 import type { MainApi } from "../api";
@@ -56,12 +56,21 @@ export interface TerminalService extends TerminalApi {
   createAgentSession(req: AgentSessionRequest): Promise<TerminalSession>;
   /** "Prendre la main": the agent session becomes the user's. */
   takeOver(req: { sessionId: string }): Promise<TerminalSession>;
-  /** Process exits (N2 signals: exit code ≠ 0). Returns an unsubscribe function. */
-  onExit(listener: (session: TerminalSession) => void): () => void;
+  /**
+   * Process exits (N2 signals, P5 watch): the session and the plain, redacted end of its output
+   * (≤ 8 KB). Returns an unsubscribe function.
+   */
+  onExit(listener: (session: TerminalSession, outputTail: string) => void): () => void;
+  /** Sessions created, updated (owner/title) or exited: the `terminal.onEvent` push. */
+  onEvent(listener: (event: TerminalEvent) => void): () => void;
 }
 
 export function createTerminalService(deps: TerminalServiceDeps): TerminalService {
-  const exitListeners = new Set<(session: TerminalSession) => void>();
+  const exitListeners = new Set<(session: TerminalSession, outputTail: string) => void>();
+  const eventListeners = new Set<(event: TerminalEvent) => void>();
+  const publish = (event: TerminalEvent): void => {
+    for (const listener of eventListeners) listener(event);
+  };
   let subscribed: PtyWorker | null = null;
   const newId = deps.newId ?? randomUUID;
 
@@ -70,8 +79,11 @@ export function createTerminalService(deps: TerminalServiceDeps): TerminalServic
     if (subscribed !== current) {
       subscribed = current;
       current.onNotify((event) => {
+        if (event.method === PTY_EVENTS.update) publish({ type: "session.updated", session: event.params as TerminalSession });
         if (event.method !== PTY_EVENTS.exit) return;
-        for (const listener of exitListeners) listener(event.params as TerminalSession);
+        const { outputTail, ...session } = event.params as TerminalSession & { outputTail?: string };
+        for (const listener of exitListeners) listener(session, outputTail ?? "");
+        publish({ type: "session.exited", session });
       });
     }
     return current;
@@ -106,7 +118,9 @@ export function createTerminalService(deps: TerminalServiceDeps): TerminalServic
   return {
     create: async (req) => {
       const params = await createParams({ ...req, owner: "user", missionId: null, title: null, command: null });
-      return withPort(params.id, PTY_METHODS.create, params);
+      const session = await withPort(params.id, PTY_METHODS.create, params);
+      publish({ type: "session.created", session });
+      return session;
     },
     list: (req) => worker().request<TerminalSession[]>(PTY_METHODS.list, req),
     attach: (req) => withPort(req.sessionId, PTY_METHODS.attach, req),
@@ -128,13 +142,19 @@ export function createTerminalService(deps: TerminalServiceDeps): TerminalServic
         title: req.title,
         command: req.command,
       });
-      return worker().request<TerminalSession>(PTY_METHODS.create, params);
+      const session = await worker().request<TerminalSession>(PTY_METHODS.create, params);
+      publish({ type: "session.created", session });
+      return session;
     },
     takeOver: (req) => worker().request<TerminalSession>(PTY_METHODS.takeOver, req),
     onExit: (listener) => {
       // Subscribed to the worker on its first use: registering never starts the pty-host.
       exitListeners.add(listener);
       return () => exitListeners.delete(listener);
+    },
+    onEvent: (listener) => {
+      eventListeners.add(listener);
+      return () => eventListeners.delete(listener);
     },
   };
 }

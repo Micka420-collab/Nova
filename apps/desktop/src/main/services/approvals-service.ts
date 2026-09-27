@@ -15,6 +15,7 @@ import {
   redactSecrets,
   type Approval,
   type ApprovalDecideRequest,
+  type ApprovalEvent,
   type ApprovalScope,
   type ApprovalsListRequest,
   type PermissionDecision,
@@ -27,9 +28,7 @@ import type { AuditService } from "./audit-service";
 
 export type ApprovalOutcome = "approved" | "denied";
 
-export type ApprovalEvent =
-  | { type: "approval.requested"; approval: Approval }
-  | { type: "approval.resolved"; approval: Approval };
+export type { ApprovalEvent };
 
 export interface ApprovalsServiceDeps {
   approvals: ApprovalRepo;

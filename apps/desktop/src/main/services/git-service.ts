@@ -2,7 +2,7 @@
 // Uses the system `git` (no push, fetch or stash, ever); `available: false` hides the panel.
 import type { RelativePath } from "@nova/shared";
 import type { GitClient, GitCommitResult } from "@nova/workspace";
-import type { AtelierApi } from "./unavailable";
+import type { AtelierApi } from "../api";
 import { asService, type WorkspaceService } from "./workspace-service";
 
 export interface GitService {

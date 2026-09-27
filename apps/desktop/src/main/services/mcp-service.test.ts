@@ -1,10 +1,8 @@
 import { fileURLToPath } from "node:url";
 import { McpStdioHost, createHostHandlers } from "@nova/mcp";
-import { createWorkspaceRepo, openNovaStore, type NovaStore } from "@nova/storage";
+import { createMcpRepo, createWorkspaceRepo, type NovaStore, openNovaStore } from "@nova/storage";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startHttpFixture, type HttpFixture } from "../../../../../packages/mcp/src/fixtures/http-server";
-// TODO(lead): import from "@nova/storage" once repos/index.ts exports createMcpRepo.
-import { createMcpRepo } from "../../../../../packages/storage/src/repos/mcp";
 import type { SecretVault } from "../vault";
 import { McpService, type McpHostPort } from "./mcp-service";
 

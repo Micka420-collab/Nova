@@ -265,7 +265,8 @@ export class ManagedWorker {
     clearTimeout(entry.timer);
     if (message.ok) entry.resolve(message.result);
     else {
-      const code = message.error.code === "invalid_params" ? "invalid_request" : "unavailable";
+      const code =
+        message.error.code === "invalid_params" ? "invalid_request" : message.error.code === "not_found" ? "not_found" : "unavailable";
       entry.reject(new ServiceError(code, `${this.name}: ${message.error.message}`));
     }
   }
@@ -323,12 +324,21 @@ export class WorkerPool {
 
   /** Returns the (started) worker. */
   get(name: WorkerName): ManagedWorker {
+    const worker = this.instance(name);
+    worker.start();
+    return worker;
+  }
+
+  /**
+   * The worker without starting it: for subscriptions made at startup (events only flow once a
+   * feature has started the worker with `get`), so nothing runs before it is needed.
+   */
+  instance(name: WorkerName): ManagedWorker {
     let worker = this.workers.get(name);
     if (!worker) {
       worker = new ManagedWorker(this.specs[name], this.deps);
       this.workers.set(name, worker);
     }
-    worker.start();
     return worker;
   }
 

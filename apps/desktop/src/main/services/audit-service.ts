@@ -8,6 +8,8 @@
 import {
   redactSecrets,
   type Approval,
+  type AuditEntry,
+  type AuditListRequest,
   type OperationClass,
   type PermissionDecision,
   type PermissionRequest,
@@ -173,6 +175,25 @@ export class AuditService {
 
   list(filter: AuditFilter): AuditRecord[] {
     return this.deps.repo.list(filter);
+  }
+
+  /** IPC `audit.list` (S5 viewer): rows as the contract shows them, newest first. */
+  entries(req: AuditListRequest): AuditEntry[] {
+    return this.deps.repo.list(req).map((record) => ({
+      seq: record.seq,
+      at: record.createdAt,
+      workspaceId: record.workspaceId,
+      missionId: record.missionId,
+      toolCallId: record.toolCallId,
+      actor: record.actor,
+      action: record.action,
+      decision: record.decision,
+      ruleId: record.ruleId,
+      target: record.target,
+      dataSummary: record.dataSummary,
+      costUsd: record.cost,
+      outcome: record.outcome,
+    }));
   }
 
   /** Deletes rows older than the retention; call at startup and daily. Returns the count. */

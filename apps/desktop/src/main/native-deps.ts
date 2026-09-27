@@ -27,6 +27,7 @@ export function workerSpecs(mainDir: string, extraEnv: { ripgrepPath: string | n
       ...(extraEnv.ripgrepPath ? { env: { NOVA_RG_PATH: extraEnv.ripgrepPath } } : {}),
     },
     "agent-runtime": { name: "agent-runtime", entry: entry("agent-runtime") },
-    "mcp-host": { name: "mcp-host", entry: entry("mcp-host") },
+    // A tool call may legitimately run for minutes; McpService enforces its own per-call cap below this.
+    "mcp-host": { name: "mcp-host", entry: entry("mcp-host"), requestTimeoutMs: 10 * 60_000 },
   };
 }

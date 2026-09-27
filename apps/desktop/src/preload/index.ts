@@ -2,6 +2,7 @@
 // Only channel names are imported at runtime; shared types are erased (no zod in this bundle).
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import type {
+  ApprovalEvent,
   ChatStreamEvent,
   CompanionEvent,
   FilesEvent,
@@ -9,6 +10,7 @@ import type {
   MissionEvent,
   NovaBridge,
   NovaPortEnvelope,
+  TerminalEvent,
 } from "@nova/shared";
 import { IPC_CHANNELS, NOVA_PORT_MESSAGE } from "@nova/shared/channels";
 
@@ -81,6 +83,9 @@ const bridge: NovaBridge = {
     facts: (req) => invoke(C.workspaceFacts, req),
     close: (req) => invoke(C.workspaceClose, req),
     setInstructionConsent: (req) => invoke(C.workspaceSetInstructionConsent, req),
+    reopen: (req) => invoke(C.workspaceReopen, req),
+    getEditorState: (req) => invoke(C.workspaceGetEditorState, req),
+    setEditorState: (req) => invoke(C.workspaceSetEditorState, req),
   },
   files: {
     list: (req) => invoke(C.filesList, req),
@@ -101,6 +106,8 @@ const bridge: NovaBridge = {
     attach: (req) => invoke(C.terminalAttach, req),
     resize: (req) => invoke(C.terminalResize, req),
     kill: (req) => invoke(C.terminalKill, req),
+    takeOver: (req) => invoke(C.terminalTakeOver, req),
+    onEvent: (listener) => subscribe<TerminalEvent>(C.terminalEvent, listener),
   },
   missions: {
     plan: (req) => invoke(C.missionsPlan, req),
@@ -111,15 +118,22 @@ const bridge: NovaBridge = {
     list: (req) => invoke(C.missionsList, req),
     get: (req) => invoke(C.missionsGet, req),
     review: (req) => invoke(C.missionsReview, req),
+    diff: (req) => invoke(C.missionsDiff, req),
     onEvent: (listener) => subscribe<MissionEvent>(C.missionsEvent, listener),
   },
   approvals: {
     list: (req) => invoke(C.approvalsList, req),
     decide: (req) => invoke(C.approvalsDecide, req),
+    onEvent: (listener) => subscribe<ApprovalEvent>(C.approvalsEvent, listener),
   },
   permissions: {
     getProfile: (req) => invoke(C.permissionsGetProfile, req),
     setProfile: (req) => invoke(C.permissionsSetProfile, req),
+    listRules: (req) => invoke(C.permissionsListRules, req),
+    revokeRules: (req) => invoke(C.permissionsRevokeRules, req),
+  },
+  audit: {
+    list: (req) => invoke(C.auditList, req),
   },
   git: {
     status: (req) => invoke(C.gitStatus, req),
@@ -133,6 +147,8 @@ const bridge: NovaBridge = {
     test: (req) => invoke(C.mcpTest, req),
     tools: (req) => invoke(C.mcpTools, req),
     setToolPermission: (req) => invoke(C.mcpSetToolPermission, req),
+    logs: (req) => invoke(C.mcpLogs, req),
+    importProject: (req) => invoke(C.mcpImportProject, req),
   },
   web: {
     getPolicy: (req) => invoke(C.webGetPolicy, req),
@@ -141,12 +157,18 @@ const bridge: NovaBridge = {
   companion: {
     state: (req) => invoke(C.companionState, req),
     act: (req) => invoke(C.companionAct, req),
+    watch: (req) => invoke(C.companionWatch, req),
+    setQuiet: (req) => invoke(C.companionSetQuiet, req),
+    notices: () => invoke(C.companionNotices),
     onEvent: (listener) => subscribe<CompanionEvent>(C.companionEvent, listener),
   },
   checkpoints: {
     list: (req) => invoke(C.checkpointsList, req),
     restoreFile: (req) => invoke(C.checkpointsRestoreFile, req),
     restoreAll: (req) => invoke(C.checkpointsRestoreAll, req),
+    create: (req) => invoke(C.checkpointsCreate, req),
+    proposeMerge: (req) => invoke(C.checkpointsProposeMerge, req),
+    applyMerge: (req) => invoke(C.checkpointsApplyMerge, req),
   },
 };
 

@@ -1,9 +1,7 @@
-import { createMissionRepo, createSignalRepo, createWorkspaceRepo, openNovaStore, type NovaStore } from "@nova/storage";
+import { createMissionRepo, createSignalRepo, createSuggestionRepo, createWorkspaceRepo, type NovaStore, openNovaStore } from "@nova/storage";
 import type { CompanionEvent, Mission, MissionEvent } from "@nova/shared";
 import type { SystemNotification } from "@nova/companion";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-// Not re-exported by the storage barrel yet (see the lane report): imported from its module.
-import { createSuggestionRepo } from "../../../../../packages/storage/src/repos/suggestions";
 import { createCompanionService, type CompanionService } from "./companion-service";
 
 let MISSION: string;

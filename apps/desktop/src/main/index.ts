@@ -1,11 +1,32 @@
 // NOVA main process: data directory, store, vault, provider, runtime, IPC, window.
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { BrowserWindow, app, dialog, net, safeStorage, session, shell } from "electron";
+import { BrowserWindow, MessageChannelMain, Notification, app, dialog, net, safeStorage, session, shell } from "electron";
 import { ChatRunner } from "@nova/agent-runtime";
+import type { SystemNotification } from "@nova/companion";
+import { detectIsolation } from "@nova/permissions";
 import { OpenRouterProvider } from "@nova/providers";
-import { IPC_CHANNELS, type ChatStreamEvent } from "@nova/shared";
-import { openNovaStore, type NovaStore } from "@nova/storage";
+import { IPC_CHANNELS, type IpcChannel } from "@nova/shared";
+import {
+  createApprovalRepo,
+  createAuditRepo,
+  createCheckpointRepo,
+  createEditorStateRepo,
+  createMcpRepo,
+  createPolicyRepo,
+  createSignalRepo,
+  createSuggestionRepo,
+  createWebCacheRepo,
+  createWebPolicyRepo,
+  createWebSearchUsageRepo,
+  createWorkspaceRepo,
+  openNovaStore,
+  type NovaStore,
+} from "@nova/storage";
+import { createProcessCommandRunner, type ToolDeps } from "@nova/tools";
+import { createOpenRouterWebSearcher, pickWebSearchModel } from "@nova/web";
+import { createGitClient, createObjectStore, readBytesOrNull, resolveExisting } from "@nova/workspace";
+import { openAgentRuntimePort } from "../workers/agent/main-port";
 import { createMainApi } from "./api";
 import { resolveRipgrepPath, workerSpecs } from "./native-deps";
 import { SELFTEST_FLAG, runWorkerSelfTest } from "./selftest";
@@ -25,9 +46,23 @@ import {
 } from "./store-recovery";
 import { APP_ENTRY_URL, resolveLaunchOverrides } from "./security-policy";
 import { createAppService } from "./services/app-service";
+import { ApprovalsService } from "./services/approvals-service";
+import { AuditService } from "./services/audit-service";
 import { CatalogService } from "./services/catalog-service";
+import { createChatContext } from "./services/chat-context";
 import { ChatEventHub } from "./services/chat-events";
+import { checkpointObjectsDir, createCheckpointsService } from "./services/checkpoints-service";
+import { createCompanionService, type CompanionService } from "./services/companion-service";
 import { ConnectionService } from "./services/connection-service";
+import { createFilesService } from "./services/files-service";
+import { createGitService } from "./services/git-service";
+import { McpService } from "./services/mcp-service";
+import { createMissionsService, createReviewFsGate, type MissionsService } from "./services/missions-service";
+import { PermissionsService } from "./services/permissions-service";
+import { createSearchService } from "./services/search-service";
+import { createTerminalService } from "./services/terminal-service";
+import { WebService } from "./services/web-service";
+import { createWorkspaceService } from "./services/workspace-service";
 import { createElectronVault } from "./vault";
 
 const APP_NAME = "NOVA";
@@ -87,11 +122,30 @@ function createWindow(context: SecurityContext): BrowserWindow {
   return window;
 }
 
-function forwardChatEvent(event: ChatStreamEvent): void {
+/** main → renderer push (a closed window just drops it). */
+function push(channel: IpcChannel, payload: unknown): void {
   const window = mainWindow;
-  if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) {
-    window.webContents.send(IPC_CHANNELS.chatEvent, event);
-  }
+  if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send(channel, payload);
+}
+
+/** P13: at most one visible system notification per group; clicking it brings NOVA back. */
+function createNotifier(): (notification: SystemNotification) => void {
+  const shown = new Map<string, Notification>();
+  return (notification) => {
+    if (!Notification.isSupported()) return;
+    if (notification.replacesGroup) shown.get(notification.groupKey)?.close();
+    const native = new Notification({ title: APP_NAME, body: notification.body, silent: true });
+    native.on("click", () => {
+      if (!mainWindow) return;
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    });
+    native.on("close", () => {
+      if (shown.get(notification.groupKey) === native) shown.delete(notification.groupKey);
+    });
+    shown.set(notification.groupKey, native);
+    native.show();
+  };
 }
 
 /** Supervised utilityProcess workers; each starts on first use (nothing runs until a feature needs it). */
@@ -174,8 +228,191 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
     fetch: (url, init) => net.fetch(url, init),
   });
   const connections = new ConnectionService({ store, vault, provider, logger });
-  const resolveApiKey = (): Promise<string | null> => connections.resolveApiKey();
-  const chatEvents = new ChatEventHub(forwardChatEvent);
+  // The key in use, known to the web exfiltration guard (compared, never logged).
+  let knownKey: string | null = null;
+  const resolveApiKey = async (): Promise<string | null> => {
+    knownKey = await connections.resolveApiKey();
+    return knownKey;
+  };
+  const catalog = new CatalogService({ store, provider, resolveApiKey, logger });
+
+  // J2-A atelier ------------------------------------------------------------
+  // Late-bound: the companion, missions and approvals reference each other only through events.
+  let companion: CompanionService | null = null;
+  let missions: MissionsService | null = null;
+
+  const workspaceRepo = createWorkspaceRepo(store.db);
+  const gitClient = createGitClient();
+  const rgPath = await resolveRipgrepPath().catch(() => null);
+  const workspaceService = createWorkspaceService({
+    repo: workspaceRepo,
+    editorState: createEditorStateRepo(store.db),
+    homeDir: app.getPath("home"),
+    git: gitClient,
+    worker: {
+      request: (method, params) => workers.get("fs-worker").request(method, params),
+      onNotify: (listener) => workers.instance("fs-worker").onNotify(listener),
+    },
+    pickFolder: async () => {
+      const options = { properties: ["openDirectory" as const] };
+      const picked = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+      return picked.canceled ? null : (picked.filePaths[0] ?? null);
+    },
+  });
+  const checkpointsService = createCheckpointsService({
+    workspaces: workspaceService,
+    index: createCheckpointRepo(store.db),
+    dataDir,
+  });
+  const filesService = createFilesService({
+    workspaces: workspaceService,
+    trashItem: (path) => shell.trashItem(path),
+    checkpoints: checkpointsService.store,
+    rgPath,
+  });
+  filesService.onEvent((event) => push(IPC_CHANNELS.filesEvent, event));
+  const searchService = createSearchService({ workspaces: workspaceService });
+  const gitService = createGitService({ workspaces: workspaceService, git: gitClient });
+
+  const audit = new AuditService({ repo: createAuditRepo(store.db) });
+  const policies = createPolicyRepo(store.db);
+  const isolation = await detectIsolation();
+  const permissions = new PermissionsService({
+    policies,
+    audit,
+    isolation,
+    contractOf: (missionId) => missions?.controller.contractOf(missionId) ?? null,
+    knownCommands: (workspaceId) => {
+      const facts = workspaceRepo.getFacts(workspaceId);
+      return [facts?.testRunner?.command, facts?.buildCommand].filter((command): command is string[] => !!command);
+    },
+  });
+  const approvals = new ApprovalsService({
+    approvals: createApprovalRepo(store.db),
+    policies,
+    audit,
+    emit: (event) => {
+      missions?.onApprovalEvent(event);
+      push(IPC_CHANNELS.approvalsEvent, event);
+    },
+  });
+
+  const web = new WebService({
+    policies: createWebPolicyRepo(store.db),
+    cache: createWebCacheRepo(store.db),
+    usage: createWebSearchUsageRepo(store.db),
+    providerId: provider.id,
+    knownSecrets: () => (knownKey ? [knownKey] : []),
+    searcher: createOpenRouterWebSearcher({
+      apiKey: resolveApiKey,
+      selectModel: async () => pickWebSearchModel((await catalog.catalog({ refresh: false })).models)?.id ?? null,
+      dataCollection: () => store.getSettings().privacy.providerDataCollection,
+      fetch: (url, init) => net.fetch(url, init),
+      ...(overrides.openRouterBaseUrl ? { baseUrl: overrides.openRouterBaseUrl } : {}),
+    }),
+    logger,
+  });
+  const mcp = new McpService({
+    repo: createMcpRepo(store.db),
+    secrets: store,
+    vault,
+    host: workers.instance("mcp-host"),
+    workspaceRoot: (workspaceId) => workspaceRepo.get(workspaceId)?.rootPath ?? null,
+    logger,
+  });
+
+  const terminal = createTerminalService({
+    worker: () => workers.get("pty-host"),
+    workspaceRoot: (workspaceId) => workspaceService.rootOf(workspaceId).catch(() => null),
+    sendPort: (envelope, port) => {
+      const window = mainWindow;
+      if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return false;
+      window.webContents.postMessage(IPC_CHANNELS.portTransfer, envelope, [port]);
+      return true;
+    },
+    createChannel: () => new MessageChannelMain(),
+  });
+  terminal.onEvent((event) => push(IPC_CHANNELS.terminalEvent, event));
+  terminal.onExit((ended, outputTail) =>
+    companion?.onProcessExit({ sessionId: ended.id, exitCode: ended.exitCode, signal: null, outputTail }),
+  );
+
+  // Agent tools run in main under the permission engine (L0: no shell, confined cwd, scrubbed env).
+  const commandRunner = createProcessCommandRunner({
+    resolveCwd: async (workspaceId, cwd) => {
+      try {
+        return await resolveExisting(await workspaceService.rootOf(workspaceId), cwd);
+      } catch {
+        return null;
+      }
+    },
+  });
+  const objects = createObjectStore(checkpointObjectsDir(dataDir));
+  const toolDeps = async (workspaceId: string): Promise<ToolDeps> => ({
+    files: await filesService.fileOpsFor(workspaceId),
+    facts: () => workspaceService.api.facts({ workspaceId, refresh: false }).catch(() => null),
+    commands: commandRunner,
+    git: { status: gitService.api.status, diff: gitService.api.diff, commit: gitService.commit },
+    web,
+    mcp,
+  });
+  missions = createMissionsService({
+    store,
+    provider,
+    resolveApiKey,
+    push: (event) => {
+      push(IPC_CHANNELS.missionsEvent, event);
+      companion?.onMissionEvent(event);
+    },
+    toolDeps,
+    mcpTools: (workspaceId) => mcp.listToolsForModel(workspaceId),
+    permissions,
+    approvals,
+    checkpoints: {
+      create: (input) => checkpointsService.store.create(input),
+      list: (req) => checkpointsService.api.list(req),
+    },
+    reviewFs: createReviewFsGate({
+      rootOf: (workspaceId) => workspaceService.rootOf(workspaceId),
+      restoreFile: (req) => checkpointsService.api.restoreFile(req),
+      readObject: (hash) => objects.get(hash),
+      fileOps: (workspaceId) => filesService.fileOpsFor(workspaceId),
+      createCheckpoint: (input) => checkpointsService.store.create(input),
+    }),
+    diffFs: {
+      readObject: (hash) => objects.get(hash),
+      readCurrent: async (workspaceId, path) => readBytesOrNull(await workspaceService.rootOf(workspaceId), path),
+    },
+    isolationLevel: () => permissions.isolationLevel,
+    audit: (entry) => audit.recordToolExecution(entry),
+    openRuntimePort: () => openAgentRuntimePort(workers),
+    logger,
+  });
+  const missionsApi = missions.api;
+  companion = createCompanionService({
+    signals: createSignalRepo(store.db),
+    suggestions: createSuggestionRepo(store.db),
+    missions: missionsApi,
+    broadcast: (event) => push(IPC_CHANNELS.companionEvent, event),
+    notify: createNotifier(),
+    isFocused: () => mainWindow?.isFocused() ?? false,
+    conversationTitle: (conversationId) => store.getConversation(conversationId)?.title ?? null,
+    runningSession: async (sessionId) => {
+      const found = (await terminal.list({ workspaceId: null })).find((item) => item.id === sessionId);
+      return found?.state === "running" ? { workspaceId: found.workspaceId, command: null } : null;
+    },
+  });
+
+  // Startup maintenance: nothing of a previous run is replayed (approvals expire, missions fail once).
+  audit.purgeExpired();
+  approvals.expireOrphans();
+  missions.controller.recoverInterrupted();
+  void checkpointsService.purge().catch((error: unknown) => logger.warn("checkpoint purge failed", { error: describeError(error) }));
+
+  const chatEvents = new ChatEventHub((event) => {
+    push(IPC_CHANNELS.chatEvent, event);
+    companion?.onChatEvent(event);
+  });
   const runner = new ChatRunner({
     store,
     provider,
@@ -185,12 +422,13 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
     logger,
     // A key refused mid-chat becomes the connection's recorded state (Nomi, composer, Home read it).
     onProviderError: (error, apiKey) => connections.recordChatFailure(apiKey, error),
+    prepareTurn: createChatContext({ fileOps: (workspaceId) => filesService.fileOpsFor(workspaceId), web }),
   });
   const api = createMainApi({
     store,
     runner,
     connections,
-    catalog: new CatalogService({ store, provider, resolveApiKey, logger }),
+    catalog,
     chatEvents,
     app: createAppService({
       info: {
@@ -205,6 +443,26 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
       vault,
       openExternal: (url) => shell.openExternal(url),
     }),
+    atelier: {
+      workspace: workspaceService.api,
+      files: filesService.api,
+      search: searchService.api,
+      terminal,
+      missions: missionsApi,
+      approvals: { list: (req) => approvals.list(req), decide: (req) => approvals.decide(req) },
+      permissions: {
+        getProfile: (req) => permissions.getProfile(req),
+        setProfile: (req) => permissions.setProfile(req),
+        listRules: (req) => permissions.listRules(req),
+        revokeRules: (req) => permissions.revokeRules(req),
+      },
+      audit: { list: async (req) => audit.entries(req) },
+      git: gitService.api,
+      mcp: mcp.api(),
+      web: web.ipc(),
+      companion: companion.api,
+      checkpoints: checkpointsService.api,
+    },
   });
   registerIpcRoutes(buildIpcRoutes(api, logger), (frame) => isTrustedSender(frame, devOrigin), logger);
 
@@ -215,6 +473,8 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
     event.preventDefault();
     shutdown ??= (async () => {
       runner.stopAll();
+      companion?.dispose();
+      await mcp.shutdown().catch((error: unknown) => logger.warn("mcp shutdown failed", { error: describeError(error) }));
       workers.stopAll();
       const timeout = new Promise<void>((resolve) => setTimeout(resolve, QUIT_IDLE_TIMEOUT_MS));
       await Promise.race([runner.idle(), timeout]);
