@@ -49,6 +49,10 @@ jobs:
         with:
           node-version: 24
       - run: pnpm install --frozen-lockfile
+      # The Electron binary is otherwise fetched lazily at first launch, inside the test timeout.
+      - name: Install Electron binary
+        working-directory: apps/desktop
+        run: node node_modules/electron/install.js && pnpm exec electron --version
       - name: Linux GUI and keyring dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y xvfb gnome-keyring dbus-x11 libsecret-1-0
