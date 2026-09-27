@@ -3,8 +3,11 @@
   "productName": "NOVA",
   "version": "0.1.0",
   "private": true,
-  "description": "NOVA — atelier personnel d'IA",
-  "author": "NOVA",
+  "description": "NOVA — atelier personnel d'IA avec le compagnon Nomi",
+  "author": {
+    "name": "Micka Delcato",
+    "email": "132650965+Micka420-collab@users.noreply.github.com"
+  },
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
@@ -40,5 +43,7 @@
     "vite": "^7.3.0",
     "zod": "^4.6.0",
     "zustand": "^5.0.15"
-  }
+  },
+  "homepage": "https://github.com/Micka420-collab/Nova",
+  "desktopName": "nova.desktop"
 }

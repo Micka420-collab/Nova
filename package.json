@@ -17,7 +17,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "oxlint --deny-warnings apps packages scripts",
     "check": "pnpm lint && pnpm typecheck && pnpm test",
-    "icons": "node scripts/render-icons.mjs"
+    "icons": "node scripts/render-icons.mjs",
+    "installer-art": "node scripts/render-installer-art.mjs"
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",
