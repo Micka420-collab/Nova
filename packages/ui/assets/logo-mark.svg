@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <title>NOVA</title>
+  <path d="M22 45V21L40 45V18C40 10.5 36.5 6 32 6A26 26 0 1 0 58 32" fill="none" stroke="#86D8BB" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="50.4" cy="13.6" r="4.5" fill="#86D8BB"/>
+</svg>

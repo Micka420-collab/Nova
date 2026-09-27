@@ -1,0 +1,127 @@
+/* Design review gallery (ComponentGallery): both themes side by side. */
+
+.nv-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(560px, 1fr));
+  min-height: 100%;
+}
+
+.nv-gallery__theme {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: var(--nv-space-6);
+  padding: var(--nv-space-6);
+}
+
+.nv-gallery__theme-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nv-space-4);
+}
+
+.nv-gallery__theme-title h1 {
+  font-size: var(--nv-text-lg);
+  color: var(--nv-text-secondary);
+}
+
+.nv-gallery__section {
+  display: grid;
+  gap: var(--nv-space-4);
+  padding: var(--nv-space-5);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-lg);
+  background: var(--nv-panel);
+}
+
+.nv-gallery__section > h2 {
+  font-size: var(--nv-text-sm);
+  font-weight: var(--nv-weight-bold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--nv-text-secondary);
+}
+
+.nv-gallery__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-3);
+}
+
+.nv-gallery__stack {
+  display: grid;
+  gap: var(--nv-space-4);
+}
+
+.nv-gallery__card {
+  padding: var(--nv-space-4);
+  border-radius: var(--nv-radius-md);
+  background: var(--nv-raised);
+}
+
+.nv-gallery__swatches {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: var(--nv-space-2);
+}
+
+.nv-gallery__swatch {
+  display: grid;
+  gap: 2px;
+  font-size: var(--nv-text-xs);
+}
+
+.nv-gallery__swatch-chip {
+  height: 40px;
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-xs);
+}
+
+.nv-gallery__swatch code {
+  color: var(--nv-text-secondary);
+}
+
+.nv-gallery__type-sample {
+  display: grid;
+  gap: var(--nv-space-2);
+}
+
+.nv-gallery__nomi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(272px, 1fr));
+  gap: var(--nv-space-3);
+}
+
+.nv-gallery__nomi {
+  display: grid;
+  justify-items: center;
+  gap: var(--nv-space-2);
+  padding: var(--nv-space-3);
+  border-radius: var(--nv-radius-md);
+  background: var(--nv-bg);
+  text-align: center;
+}
+
+.nv-gallery__nomi-sizes {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--nv-space-2);
+}
+
+.nv-gallery__nomi p {
+  font-size: var(--nv-text-xs);
+  color: var(--nv-text-secondary);
+}
+
+.nv-gallery__subtitle {
+  font-size: var(--nv-text-sm);
+  color: var(--nv-text-secondary);
+}
+
+/* Each theme column keeps its own toaster in view instead of the fixed app corner. */
+.nv-gallery .nv-toaster {
+  position: sticky;
+  justify-self: end;
+}

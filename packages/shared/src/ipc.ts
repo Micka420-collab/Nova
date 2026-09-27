@@ -194,7 +194,7 @@ export class NovaIpcError extends Error {
 }
 
 // ---------------------------------------------------------------------------
-// API exposed on `window.nova` by the preload script.
+// API used by the renderer (built by `createNovaClient` over the `window.novaBridge` envelopes).
 
 export interface NovaApi {
   app: {

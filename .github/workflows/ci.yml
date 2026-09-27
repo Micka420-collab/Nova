@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Lint · types · unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          cache: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  desktop:
+    name: Desktop E2E + package (${{ matrix.os }})
+    needs: checks
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          cache: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: pnpm install --frozen-lockfile
+      - name: Linux GUI and keyring dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb gnome-keyring dbus-x11 libsecret-1-0
+      - name: E2E (Linux, headless)
+        if: runner.os == 'Linux'
+        working-directory: apps/desktop
+        run: pnpm exec electron-vite build && xvfb-run -a pnpm exec playwright test
+      - name: Vault levels (Linux, real app outside Playwright)
+        if: runner.os == 'Linux'
+        working-directory: apps/desktop
+        run: |
+          dbus-run-session -- bash e2e/run-with-keyring.sh xvfb-run -a node e2e/vault-smoke.mjs --expect os
+          xvfb-run -a node e2e/vault-smoke.mjs --expect weak
+      - name: E2E
+        if: runner.os != 'Linux'
+        working-directory: apps/desktop
+        run: pnpm test:e2e
+      - name: Vault level (real app outside Playwright)
+        if: runner.os != 'Linux'
+        working-directory: apps/desktop
+        run: node e2e/vault-smoke.mjs --expect os
+      - name: Package (unpacked, unsigned)
+        working-directory: apps/desktop
+        run: pnpm exec electron-builder --config electron-builder.yml --dir --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-${{ matrix.os }}
+          path: apps/desktop/e2e/artifacts
+          if-no-files-found: ignore
+          retention-days: 7

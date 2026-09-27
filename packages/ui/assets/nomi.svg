@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="256" height="256">
+  <title>Nomi, le compagnon de NOVA</title>
+  <ellipse cx="32" cy="59.2" rx="15" ry="2" fill="#111619" opacity="0.22"/>
+  <g transform="translate(32 42) rotate(-10)">
+    <path d="M24 0A24 6 0 0 0 -24 0" fill="none" stroke="#86D8BB" stroke-width="1.6" stroke-linecap="round" opacity="0.4"/>
+  </g>
+  <g stroke="#67847F" stroke-width="1">
+    <path d="M12 50C12 43.5 20 40 32.5 40C45 40 52 43.8 52 50C52 55.8 44 58.8 32 58.8C20 58.8 12 56 12 50Z" fill="#7C9A94"/>
+    <path d="M16.5 30.5C16.5 23 23.5 18.8 32.5 18.8C41.5 18.8 47.5 23.4 47.5 30C47.5 37 40.8 41.6 31.8 41.6C22.8 41.6 16.5 37.4 16.5 30.5Z" fill="#C9D9D1"/>
+    <path d="M26.5 15.2C26.5 12.4 29.4 10.6 33 10.6C36.6 10.6 39.2 12.4 39.2 15C39.2 17.6 36.4 19.2 32.8 19.2C29.2 19.2 26.5 17.8 26.5 15.2Z" transform="rotate(7 33 15)" fill="#9DB8B1"/>
+  </g>
+  <g fill="#111619">
+    <ellipse cx="27" cy="30" rx="2.4" ry="3.3"/>
+    <ellipse cx="37.4" cy="30" rx="2.4" ry="3.3"/>
+  </g>
+  <g fill="#C9D9D1">
+    <circle cx="27.8" cy="28.7" r="0.85"/>
+    <circle cx="38.2" cy="28.7" r="0.85"/>
+  </g>
+  <g transform="translate(32 42) rotate(-10)">
+    <path d="M-24 0A24 6 0 0 0 24 0" fill="none" stroke="#86D8BB" stroke-width="1.6" stroke-linecap="round" opacity="0.85"/>
+  </g>
+  <circle cx="51.96" cy="41.98" r="2.7" fill="#86D8BB"/>
+</svg>
