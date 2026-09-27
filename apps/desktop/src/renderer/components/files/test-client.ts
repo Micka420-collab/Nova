@@ -200,6 +200,17 @@ export function createFakeAtelierClient(initial: Record<string, string>, options
         record("workspace.setInstructionConsent", req);
         return { ...TEST_WORKSPACE, instructionFilesConsent: req.consent };
       },
+      reopen: async (req) => {
+        record("workspace.reopen", req);
+        return TEST_WORKSPACE;
+      },
+      getEditorState: async (req) => {
+        record("workspace.getEditorState", req);
+        return null;
+      },
+      setEditorState: async (req) => {
+        record("workspace.setEditorState", req);
+      },
     },
     files: {
       list: async (req) => {

@@ -14,7 +14,10 @@ import {
 import { toUiError, type UiError } from "../lib/errors";
 
 /** The part of the client the atelier uses (tests pass an in-memory fake). */
-export type AtelierClient = Pick<NovaApi, "workspace" | "files" | "search" | "git">;
+export type AtelierClient = Pick<NovaApi, "workspace" | "files" | "search" | "git"> & {
+  /** User restore points (project replace); absent in fakes that do not exercise them. */
+  checkpoints?: Pick<NovaApi["checkpoints"], "create">;
+};
 
 export type LoadStatus = "idle" | "loading" | "ready" | "error";
 

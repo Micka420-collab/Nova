@@ -1,6 +1,6 @@
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createNovaClient, type Approval, type IpcResult, type Mission, type MissionDetail } from "@nova/shared";
+import { createNovaClient, type AuditEntry, type AuditListRequest, type IpcResult, type PermissionRule, type Mission, type MissionDetail } from "@nova/shared";
 import { Toaster } from "@nova/ui";
 import type { ReactNode } from "react";
 import { AppProvider } from "../../state/context";
@@ -11,7 +11,7 @@ import { installDomPolyfills } from "../../test/dom";
 import { AuditSection, BudgetSection, InternetSection, PermissionsSection } from "./AtelierSections";
 import { costReportCsv } from "./BudgetSection";
 import { hostPatternError } from "./InternetSection";
-import { filterDecisions } from "./AuditSection";
+import { entryFacts, filterEntries } from "./AuditSection";
 
 installDomPolyfills();
 afterEach(cleanup);
@@ -39,20 +39,6 @@ function setup(node: ReactNode, options: { withWorkspace?: boolean; overrides?: 
   return { fake, store, calls: bridge.calls };
 }
 
-function makeApproval(partial: Partial<Omit<Approval, "request">> & { request?: Partial<Approval["request"]> } = {}): Approval {
-  const { request, ...rest } = partial;
-  return {
-    id: testId(),
-    request: { workspaceId: "w", missionId: null, tool: "run_command", operation: "execute", argv: ["pnpm", "test"], ...request },
-    decision: { decision: "ask", reason: "profile_asks", ruleId: null, rememberable: true },
-    toolCallId: null,
-    status: "approved",
-    scope: "once",
-    createdAt: 1_000,
-    decidedAt: 1_100,
-    ...rest,
-  };
-}
 
 describe("PermissionsSection", () => {
   it("asks for a folder when none is open", () => {
@@ -75,14 +61,41 @@ describe("PermissionsSection", () => {
     expect((screen.getByRole("radio", { name: /Autonome dans ce projet/ }) as HTMLInputElement).checked).toBe(true);
   });
 
-  it("lists approvals remembered for a mission or the project, not one-time ones", async () => {
-    const remembered = makeApproval({ scope: "project", request: { tool: "write_file", operation: "write", path: "src/a.ts" } });
-    const once = makeApproval({ scope: "once", request: { argv: ["rm", "x"] } });
-    setup(<PermissionsSection />, { overrides: () => ({ approvals: { list: () => ok([remembered, once]) } }) });
-    expect(await screen.findByText("src/a.ts")).toBeTruthy();
-    expect(screen.queryByText("rm x")).toBeNull();
-    // No revoke API exists: no button pretends to revoke.
-    expect(screen.queryByRole("button", { name: /Révoquer/ })).toBeNull();
+  it("lists the rules remembered for the project and revokes one, then all after confirming", async () => {
+    let rules: PermissionRule[] = [
+      { id: testId(), workspaceId: "w", missionId: null, tool: null, operation: "write", pathGlob: null, host: null, decision: "allow", scope: "project", source: "user", createdAt: 2, expiresAt: null },
+      { id: testId(), workspaceId: "w", missionId: null, tool: "fetch_page", operation: "network", pathGlob: null, host: "docs.example.com", decision: "allow", scope: "project", source: "user", createdAt: 1, expiresAt: null },
+    ];
+    const revoked: (string | null)[] = [];
+    setup(<PermissionsSection />, {
+      overrides: () => ({
+        permissions: {
+          listRules: () => ok(rules),
+          revokeRules: ({ ruleId }) => {
+            revoked.push(ruleId);
+            const before = rules.length;
+            rules = ruleId === null ? [] : rules.filter((rule) => rule.id !== ruleId);
+            return ok(before - rules.length);
+          },
+        },
+      }),
+    });
+    expect(await screen.findByText("docs.example.com")).toBeTruthy();
+    const [first] = screen.getAllByRole("button", { name: "Révoquer" });
+    await act(async () => {
+      fireEvent.click(first as HTMLElement);
+    });
+    expect(revoked).toHaveLength(1);
+    expect(await screen.findByText("docs.example.com")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Tout révoquer" }));
+    expect(screen.getByText(/NOVA te redemandera/)).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Tout révoquer" }));
+    });
+    expect(revoked.at(-1)).toBeNull();
+    expect(await screen.findByText("Aucune autorisation mémorisée pour ce projet.")).toBeTruthy();
+    // C8: the canonical exclusion list is visible.
+    expect(screen.getByText(".env")).toBeTruthy();
   });
 
   it("says the capability is unavailable when main answers unavailable", async () => {
@@ -135,23 +148,55 @@ describe("InternetSection", () => {
 });
 
 describe("AuditSection", () => {
-  it("filters the recorded permission decisions by status, operation and text", async () => {
-    const denied = makeApproval({ status: "denied", scope: null, createdAt: 3_000, request: { tool: "fetch_page", operation: "network", host: "evil.example" } });
-    const approved = makeApproval({ createdAt: 2_000, request: { argv: ["pnpm", "vitest"] } });
-    setup(<AuditSection />, { overrides: () => ({ approvals: { list: () => ok([approved, denied]) } }) });
+  function entry(partial: Partial<AuditEntry>): AuditEntry {
+    return {
+      seq: 1,
+      at: 1_000,
+      workspaceId: null,
+      missionId: null,
+      toolCallId: null,
+      actor: "agent",
+      action: "permission.decision",
+      decision: "allow",
+      ruleId: null,
+      target: "src/a.ts",
+      dataSummary: { tool: "read_file", operation: "read" },
+      costUsd: null,
+      outcome: null,
+      ...partial,
+    };
+  }
+
+  it("shows the real audit log, sends the filters to main and filters text locally", async () => {
+    const requests: AuditListRequest[] = [];
+    const denied = entry({ seq: 3, decision: "deny", target: "evil.example", dataSummary: { tool: "fetch_page", operation: "network" }, outcome: "La politique Internet de ce projet refuse ce site." });
+    const executed = entry({ seq: 2, action: "tool.executed", decision: null, target: "pnpm vitest", dataSummary: { tool: "run_tests", exitCode: 0, durationMs: 1200 }, outcome: "succeeded", costUsd: 0.002 });
+    setup(<AuditSection />, {
+      overrides: () => ({
+        audit: {
+          list: (req) => {
+            requests.push(req);
+            return ok(req.decision === "deny" ? [denied] : [denied, executed]);
+          },
+        },
+      }),
+    });
     const table = await screen.findByRole("table");
     expect(within(table).getAllByRole("row")).toHaveLength(3);
-    fireEvent.change(screen.getByRole("combobox", { name: "Statut" }), { target: { value: "denied" } });
+    expect(within(table).getByText(/code 0/)).toBeTruthy();
+    fireEvent.change(screen.getByRole("combobox", { name: "Décision" }), { target: { value: "deny" } });
+    await waitFor(() => expect(requests.at(-1)).toMatchObject({ decision: "deny", limit: 200, beforeSeq: null }));
+    await waitFor(() => expect(within(screen.getByRole("table")).queryByText("pnpm vitest")).toBeNull());
     expect(within(screen.getByRole("table")).getByText("evil.example")).toBeTruthy();
-    expect(within(screen.getByRole("table")).queryByText("pnpm vitest")).toBeNull();
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "vitest" } });
-    expect(screen.getByText("Aucune décision ne correspond à ces filtres.")).toBeTruthy();
+    expect(screen.getByText("Aucune entrée ne correspond à ces filtres.")).toBeTruthy();
   });
 
-  it("orders newest first", () => {
-    const old = makeApproval({ createdAt: 1 });
-    const recent = makeApproval({ createdAt: 2 });
-    expect(filterDecisions([old, recent], { status: "all", operation: "all", text: "" }).map((a) => a.id)).toEqual([recent.id, old.id]);
+  it("matches text on tool, target and outcome, and lists only known facts", () => {
+    const rows = [entry({ seq: 1, target: "a.ts" }), entry({ seq: 2, target: null, outcome: "refusé : evil" })];
+    expect(filterEntries(rows, "EVIL").map((row) => row.seq)).toEqual([2]);
+    expect(filterEntries(rows, "read_file").map((row) => row.seq)).toEqual([1, 2]);
+    expect(entryFacts(entry({ dataSummary: { bytesSent: 2048, exitCode: null } }))).toEqual(["2\u202f048 o envoyés"]);
   });
 });
 

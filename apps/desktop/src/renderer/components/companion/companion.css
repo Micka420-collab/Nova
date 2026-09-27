@@ -51,6 +51,10 @@
   border-top-right-radius: 0;
 }
 
+.nova-nomi-bubble-region {
+  display: block;
+}
+
 .nova-nomi-bubble-region:empty {
   display: none;
 }
@@ -131,4 +135,14 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--nv-space-1);
+}
+
+/* Screen-reader only: terminal state transitions of Nomi (success, error, waiting). */
+.nova-nomi-announce {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

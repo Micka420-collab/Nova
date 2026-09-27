@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, Callout, useToast } from "@nova/ui";
-import type { ProviderConnectionView } from "@nova/shared";
+import type { ProviderConnectionView, Workspace } from "@nova/shared";
 import { fr } from "../../copy/fr";
 import { formatRelative } from "../../lib/format";
 import { useNow } from "../../lib/hooks";
-import { useApp } from "../../state/context";
+import { useApp, useClient } from "../../state/context";
 import { selectedModelId } from "../../state/store";
 import { Composer } from "../chat/Composer";
 import { useSendGuard } from "../chat/useSendGuard";
@@ -16,6 +16,52 @@ import { errorToast } from "../../lib/errors";
 
 const RECENT_COUNT = 5;
 const copy = fr.atelier.home;
+
+/**
+ * Folders opened before (newest first), reopened by id without the picker. Hidden when none.
+ * Mounted with the open folder as key: opening another one reads the list again.
+ */
+function RecentFolders({ currentId }: { currentId: string | null }) {
+  const client = useClient();
+  const reopenWorkspace = useApp((state) => state.reopenWorkspace);
+  const toast = useToast();
+  const [recent, setRecent] = useState<Workspace[]>([]);
+  useEffect(() => {
+    let current = true;
+    client.workspace
+      .recent({ limit: RECENT_COUNT + 1 })
+      .then((list) => current && setRecent(list))
+      // No list, no section: the picker stays the way in.
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [client]);
+  const others = recent.filter((workspace) => workspace.id !== currentId).slice(0, RECENT_COUNT);
+  if (others.length === 0) return null;
+  return (
+    <div className="nova-home__recent">
+      <h3 className="nova-subheading">{copy.recentTitle}</h3>
+      <ul className="nova-home__recent-list">
+        {others.map((workspace) => (
+          <li key={workspace.id}>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={copy.reopen(workspace.name)}
+              onClick={() =>
+                reopenWorkspace(workspace.id).catch((error: unknown) => toast.show(errorToast(error, fr.atelier.shell.folderOpenFailed)))
+              }
+            >
+              {workspace.name}
+            </Button>
+            <code className="nova-note">{workspace.displayPath}</code>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 /** "Ouvrir un dossier" (UX.md minute 3): same weight as the new idea; facts once a folder is open. */
 function FolderCard() {
@@ -72,6 +118,7 @@ function FolderCard() {
           </Button>
         </>
       )}
+      <RecentFolders key={workspace?.id ?? "none"} currentId={workspace?.id ?? null} />
     </section>
   );
 }

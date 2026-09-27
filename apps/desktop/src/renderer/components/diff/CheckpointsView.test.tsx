@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import type { Checkpoint, IpcResult, RestoreFileResult } from "@nova/shared";
+import type { Checkpoint, IpcResult, MergeProposal, RestoreFileResult } from "@nova/shared";
 import { installDomPolyfills } from "../../test/dom";
 import { CheckpointsView } from "./CheckpointsView";
 import { renderWithMission } from "./test-helpers";
@@ -54,6 +54,41 @@ describe("CheckpointsView", () => {
     expect(within(dialog).getByText(/Rien n'a été écrasé/)).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("button", { name: "Comparer" }));
     expect(store.getState().ui.reveal?.path).toBe("index.html");
+  });
+
+  it("offers the merge main proposes for a conflict and applies it over the version it was computed on", async () => {
+    const applied: unknown[] = [];
+    renderWithMission({
+      edits: [],
+      overrides: (base) => ({
+        ...base,
+        checkpoints: {
+          ...base.checkpoints,
+          list: ({ workspaceId }) => Promise.resolve({ ok: true, value: [checkpoint(workspaceId)] }),
+          restoreFile: ({ path }): Promise<IpcResult<RestoreFileResult>> =>
+            Promise.resolve({ ok: true, value: { status: "conflict", path, currentHash: HASH, expectedHash: HASH } }),
+          proposeMerge: ({ path }): Promise<IpcResult<MergeProposal>> =>
+            Promise.resolve({ ok: true, value: { status: "clean", path, currentHash: HASH, merged: "<p>mine, agent change undone</p>" } }),
+          applyMerge: (req): Promise<IpcResult<RestoreFileResult>> => {
+            applied.push(req);
+            return Promise.resolve({ ok: true, value: { status: "restored", path: req.path, checkpointId: req.checkpointId } });
+          },
+        },
+      }),
+      ui: () => <CheckpointsView missionId={null} />,
+    });
+    const restore = await screen.findByRole("button", { name: "Restaurer index.html" });
+    await act(async () => {
+      fireEvent.click(restore);
+    });
+    const dialog = screen.getByRole("dialog", { name: "Ce fichier a changé depuis ce point de reprise" });
+    expect(await within(dialog).findByText(/Fusion possible/)).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Appliquer la fusion" }));
+    });
+    expect(applied).toEqual([
+      { checkpointId: "00000000-0000-4000-8000-00000000aaaa", path: "index.html", merged: "<p>mine, agent change undone</p>", expectedHash: HASH },
+    ]);
   });
 
   it("confirms a return with the exact files, then reports the safety point", async () => {

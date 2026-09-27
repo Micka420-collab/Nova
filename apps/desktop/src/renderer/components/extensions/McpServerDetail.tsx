@@ -42,6 +42,8 @@ export function McpServerDetail({
   const [testing, setTesting] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [test, setTest] = useState<McpTestResult | null>(null);
+  const [journal, setJournal] = useState<string | null>(null);
+  const [readingJournal, setReadingJournal] = useState(false);
   const [showArgs, setShowArgs] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -60,6 +62,17 @@ export function McpServerDetail({
       toast.show(errorToast(error, t.testFailed));
     } finally {
       setTesting(false);
+    }
+  }
+
+  async function readJournal() {
+    setReadingJournal(true);
+    try {
+      setJournal(await client.mcp.logs({ serverId: config.id }));
+    } catch (error) {
+      toast.show(errorToast(error, t.journalFailed));
+    } finally {
+      setReadingJournal(false);
     }
   }
 
@@ -169,11 +182,11 @@ export function McpServerDetail({
         <h3 id={`mcp-journal-${config.id}`} className="nova-mcp-subheading">
           {t.journal}
         </h3>
-        {test ? (
+        {journal !== null || test ? (
           <>
             <p className="nova-note">{t.journalHint}</p>
-            {test.stderrTail.trim() ? (
-              <pre className="nova-mcp-journal__output">{test.stderrTail}</pre>
+            {(journal ?? test?.stderrTail ?? "").trim() ? (
+              <pre className="nova-mcp-journal__output">{journal ?? test?.stderrTail}</pre>
             ) : (
               <p className="nova-note">{t.journalEmpty}</p>
             )}
@@ -181,6 +194,11 @@ export function McpServerDetail({
         ) : (
           <p className="nova-note">{t.journalNone}</p>
         )}
+        {config.transport.type === "stdio" ? (
+          <Button size="sm" variant="ghost" loading={readingJournal} onClick={() => void readJournal()}>
+            {t.journalRead}
+          </Button>
+        ) : null}
       </section>
       <McpToolTable serverId={config.id} workspace={workspace} refreshKey={refreshKey} initialTools={test?.tools ?? null} />
       {confirmRemove ? (

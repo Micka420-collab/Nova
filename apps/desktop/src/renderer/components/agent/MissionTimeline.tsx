@@ -1,5 +1,6 @@
 // Live journal of a mission in the agent panel (VISUAL.md §4.4): messages with citation chips, tool
 // cards (folded, grouped), approvals in place, notices, suspension banner and the end card.
+import { useId, useState } from "react";
 import { Button, Callout, CitationChip, useToast } from "@nova/ui";
 import { fr } from "../../copy/fr";
 import { SUSPEND_REASON_COPY } from "../../copy/fr-atelier";
@@ -81,6 +82,41 @@ function Notice({ item }: { item: NoticeItem }) {
   }
 }
 
+const MAX_MISSION_BUDGET_USD = 1_000;
+
+function RaiseCap({ view, onResume }: { view: MissionView; onResume: (budgetUsd: number) => void }) {
+  const id = useId();
+  const current = view.budget?.budgetUsd ?? null;
+  const [value, setValue] = useState(current === null ? "" : String(Math.min(MAX_MISSION_BUDGET_USD, current * 2)));
+  const parsed = Number(value.replace(",", "."));
+  const valid = value.trim() !== "" && Number.isFinite(parsed) && parsed > (current ?? 0) && parsed <= MAX_MISSION_BUDGET_USD;
+  return (
+    <form
+      className="nova-agent-raisecap"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (valid) onResume(parsed);
+      }}
+    >
+      <label className="nv-field" htmlFor={id}>
+        <span className="nv-field__label">{copy.mission.raiseCapLabel}</span>
+        <input
+          id={id}
+          className="nv-field__control"
+          inputMode="decimal"
+          value={value}
+          aria-invalid={!valid}
+          onChange={(event) => setValue(event.target.value)}
+        />
+      </label>
+      {!valid ? <p className="nova-note">{copy.mission.raiseCapInvalid(current === null ? "0" : current.toFixed(2))}</p> : null}
+      <Button size="sm" variant="secondary" type="submit" disabled={!valid}>
+        {copy.mission.raiseCap}
+      </Button>
+    </form>
+  );
+}
+
 function SuspendedBanner({ view }: { view: MissionView }) {
   const resumeMission = useApp((state) => state.resumeMission);
   const stopMission = useApp((state) => state.stopMission);
@@ -107,7 +143,10 @@ function SuspendedBanner({ view }: { view: MissionView }) {
       }
     >
       <p>{suspended.detail ?? reason.detail}</p>
-      {suspended.reason === "budget" || suspended.reason === "daily_budget" ? <p className="nova-note">{copy.mission.raiseCapUnavailable}</p> : null}
+      {suspended.reason === "budget" ? (
+        <RaiseCap view={view} onResume={(budgetUsd) => act(() => resumeMission(view.mission.id, budgetUsd))} />
+      ) : null}
+      {suspended.reason === "daily_budget" ? <p className="nova-note">{copy.mission.dailyCapHint}</p> : null}
     </Callout>
   );
 }

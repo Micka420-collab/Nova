@@ -286,3 +286,59 @@
   gap: var(--nv-space-2);
   align-items: end;
 }
+
+.nova-mcp__detail {
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.nova-mcp-journal {
+  display: grid;
+  gap: var(--nv-space-2);
+}
+
+.nv-dialog.nova-mcp-form-dialog {
+  width: min(640px, calc(100vw - 32px));
+}
+
+/* Recommended catalog and project import (M3/M4). */
+.nova-mcp-sources {
+  display: grid;
+  gap: var(--nv-space-4);
+  margin-top: var(--nv-space-4);
+}
+
+.nova-mcp-sources__block {
+  display: grid;
+  gap: var(--nv-space-2);
+}
+
+.nova-mcp-sources__list {
+  display: grid;
+  gap: var(--nv-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nova-mcp-source {
+  display: grid;
+  gap: var(--nv-space-1);
+  padding: var(--nv-space-2) var(--nv-space-3);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-md);
+  justify-items: start;
+}
+
+.nova-mcp-source__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nv-space-2);
+  align-items: baseline;
+}
+
+.nova-mcp-source__form {
+  display: grid;
+  gap: var(--nv-space-2);
+  width: 100%;
+}

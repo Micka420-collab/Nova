@@ -6,11 +6,13 @@ import { useApp } from "../../state/context";
 import { docKey, liveMission, type WorkbenchDoc } from "../../state/store";
 import { CheckpointsView } from "../diff/CheckpointsView";
 import { DiffReview } from "../diff/DiffReview";
-import { EditorWorkbench } from "../editor/EditorWorkbench";
 import { McpManager } from "../extensions/McpManager";
 import { MissionCard } from "../missions/MissionCard";
 import { ContextPanel } from "./ContextPanel";
-import { useMemo } from "react";
+import { lazy, Suspense, useMemo } from "react";
+
+// CodeMirror stays out of the initial bundle: the editor group loads when it is first shown.
+const EditorWorkbench = lazy(() => import("../editor/EditorWorkbench").then((module) => ({ default: module.EditorWorkbench })));
 
 const copy = fr.atelier.shell;
 const ID_PREFIX = "wb";
@@ -59,11 +61,13 @@ function DocView({ doc }: { doc: WorkbenchDoc }) {
       return <ContextPanel />;
     case "editor":
       return (
-        <EditorWorkbench
-          agentWritingPaths={writing}
-          onQuickOpen={() => setUi({ quickOpen: true })}
-          onProjectSearch={() => showExplorer("search")}
-        />
+        <Suspense fallback={<p className="nova-note nova-workbench__loading">{copy.viewLoading}</p>}>
+          <EditorWorkbench
+            agentWritingPaths={writing}
+            onQuickOpen={() => setUi({ quickOpen: true })}
+            onProjectSearch={() => showExplorer("search")}
+          />
+        </Suspense>
       );
     case "mission":
       return <MissionCard missionId={doc.missionId} />;

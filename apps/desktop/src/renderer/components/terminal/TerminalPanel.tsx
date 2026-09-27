@@ -35,8 +35,6 @@ export interface TerminalPanelProps {
   onExplain?(request: TerminalExplainRequest): void;
   /** Links in the output; the lead routes them through app.openExternal and its allowlist. */
   onOpenLink(uri: string): void;
-  /** "Prendre la main" (needs terminal.takeOver in the contract); hidden when absent. */
-  onTakeOver?(sessionId: string): Promise<TerminalSession>;
   colorScheme?: TerminalColorScheme;
   screenReaderMode?: boolean;
   highContrast?: boolean;
@@ -95,6 +93,19 @@ export function TerminalPanel(props: TerminalPanelProps) {
   }, [api, store, workspaceId]);
 
   useEffect(load, [load]);
+
+  // Agent sessions appear as soon as a mission opens them; owner changes and exits follow.
+  // User sessions are added by `create` itself (its port must be registered before the view mounts).
+  useEffect(
+    () =>
+      api.onEvent((event) => {
+        const { session } = event;
+        if (session.workspaceId !== workspaceId) return;
+        const known = store.getState().sessions.some((item) => item.id === session.id);
+        if (event.type === "session.created" ? session.owner === "agent" : known) store.getState().upsertSession(session);
+      }),
+    [api, store, workspaceId],
+  );
 
   const acquirePort = async (sessionId: string): Promise<MessagePort> => {
       if (freshPorts.current.delete(sessionId)) return ports.take("terminal", sessionId);
@@ -158,9 +169,8 @@ export function TerminalPanel(props: TerminalPanelProps) {
   };
 
   const takeOver = async (sessionId: string): Promise<void> => {
-    if (!props.onTakeOver) return;
     try {
-      store.getState().upsertSession(await props.onTakeOver(sessionId));
+      store.getState().upsertSession(await api.takeOver({ sessionId }));
       handles.current.get(sessionId)?.focus();
     } catch (reason) {
       setPortErrors((current) => ({ ...current, [sessionId]: message(reason) }));
@@ -323,7 +333,7 @@ export function TerminalPanel(props: TerminalPanelProps) {
           tone="info"
           className="nv-terminal-notice"
           action={
-            props.onTakeOver ? (
+            active.state === "running" ? (
               <Button size="sm" onClick={() => void takeOver(active.id)}>
                 {copy.takeOver}
               </Button>

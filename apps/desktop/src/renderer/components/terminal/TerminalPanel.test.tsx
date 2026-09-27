@@ -2,7 +2,7 @@
 // canvas/WebGL); the real browser rendering is proven by the lead's E2E on the built app.
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { NovaApi, NovaPortRegistry, TerminalSession } from "@nova/shared";
+import type { NovaApi, NovaPortRegistry, TerminalEvent, TerminalSession } from "@nova/shared";
 import { createTerminalStore } from "../../state/terminal-slice";
 import { TerminalPanel, type TerminalExplainRequest } from "./TerminalPanel";
 
@@ -136,10 +136,17 @@ function setup(existing: TerminalSession[] = []) {
     attach: vi.fn<Api["attach"]>(async ({ sessionId }) => existing.find((s) => s.id === sessionId) ?? session(sessionId)),
     resize: vi.fn<Api["resize"]>(async () => {}),
     kill: vi.fn<Api["kill"]>(async () => {}),
+    takeOver: vi.fn<Api["takeOver"]>(async ({ sessionId }) => session(sessionId, { owner: "user", title: "pnpm test" })),
+    onEvent: vi.fn<Api["onEvent"]>((listener) => {
+      emitEvent = listener;
+      return () => {
+        emitEvent = null;
+      };
+    }),
   };
+  let emitEvent: ((event: TerminalEvent) => void) | null = null;
   const store = createTerminalStore();
   const explains: TerminalExplainRequest[] = [];
-  const onTakeOver = vi.fn<(id: string) => Promise<TerminalSession>>(async (id: string) => session(id, { owner: "user", title: "pnpm test" }));
   render(
     <TerminalPanel
       api={api}
@@ -148,11 +155,10 @@ function setup(existing: TerminalSession[] = []) {
       workspaceId={WORKSPACE}
       onExplain={(request) => explains.push(request)}
       onOpenLink={() => {}}
-      onTakeOver={onTakeOver}
       colorScheme="dark"
     />,
   );
-  return { api, store, portFor, explains, onTakeOver };
+  return { api, store, portFor, explains, emit: (event: TerminalEvent) => emitEvent?.(event) };
 }
 
 afterEach(() => {
@@ -207,13 +213,25 @@ describe("TerminalPanel", () => {
       missionId: "44444444-4444-4444-8444-444444444444",
       title: "pnpm test",
     });
-    const { onTakeOver } = setup([agent]);
+    const { api } = setup([agent]);
     expect(await screen.findByText(/Session de Nomi en lecture seule/)).toBeTruthy();
     await waitFor(() => expect(terminals.at(-1)?.options["disableStdin"]).toBe(true));
     fireEvent.click(screen.getByRole("button", { name: "Prendre la main" }));
-    await waitFor(() => expect(onTakeOver).toHaveBeenCalledWith(agent.id));
+    await waitFor(() => expect(api.takeOver).toHaveBeenCalledWith({ sessionId: agent.id }));
     await waitFor(() => expect(screen.queryByText(/lecture seule/)).toBeNull());
     expect(terminals.at(-1)?.options["disableStdin"]).toBe(false);
+  });
+
+  it("shows an agent session as soon as a mission opens it, ignoring other workspaces", async () => {
+    const { store, emit } = setup([]);
+    await waitFor(() => expect(store.getState().status).toBe("ready"));
+    const agent = session("55555555-5555-4555-8555-555555555555", { owner: "agent", title: "pnpm dev" });
+    act(() => emit({ type: "session.created", session: { ...agent, workspaceId: "66666666-6666-4666-8666-666666666666" } }));
+    expect(store.getState().sessions).toEqual([]);
+    act(() => emit({ type: "session.created", session: agent }));
+    expect(store.getState().sessions.map((item) => item.id)).toEqual([agent.id]);
+    act(() => emit({ type: "session.exited", session: { ...agent, state: "exited", exitCode: 1 } }));
+    expect(store.getState().sessions[0]).toMatchObject({ state: "exited", exitCode: 1 });
   });
 
   it("shows the real error when the terminal is unavailable", async () => {
@@ -221,7 +239,15 @@ describe("TerminalPanel", () => {
     const refuse = async (): Promise<never> => {
       throw new Error("pty-host: node-pty could not be loaded");
     };
-    const api: NovaApi["terminal"] = { create: refuse, list: refuse, attach: refuse, resize: refuse, kill: refuse };
+    const api: NovaApi["terminal"] = {
+      create: refuse,
+      list: refuse,
+      attach: refuse,
+      resize: refuse,
+      kill: refuse,
+      takeOver: refuse,
+      onEvent: () => () => {},
+    };
     render(
       <TerminalPanel
         api={api}

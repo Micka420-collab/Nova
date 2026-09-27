@@ -211,3 +211,17 @@
     transition: none;
   }
 }
+
+.nv-diff-file__proof,
+.nv-diff-file__pill,
+.nv-diff-hunk__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--nv-space-1);
+  font-size: var(--nv-text-xs);
+}
+
+.nv-diff-file__body {
+  border-top: 1px solid var(--nv-border);
+  background: var(--nv-editor-bg, var(--nv-field));
+}

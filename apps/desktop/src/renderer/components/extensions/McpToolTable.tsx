@@ -1,18 +1,20 @@
 import { useEffect, useState } from "react";
 import { Badge, Callout, SegmentedControl, Skeleton, StatusPill, useToast } from "@nova/ui";
-import type { McpToolInfo, McpToolPermission, Workspace } from "@nova/shared";
+import type { McpToolInfo, McpToolPermission, UntrustedTextFlag, Workspace } from "@nova/shared";
 import { fr } from "../../copy/fr";
-import { MCP_PERMISSION_LABELS } from "../../copy/fr-extensions";
+import { MCP_PERMISSION_LABELS, UNTRUSTED_FLAG_LABELS } from "../../copy/fr-extensions";
 import { describeUiError, errorToast, toUiError } from "../../lib/errors";
 import { useClient } from "../../state/context";
-import { detectImperativeText } from "./mcp-form";
 
 const t = fr.extensions;
 const PERMISSIONS: readonly McpToolPermission[] = ["allow", "ask", "deny"];
 
-/** Server text shown as data, never as instructions (M5 / W5). */
-export function UntrustedDescription({ text }: { text: string }) {
-  const flagged = text.trim() !== "" && detectImperativeText(text);
+/**
+ * Server text shown as data, never as instructions (M5 / W5). The flags come from main's heuristic
+ * (`McpToolInfo.descriptionFlags`): a warning only, they never change a permission.
+ */
+export function UntrustedDescription({ text, flags }: { text: string; flags: readonly UntrustedTextFlag[] }) {
+  const flagged = flags.length > 0;
   return (
     <figure className="nova-mcp-untrusted">
       <figcaption className="nova-mcp-untrusted__frame">{t.untrustedFrame}</figcaption>
@@ -21,7 +23,7 @@ export function UntrustedDescription({ text }: { text: string }) {
       </p>
       {flagged ? (
         <Callout tone="warning" className="nova-mcp-untrusted__warning">
-          {t.imperativeWarning}
+          {t.imperativeWarning} {t.flagsFound(flags.map((flag) => UNTRUSTED_FLAG_LABELS[flag]).join(", "))}
         </Callout>
       ) : null}
     </figure>
@@ -162,7 +164,7 @@ export function McpToolTable({
                 ) : (
                   <p className="nova-mcp-tool__qualified nova-note">{t.notOffered}</p>
                 )}
-                <UntrustedDescription text={tool.description} />
+                <UntrustedDescription text={tool.description} flags={tool.descriptionFlags} />
               </li>
             );
           })}

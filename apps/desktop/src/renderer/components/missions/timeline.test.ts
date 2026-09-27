@@ -50,7 +50,7 @@ function approval(id: string, status: Approval["status"], toolCallId: string): A
   return {
     id,
     request: { workspaceId: WORKSPACE_ID, missionId: MISSION_ID, tool: "run_command", operation: "execute", argv: ["pnpm", "test"] },
-    decision: { decision: "ask", reason: "profile_asks", ruleId: null, rememberable: true },
+    decision: { decision: "ask", reason: "profile_asks", ruleId: null, rememberable: true, explanation: "Règle de test." },
     toolCallId,
     status,
     scope: status === "approved" ? "once" : null,
@@ -75,7 +75,7 @@ function scenario(): MissionEvent[] {
     ev({ type: "mission.plan", summary: "Deux étapes", tasks: [task("t2", 2, "todo"), task("t1", 1, "todo")] }),
     ev({ type: "task.updated", task: task("t1", 1, "running") }),
     ev({ type: "tool.requested", call: call("c1", "read_file", { path: "src/cart.ts" }), taskId: "t1" }),
-    ev({ type: "tool.permission", callId: "c1", decision: { decision: "allow", reason: "contract_allows", ruleId: null, rememberable: false }, approvalId: null }),
+    ev({ type: "tool.permission", callId: "c1", decision: { decision: "allow", reason: "contract_allows", ruleId: null, rememberable: false, explanation: "Règle de test." }, approvalId: null }),
     ev({ type: "tool.started", callId: "c1", isolationLevel: null }),
     ev({
       type: "tool.finished",
@@ -85,7 +85,7 @@ function scenario(): MissionEvent[] {
       durationMs: 30,
     }),
     ev({ type: "tool.requested", call: call("c2", "run_tests", { operation: "execute", argv: ["pnpm", "test"] }), taskId: "t1" }),
-    ev({ type: "tool.permission", callId: "c2", decision: { decision: "ask", reason: "profile_asks", ruleId: null, rememberable: true }, approvalId: "a1" }),
+    ev({ type: "tool.permission", callId: "c2", decision: { decision: "ask", reason: "profile_asks", ruleId: null, rememberable: true, explanation: "Règle de test." }, approvalId: "a1" }),
     ev({ type: "approval.requested", approval: approval("a1", "pending", "c2") }),
   ];
 }
@@ -186,13 +186,13 @@ describe("mission timeline reducer", () => {
 
   it("aggregates file changes, commands and verified tasks from events only", () => {
     const events = scenario();
-    const change = (callId: string, change: "created" | "modified", path: string, additions: number) => [
+    const change = (callId: string, kind: "created" | "modified", path: string, additions: number) => [
       ev({ type: "tool.requested", call: call(callId, "edit_file", { operation: "write", path }), taskId: "t1" }),
       ev({
         type: "tool.finished",
         callId,
         state: "succeeded",
-        display: { kind: "file_change", change, path, fromPath: null, additions, deletions: 1, checkpointId: "k1" },
+        display: { kind: "file_change", change: kind, path, fromPath: null, additions, deletions: 1, checkpointId: "k1" },
         durationMs: 5,
       }),
     ];

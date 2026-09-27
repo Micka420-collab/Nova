@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { EMPTY_COMPANION_FACTS, currentActivity, focusMission, reduceCompanionFacts } from "@nova/companion";
+import { EMPTY_COMPANION_FACTS, collectCopyStrings, currentActivity, findManipulation, focusMission, reduceCompanionFacts } from "@nova/companion";
 import type { ProviderConnectionView } from "@nova/shared";
 import { MissionLog, approval, testsDisplay } from "@nova/companion/testing";
+import { fr } from "../copy/fr";
 import { ABSENT_CONNECTION, VALID_CONNECTION } from "../test/fake-bridge";
 import { deriveNomiState, OUTCOME_WINDOW_MS, type NomiInput } from "./nomi";
 
@@ -123,5 +124,14 @@ describe("deriveNomiState with missions and activities (NOMI.md §6)", () => {
 
   it("without a mission nothing changes: no accessory, never a fake activity", () => {
     expect(deriveNomiState({ ...base, activity: "editing" })).toMatchObject({ state: "idle", activity: "none" });
+  });
+});
+
+describe("N11: the dock's own words", () => {
+  it("every Nomi status string of the renderer passes the anti-manipulation check", () => {
+    const failures = collectCopyStrings(fr.nomi, "fr.nomi")
+      .map(({ path, text }) => ({ path, reasons: findManipulation(text) }))
+      .filter(({ reasons }) => reasons.length > 0);
+    expect(failures).toEqual([]);
   });
 });

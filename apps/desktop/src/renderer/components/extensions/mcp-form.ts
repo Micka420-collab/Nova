@@ -151,28 +151,3 @@ export function formToInput(form: McpFormState, workspaceId: string | null): For
   }
   return { ok: true, input: parsed.data };
 }
-
-/**
- * Server-provided text that addresses the model with instructions (prompt injection attempts). A
- * heuristic for the warning only: descriptions are always treated as data, flagged or not.
- */
-const IMPERATIVE_PATTERNS: readonly RegExp[] = [
-  /\bignore\s+(all|any|the|previous|prior|above|earlier|your)\b/i,
-  /\b(disregard|forget)\s+(all|any|the|previous|prior|your)\b/i,
-  /\byou\s+(must|should always|are required to|have to)\b/i,
-  /\balways\s+(call|use|run|invoke|send|include)\b/i,
-  /\bnever\s+(tell|mention|reveal|inform)\b/i,
-  /\bdo\s+not\s+(tell|mention|reveal|inform|ask)\b/i,
-  /\b(system|developer)\s+prompt\b/i,
-  /\bbefore\s+(using|calling)\s+any\s+other\s+tool\b/i,
-  /<\s*\/?\s*(system|instructions?|important)\s*>/i,
-  /\bignore[sz]?\s+(tes|vos|les|toutes?)\s+(consignes|instructions|règles)/i,
-  /\btu\s+dois\b/i,
-  /\bvous\s+devez\b/i,
-  /\bn['’]oublie\s+pas\s+de\b/i,
-  /\bne\s+(dis|mentionne|révèle)\s+(rien|pas|jamais)\b/i,
-];
-
-export function detectImperativeText(description: string): boolean {
-  return IMPERATIVE_PATTERNS.some((pattern) => pattern.test(description));
-}

@@ -2,12 +2,18 @@
 // and the approvals remembered for a mission or the project. Saving is explicit (VISUAL.md §4.8).
 import { useId, useState } from "react";
 import { Button, Callout, EmptyState, useToast } from "@nova/ui";
-import { PERMISSION_PROFILES, type Approval, type PermissionProfile, type PermissionProfileState } from "@nova/shared";
+import {
+  PERMISSION_PROFILES,
+  SENSITIVE_PATH_PATTERNS,
+  type PermissionProfile,
+  type PermissionProfileState,
+  type PermissionRule,
+} from "@nova/shared";
 import { fr } from "../../copy/fr";
 import { APPROVAL_SCOPE_LABELS, OPERATION_LABELS, PROFILE_HINTS, PROFILE_LABELS } from "../../copy/fr-atelier";
 import { errorToast } from "../../lib/errors";
 import { useApp, useClient } from "../../state/context";
-import { approvalTarget, formatDateTime, SectionError, SectionLoading, useLoaded } from "./section-states";
+import { formatDateTime, SectionError, SectionLoading, useLoaded } from "./section-states";
 
 const copy = fr.atelierSettings.permissions;
 
@@ -69,11 +75,33 @@ function ProfileForm({ state, onSaved }: { state: PermissionProfileState; onSave
   );
 }
 
-function RememberedApprovals({ workspaceId }: { workspaceId: string }) {
+function ruleTarget(rule: PermissionRule): string {
+  if (rule.host) return rule.host;
+  if (rule.pathGlob) return rule.pathGlob;
+  return copy.anyTarget;
+}
+
+function RememberedRules({ workspaceId }: { workspaceId: string }) {
   const client = useClient();
-  const [loaded, retry] = useLoaded<Approval[]>(workspaceId, () =>
-    client.approvals.list({ workspaceId, missionId: null, status: "approved" }),
-  );
+  const toast = useToast();
+  const [loaded, retry, replace] = useLoaded<PermissionRule[]>(workspaceId, () => client.permissions.listRules({ workspaceId }));
+  const [confirmAll, setConfirmAll] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function revoke(ruleId: string | null) {
+    setBusy(true);
+    try {
+      const count = await client.permissions.revokeRules({ workspaceId, ruleId });
+      replace(await client.permissions.listRules({ workspaceId }));
+      toast.show({ title: copy.revoked(count), tone: "success" });
+    } catch (error) {
+      toast.show(errorToast(error, fr.atelierSettings.common.saveFailed));
+    } finally {
+      setBusy(false);
+      setConfirmAll(false);
+    }
+  }
+
   return (
     <section className="nova-aset-block" aria-labelledby="aset-remembered">
       <h3 id="aset-remembered" className="nova-subheading">
@@ -82,45 +110,83 @@ function RememberedApprovals({ workspaceId }: { workspaceId: string }) {
       <p className="nova-note">{copy.rememberedIntro}</p>
       {loaded.status === "loading" ? <SectionLoading /> : null}
       {loaded.status === "error" ? <SectionError error={loaded.error} onRetry={retry} /> : null}
-      {loaded.status === "ready" ? <RememberedTable approvals={loaded.data} /> : null}
+      {loaded.status === "ready" && loaded.data.length === 0 ? <p className="nova-aset-empty">{copy.rememberedEmpty}</p> : null}
+      {loaded.status === "ready" && loaded.data.length > 0 ? (
+        <>
+          <div className="nova-aset-table-wrap">
+            <table className="nova-aset-table">
+              <thead>
+                <tr>
+                  <th scope="col">{copy.colTool}</th>
+                  <th scope="col">{copy.colOperation}</th>
+                  <th scope="col">{copy.colTarget}</th>
+                  <th scope="col">{copy.colScope}</th>
+                  <th scope="col">{copy.colDate}</th>
+                  <th scope="col">
+                    <span className="nv-visually-hidden">{copy.colActions}</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {loaded.data.map((rule) => (
+                  <tr key={rule.id}>
+                    <td>{rule.tool ? <code>{rule.tool}</code> : copy.anyTool}</td>
+                    <td>{rule.operation ? OPERATION_LABELS[rule.operation] : fr.app.unknown}</td>
+                    <td>
+                      <code className="nova-aset-target">{ruleTarget(rule)}</code>
+                    </td>
+                    <td>{APPROVAL_SCOPE_LABELS[rule.scope]}</td>
+                    <td>{formatDateTime(rule.createdAt)}</td>
+                    <td>
+                      <Button size="sm" variant="ghost" disabled={busy} onClick={() => void revoke(rule.id)}>
+                        {copy.revoke}
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="nova-actions">
+            {confirmAll ? (
+              <>
+                <span className="nova-note">{copy.revokeAllConfirm(loaded.data.length)}</span>
+                <Button variant="danger" size="sm" loading={busy} onClick={() => void revoke(null)}>
+                  {copy.revokeAll}
+                </Button>
+                <Button variant="ghost" size="sm" disabled={busy} onClick={() => setConfirmAll(false)}>
+                  {fr.atelierSettings.common.cancel}
+                </Button>
+              </>
+            ) : (
+              <Button variant="secondary" size="sm" disabled={busy} onClick={() => setConfirmAll(true)}>
+                {copy.revokeAll}
+              </Button>
+            )}
+          </div>
+        </>
+      ) : null}
     </section>
   );
 }
 
-function RememberedTable({ approvals }: { approvals: Approval[] }) {
-  const remembered = approvals
-    .filter((approval) => approval.scope === "mission" || approval.scope === "project")
-    .toSorted((a, b) => (b.decidedAt ?? b.createdAt) - (a.decidedAt ?? a.createdAt));
-  if (remembered.length === 0) return <p className="nova-aset-empty">{copy.rememberedEmpty}</p>;
+/** C8: the list is visible (FEATURES C8); `.novaignore` adds to it, never removes. */
+function SensitiveFiles() {
   return (
-    <div className="nova-aset-table-wrap">
-      <table className="nova-aset-table">
-        <thead>
-          <tr>
-            <th scope="col">{copy.colTool}</th>
-            <th scope="col">{copy.colOperation}</th>
-            <th scope="col">{copy.colTarget}</th>
-            <th scope="col">{copy.colScope}</th>
-            <th scope="col">{copy.colDate}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {remembered.map((approval) => (
-            <tr key={approval.id}>
-              <td>
-                <code>{approval.request.tool}</code>
-              </td>
-              <td>{OPERATION_LABELS[approval.request.operation]}</td>
-              <td>
-                <code className="nova-aset-target">{approvalTarget(approval.request)}</code>
-              </td>
-              <td>{approval.scope ? APPROVAL_SCOPE_LABELS[approval.scope] : fr.app.unknown}</td>
-              <td>{formatDateTime(approval.decidedAt ?? approval.createdAt)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <section className="nova-aset-block" aria-labelledby="aset-sensitive">
+      <h3 id="aset-sensitive" className="nova-subheading">
+        {copy.sensitiveTitle}
+      </h3>
+      <p className="nova-note">{copy.sensitiveIntro}</p>
+      <ul className="nova-aset-patterns">
+        {SENSITIVE_PATH_PATTERNS.map((pattern) => (
+          <li key={pattern}>
+            <code>{pattern}</code>
+            {pattern.startsWith("!") ? <span className="nova-note"> · {copy.sensitiveAllowed}</span> : null}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -142,7 +208,8 @@ export function PermissionsSection() {
       {loaded.status === "ready" && loaded.data ? (
         <ProfileForm key={`${loaded.data.profile}`} state={loaded.data} onSaved={replace} />
       ) : null}
-      <RememberedApprovals workspaceId={workspace.id} />
+      <RememberedRules workspaceId={workspace.id} />
+      <SensitiveFiles />
     </div>
   );
 }

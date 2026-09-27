@@ -1,7 +1,15 @@
 // Nomi's bubble: one fact + at most two actions (NOMI.md §4). Shows, in this order, the outcome of
 // the last action (every click ends here), a dropped file's intents, or the visible suggestion
 // with its evidence. The live region is always mounted so screen readers hear each new fact.
-import { NOMI_COPY, type ActionOutcome, type ChangeLine, type DropIntent, type ModelExplainPlan } from "@nova/companion";
+import {
+  NOMI_COPY,
+  type ActionOutcome,
+  type ChangeLine,
+  type DropIntent,
+  type FactAction,
+  type FactSuggestion,
+  type ModelExplainPlan,
+} from "@nova/companion";
 import type { CompanionSignal, CompanionSuggestion } from "@nova/shared";
 import { Button } from "@nova/ui";
 
@@ -19,6 +27,10 @@ export interface NomiBubbleProps {
   /** The signal justifying `suggestion` (its evidence is shown with it). */
   signal: CompanionSignal | null;
   drop: NomiBubbleDrop | null;
+  /** A P6 row backed by a live chat fact (no key, failed answer); shown only when nothing else is. */
+  fact?: FactSuggestion | null;
+  onFactAction?(action: FactAction): void;
+  onFactDismiss?(factId: string): void;
   /** Level 2 of « Explique cette erreur »: what would be sent and its cost; null = no model. */
   askModel: { plan: ModelExplainPlan; onAsk(): void } | null;
   busy: boolean;
@@ -134,10 +146,32 @@ export function NomiBubble(props: NomiBubbleProps) {
         </div>
       </div>
     );
+  } else if (props.fact) {
+    const fact = props.fact;
+    content = (
+      <div className="nova-nomi-bubble" data-kind="fact">
+        <p className="nova-nomi-bubble__text">{fact.text}</p>
+        <div className="nova-nomi-bubble__actions">
+          {fact.actions.map((entry, index) => (
+            <Button
+              key={entry.action.type}
+              size="sm"
+              variant={index === 0 ? "primary" : "secondary"}
+              onClick={() => props.onFactAction?.(entry.action)}
+            >
+              {entry.label}
+            </Button>
+          ))}
+          <Button size="sm" variant="ghost" onClick={() => props.onFactDismiss?.(fact.factId)}>
+            {NOMI_COPY.bubble.close}
+          </Button>
+        </div>
+      </div>
+    );
   }
   return (
-    <div className="nova-nomi-bubble-region" role="status" aria-live="polite" aria-label={NOMI_COPY.bubble.region}>
+    <output className="nova-nomi-bubble-region" aria-live="polite" aria-label={NOMI_COPY.bubble.region}>
       {content}
-    </div>
+    </output>
   );
 }

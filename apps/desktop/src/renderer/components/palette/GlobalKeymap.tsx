@@ -8,6 +8,7 @@ import { resolveAtelierShortcut, type AtelierCommand } from "../editor/shortcuts
 import { useAtelierStore } from "../editor/atelier-context";
 import type { AtelierState } from "../../state/editor-slice";
 import { buildCommands, commandForEvent, focusRegionOf, runCommand } from "./registry";
+import { useOptionalShellServices } from "../layout/AtelierHost";
 
 const COMMANDS = buildCommands();
 
@@ -52,6 +53,7 @@ export function GlobalKeymap() {
   const store = useAppStore();
   const atelier = useAtelierStore();
   const toast = useToast();
+  const companion = useOptionalShellServices()?.companion;
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
@@ -60,7 +62,7 @@ export function GlobalKeymap() {
       const command = commandForEvent(COMMANDS, event, ctx);
       if (command) {
         event.preventDefault();
-        void runCommand(command, ctx, { store, toast });
+        void runCommand(command, ctx, { store, toast, companion });
         return;
       }
       if (!state.workspace.current || state.ui.activeDoc !== "editor") return;
@@ -69,6 +71,6 @@ export function GlobalKeymap() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [store, atelier, toast]);
+  }, [store, atelier, toast, companion]);
   return null;
 }

@@ -515,6 +515,9 @@ export const fr = {
     motionReduce: "Réduites",
     motionFull: "Complètes",
     motionDescription: "« Système » suit la préférence de réduction des animations de ton ordinateur.",
+    noticesTitle: "Ce que Nomi t'a signalé",
+    noticesEmpty: "Rien pour l'instant dans cette session.",
+    noticeHeld: "gardé pendant le mode discret",
     shortcutsIntro: "Sur macOS, remplace Ctrl par ⌘.",
     shortcuts: [
       { keys: ["Ctrl", "K"], label: "Ouvrir la palette de commandes" },

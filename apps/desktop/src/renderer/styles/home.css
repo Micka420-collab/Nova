@@ -140,3 +140,44 @@
   font-size: var(--nv-text-sm);
   color: var(--nv-text-secondary);
 }
+
+.nova-home__facts {
+  display: grid;
+  gap: var(--nv-space-1);
+  padding-left: var(--nv-space-5);
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-home__folder-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nv-space-2);
+}
+
+/* Recent folders (reopen without the picker). */
+.nova-home__recent {
+  margin-top: var(--nv-space-3);
+}
+
+.nova-home__recent-list {
+  display: grid;
+  gap: var(--nv-space-1);
+  margin: var(--nv-space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nova-home__recent-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--nv-space-2);
+  min-width: 0;
+}
+
+.nova-home__recent-list code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

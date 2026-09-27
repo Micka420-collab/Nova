@@ -6,8 +6,10 @@ import {
   FILE_EDIT_MAX_BYTES,
   parentRelativePath,
   type ContentHash,
+  type EditorSessionSnapshot,
   type FileContent,
   type FilesEvent,
+  type NovaApi,
   type RelativePath,
 } from "@nova/shared";
 import { toUiError, type UiError } from "../lib/errors";
@@ -177,18 +179,21 @@ export type AtelierStore = StoreApi<AtelierState>;
 // ---------------------------------------------------------------------------
 // Session persistence (Pr3)
 
-export interface EditorSessionSnapshot {
-  version: 1;
-  tabs: { path: RelativePath; pinned: boolean }[];
-  activePath: RelativePath | null;
-  /** Scroll offsets in CSS pixels. */
-  scroll: Record<RelativePath, number>;
-}
+/** Tabs, pinned tabs, active tab and scroll of a workspace (paths only): the shared contract type. */
+export type { EditorSessionSnapshot };
 
-/** Where sessions are kept. No IPC exists yet for the `editor_state` table: memory by default. */
+/** Where sessions are kept: main's `editor_state` table (`ipcSessionStore`), or memory in tests. */
 export interface EditorSessionStore {
   load(workspaceId: string): Promise<EditorSessionSnapshot | null>;
   save(workspaceId: string, snapshot: EditorSessionSnapshot): Promise<void>;
+}
+
+/** Pr3: sessions survive a restart. A failed read restores nothing; a failed save is retried next change. */
+export function ipcSessionStore(client: Pick<NovaApi, "workspace">): EditorSessionStore {
+  return {
+    load: (workspaceId) => client.workspace.getEditorState({ workspaceId }).catch(() => null),
+    save: (workspaceId, snapshot) => client.workspace.setEditorState({ workspaceId, state: snapshot }).catch(() => undefined),
+  };
 }
 
 export function memorySessionStore(): EditorSessionStore {

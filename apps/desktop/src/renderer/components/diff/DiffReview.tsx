@@ -1,7 +1,7 @@
 // "Changements" document (A11, VISUAL.md §4.3, UX.md §5.7): the files a mission touched, with
 // their proofs, kept or restored per file (Créer) or per hunk (Expert). Nothing is kept implicitly:
 // decisions go to main (`missions.review`), which refuses to overwrite a file changed since.
-import { useEffect, useMemo, useReducer, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { lazy, Suspense, useEffect, useMemo, useReducer, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import {
   Badge,
   Button,
@@ -31,8 +31,10 @@ import {
   type HunkDecision,
 } from "./model";
 import { hunkTargetLine, type DiffHunkData } from "./parse";
-import { SideBySide } from "./SideBySide";
-import { gitDiffSource, noDiffSource, type MissionDiffFile } from "./source";
+import { missionDiffSource, noDiffSource, type MissionDiffFile, type MissionDiffSource } from "./source";
+
+// CodeMirror (merge view) loads only when a side-by-side view is shown.
+const SideBySide = lazy(() => import("./SideBySide").then((module) => ({ default: module.SideBySide })));
 
 const copy = fr.diff.review;
 const NARROW_PX = 640;
@@ -40,7 +42,7 @@ const WIDE_PX = 1100;
 
 type Load =
   | { status: "loading" }
-  | { status: "ready"; files: MissionDiffFile[]; source: "git" | "none" }
+  | { status: "ready"; files: MissionDiffFile[]; source: MissionDiffSource["kind"] }
   | { status: "error" };
 
 /** A load answers one request key (files touched, source, attempt); an older answer means loading. */
@@ -120,7 +122,6 @@ function LoadedReview({ view }: { view: MissionView }) {
   const client = useClient();
   const toast = useToast();
   const workspaceId = useApp((state) => state.workspace.current?.id ?? null);
-  const gitAvailable = useApp((state) => state.workspace.git?.available === true || state.workspace.facts?.git === true);
   const expert = useApp((state) => state.ui.displayMode === "expert");
   const reviewMission = useApp((state) => state.reviewMission);
   const revealFile = useApp((state) => state.revealFile);
@@ -143,13 +144,14 @@ function LoadedReview({ view }: { view: MissionView }) {
   const width = useWidth(root);
   const narrow = width !== null && width < NARROW_PX;
   const wide = width !== null && width > WIDE_PX;
-  const requestKey = `${workspaceId ?? ""}|${String(gitAvailable)}|${attempt}|${touchedJson}`;
+  const requestKey = `${workspaceId ?? ""}|${attempt}|${touchedJson}`;
   const load: Load = keyed?.key === requestKey ? keyed.load : { status: "loading" };
 
   useEffect(() => {
     let current = true;
     const touched = JSON.parse(touchedJson) as FileTouch[];
-    const source = workspaceId && gitAvailable ? gitDiffSource(client, workspaceId) : noDiffSource;
+    // The mission's own diff (its hunks are the ones the review reverts); no workspace, no diff.
+    const source = workspaceId ? missionDiffSource(client) : noDiffSource;
     source
       .load(missionId, touched)
       .then((files) => {
@@ -163,7 +165,7 @@ function LoadedReview({ view }: { view: MissionView }) {
     return () => {
       current = false;
     };
-  }, [client, workspaceId, gitAvailable, missionId, touchedJson, requestKey]);
+  }, [client, workspaceId, missionId, touchedJson, requestKey]);
 
   const done = useMemo(() => collectDone([...(view.review ?? []), ...applied]), [view.review, applied]);
 
@@ -343,7 +345,8 @@ function LoadedReview({ view }: { view: MissionView }) {
         </div>
       </header>
 
-      {load.source === "none" ? <Callout tone="info">{copy.noGit}</Callout> : <p className="nova-diff__note">{copy.gitNote}</p>}
+      {load.source === "none" ? <Callout tone="info">{copy.noGit}</Callout> : null}
+      {load.source === "git" ? <p className="nova-diff__note">{copy.gitNote}</p> : null}
       {narrow ? <Callout tone="info">{copy.narrow}</Callout> : null}
       {showHunks ? <p className="nova-diff__keys">{copy.keys}</p> : null}
       {showHunks && review.sideBySide && !wide ? <p className="nova-diff__note">{copy.sideBySideNarrow}</p> : null}
@@ -418,7 +421,9 @@ function LoadedReview({ view }: { view: MissionView }) {
               }
             >
               {isCurrent && review.sideBySide && wide && showHunks && file.diff && workspaceId ? (
-                <SideBySide workspaceId={workspaceId} file={file.diff} />
+                <Suspense fallback={<p className="nova-note">{fr.atelier.shell.viewLoading}</p>}>
+                  <SideBySide workspaceId={workspaceId} file={file.diff} />
+                </Suspense>
               ) : (
                 hunks.map((hunk, hunkIndex) => {
                   const state = effective(path, hunkIndex);

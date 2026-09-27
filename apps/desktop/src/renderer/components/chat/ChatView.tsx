@@ -8,6 +8,7 @@ import type { StreamView } from "../../state/chat-reducer";
 import { selectedModelId } from "../../state/store";
 import { ChevronDownIcon, PanelRightIcon, PencilIcon } from "../icons";
 import { findModel } from "../models/filter";
+import { ContextInspector, MentionPicker, useMentionPicker } from "../agent/GoalContext";
 import { Composer } from "./Composer";
 import { MessageItem } from "./MessageItem";
 import { SendFailure } from "./SendFailure";
@@ -174,6 +175,8 @@ export function ChatView({ contextToggle }: { contextToggle: { open: boolean; to
   const retry = useApp((state) => state.retry);
   const guard = useSendGuard(modelId, "conversation");
   const draft = useSendMessage(activeId);
+  const hasWorkspace = useApp((state) => state.workspace.current !== null);
+  const picker = useMentionPicker(draft.text, draft.setText);
   const toast = useToast();
 
   const shown = detail && detail.conversation.id === activeId ? detail : null;
@@ -255,8 +258,10 @@ export function ChatView({ contextToggle }: { contextToggle: { open: boolean; to
         </div>
       </header>
       {body}
-      <div className="nova-chat__composer">
+      {/* Capture phase: the mention picker takes ↑ ↓ Entrée Échap only while it is open. */}
+      <div className="nova-chat__composer" onKeyDownCapture={hasWorkspace ? picker.onKeyDownCapture : undefined}>
         {draft.error ? <SendFailure error={draft.error} /> : null}
+        {hasWorkspace ? <MentionPicker picker={picker} /> : null}
         <Composer
           key={activeId ?? "new"}
           label={fr.composer.label}
@@ -268,6 +273,7 @@ export function ChatView({ contextToggle }: { contextToggle: { open: boolean; to
           onStop={stopActive}
           autoFocus
         />
+        {hasWorkspace ? <ContextInspector goal={draft.text} onGoalChange={draft.setText} target="chat" /> : null}
       </div>
     </div>
   );

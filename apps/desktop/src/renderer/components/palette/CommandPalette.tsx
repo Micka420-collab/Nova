@@ -1,5 +1,5 @@
 // Command palette (VISUAL.md §4.9, POWER_UX §2.4): commands from the registry, plus prefixes —
-// `>` commands, `@` project files, `#` missions, `:` go to line. A search never ends on nothing:
+// `>` commands, `@` project files, `#` missions, `/` work modes, `:` go to line. A search never ends on nothing:
 // "Demander à Nomi" puts the text in the composer.
 import { useEffect, useRef, useState } from "react";
 import { Command } from "cmdk";
@@ -20,6 +20,7 @@ import {
   type CommandCategory,
   type CommandContext,
 } from "./registry";
+import { useOptionalShellServices } from "../layout/AtelierHost";
 
 type Page = "commands" | "conversations";
 
@@ -35,13 +36,19 @@ const CATEGORY_ORDER: readonly CommandCategory[] = [
   "review",
   "file",
   "layout",
+  "focus",
   "view",
   "model",
   "app",
   "settings",
 ];
 
-export type PaletteMode = { kind: "commands"; query: string } | { kind: "files"; query: string } | { kind: "missions"; query: string } | { kind: "line"; line: number | null };
+export type PaletteMode =
+  | { kind: "commands"; query: string }
+  | { kind: "files"; query: string }
+  | { kind: "missions"; query: string }
+  | { kind: "modes"; query: string }
+  | { kind: "line"; line: number | null };
 
 /** Reads the prefix of the palette input (POWER_UX §2.4.5). */
 export function parsePaletteInput(value: string): PaletteMode {
@@ -50,6 +57,7 @@ export function parsePaletteInput(value: string): PaletteMode {
   if (first === ">") return { kind: "commands", query: rest };
   if (first === "@") return { kind: "files", query: rest };
   if (first === "#") return { kind: "missions", query: rest };
+  if (first === "/") return { kind: "modes", query: rest };
   if (first === ":") {
     const match = /^(\d{1,7})(?::\d{1,5})?$/.exec(rest);
     return { kind: "line", line: match?.[1] ? Number(match[1]) : null };
@@ -82,7 +90,9 @@ interface Search<T> extends Results<T> {
 function useRemoteSearch<T>(query: string, enabled: boolean, load: (query: string) => Promise<{ items: T[]; hasMore: boolean }>): Search<T> {
   const [results, setResults] = useState<Results<T>>({ query: null, items: [], hasMore: false, error: null });
   const loadRef = useRef(load);
-  loadRef.current = load;
+  useEffect(() => {
+    loadRef.current = load;
+  });
   useEffect(() => {
     if (!enabled) return;
     let current = true;
@@ -149,6 +159,7 @@ function PaletteContent({ onClose }: { onClose: () => void }) {
   const state = useApp((s) => s);
   const activePath = useAtelier((s) => s.editor.activePath);
   const toast = useToast();
+  const companion = useOptionalShellServices()?.companion;
   const input = useRef<HTMLInputElement>(null);
   // Focus region captured when the palette opened (the palette itself now has focus).
   const [openerFocus] = useState(() => focusRegionOf(document.activeElement));
@@ -218,7 +229,7 @@ function PaletteContent({ onClose }: { onClose: () => void }) {
                     key={command.id}
                     value={command.id}
                     disabled={!availability.ok}
-                    onSelect={() => run(() => void runCommand(command, commandContext(store.getState()), { store, toast }))}
+                    onSelect={() => run(() => void runCommand(command, commandContext(store.getState()), { store, toast, companion }))}
                   >
                     <span className="nova-palette__item-title">{command.title}</span>
                     {!availability.ok ? <span className="nova-palette__item-hint">{availability.reason}</span> : null}
@@ -279,6 +290,26 @@ function PaletteContent({ onClose }: { onClose: () => void }) {
     );
   };
 
+  const renderModes = (query: string) => {
+    const modes = entries.filter(
+      ({ command }) => command.id.startsWith("mission.mode.") && matchesQuery(`${command.title} ${(command.keywords ?? []).join(" ")}`, query),
+    );
+    if (modes.length === 0) return <output className="nova-palette__outcome">{c.modesEmpty}</output>;
+    return (
+      <Command.Group heading={c.modesGroup}>
+        {modes.map(({ command }) => (
+          <Command.Item
+            key={command.id}
+            value={`/${command.id}`}
+            onSelect={() => run(() => void runCommand(command, commandContext(store.getState()), { store, toast, companion }))}
+          >
+            <span className="nova-palette__item-title">{command.title}</span>
+          </Command.Item>
+        ))}
+      </Command.Group>
+    );
+  };
+
   const renderLine = (line: number | null) => {
     if (line === null) return <p className="nova-palette__outcome">{c.lineHint}</p>;
     if (!activePath) return <p className="nova-palette__outcome">{c.goToLineUnavailable}</p>;
@@ -318,6 +349,7 @@ function PaletteContent({ onClose }: { onClose: () => void }) {
             {mode.kind === "commands" ? renderCommands(mode.query) : null}
             {mode.kind === "files" ? renderFiles() : null}
             {mode.kind === "missions" ? renderMissions(mode.query) : null}
+            {mode.kind === "modes" ? renderModes(mode.query) : null}
             {mode.kind === "line" ? renderLine(mode.line) : null}
           </>
         ) : (

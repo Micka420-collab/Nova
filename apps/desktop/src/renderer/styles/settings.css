@@ -111,3 +111,12 @@
     padding-top: var(--nv-space-5);
   }
 }
+
+/* Nomi's notices of this session (P13). */
+.nova-notices {
+  display: grid;
+  gap: var(--nv-space-1);
+  margin: var(--nv-space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}

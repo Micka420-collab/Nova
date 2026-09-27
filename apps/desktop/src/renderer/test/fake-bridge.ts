@@ -18,8 +18,8 @@ import {
 const unsubscribeNothing = (): (() => void) => () => {};
 
 /**
- * J2-A groups answer `unavailable`, like main before a group is wired (services/unavailable.ts).
- * Feature work replaces a group here with an in-memory fake when its UI needs one.
+ * J2-A groups answer `unavailable` unless a test seeds an in-memory fake for the group it
+ * exercises (`seed.atelier`): a test never depends on a service it does not set up.
  */
 function unavailableAtelierBridge(record: (name: string) => void): Pick<NovaBridge, AtelierGroup> {
   const no = (name: string) => (): Promise<IpcResult<never>> => {
@@ -33,6 +33,9 @@ function unavailableAtelierBridge(record: (name: string) => void): Pick<NovaBrid
       facts: no("workspace.facts"),
       close: no("workspace.close"),
       setInstructionConsent: no("workspace.setInstructionConsent"),
+      reopen: no("workspace.reopen"),
+      getEditorState: no("workspace.getEditorState"),
+      setEditorState: no("workspace.setEditorState"),
     },
     files: {
       list: no("files.list"),
@@ -50,6 +53,8 @@ function unavailableAtelierBridge(record: (name: string) => void): Pick<NovaBrid
       attach: no("terminal.attach"),
       resize: no("terminal.resize"),
       kill: no("terminal.kill"),
+      takeOver: no("terminal.takeOver"),
+      onEvent: unsubscribeNothing,
     },
     missions: {
       plan: no("missions.plan"),
@@ -60,10 +65,17 @@ function unavailableAtelierBridge(record: (name: string) => void): Pick<NovaBrid
       list: no("missions.list"),
       get: no("missions.get"),
       review: no("missions.review"),
+      diff: no("missions.diff"),
       onEvent: unsubscribeNothing,
     },
-    approvals: { list: no("approvals.list"), decide: no("approvals.decide") },
-    permissions: { getProfile: no("permissions.getProfile"), setProfile: no("permissions.setProfile") },
+    approvals: { list: no("approvals.list"), decide: no("approvals.decide"), onEvent: unsubscribeNothing },
+    permissions: {
+      getProfile: no("permissions.getProfile"),
+      setProfile: no("permissions.setProfile"),
+      listRules: no("permissions.listRules"),
+      revokeRules: no("permissions.revokeRules"),
+    },
+    audit: { list: no("audit.list") },
     git: { status: no("git.status"), diff: no("git.diff") },
     mcp: {
       list: no("mcp.list"),
@@ -73,13 +85,25 @@ function unavailableAtelierBridge(record: (name: string) => void): Pick<NovaBrid
       test: no("mcp.test"),
       tools: no("mcp.tools"),
       setToolPermission: no("mcp.setToolPermission"),
+      logs: no("mcp.logs"),
+      importProject: no("mcp.importProject"),
     },
     web: { getPolicy: no("web.getPolicy"), setPolicy: no("web.setPolicy") },
-    companion: { state: no("companion.state"), act: no("companion.act"), onEvent: unsubscribeNothing },
+    companion: {
+      state: no("companion.state"),
+      act: no("companion.act"),
+      watch: no("companion.watch"),
+      setQuiet: no("companion.setQuiet"),
+      notices: no("companion.notices"),
+      onEvent: unsubscribeNothing,
+    },
     checkpoints: {
       list: no("checkpoints.list"),
       restoreFile: no("checkpoints.restoreFile"),
       restoreAll: no("checkpoints.restoreAll"),
+      create: no("checkpoints.create"),
+      proposeMerge: no("checkpoints.proposeMerge"),
+      applyMerge: no("checkpoints.applyMerge"),
     },
   };
 }
@@ -92,6 +116,7 @@ export type AtelierGroup =
   | "missions"
   | "approvals"
   | "permissions"
+  | "audit"
   | "git"
   | "mcp"
   | "web"

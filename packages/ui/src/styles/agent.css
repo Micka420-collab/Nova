@@ -3,6 +3,52 @@
  * status bar, tabs (VISUAL.md §5.4–5.9). Tokens only; fallbacks cover tokens added later.
  */
 
+/*
+ * Workshop tokens (VISUAL.md §2.1 annex surfaces, §2.7 densities). Values from the spec; the
+ * density switch is `data-density` on <html>. Components never use a literal height.
+ */
+
+:root {
+  --nv-control-sm: 30px;
+  --nv-control-md: 36px;
+  --nv-row: 32px;
+  --nv-tree-row: 28px;
+  --nv-tab-h: 36px;
+  --nv-diff-line: 20px;
+  --nv-panel-pad: 16px;
+  --nv-list-gap: 4px;
+  --nv-statusbar-h: 24px;
+  --nv-space-0-5: 2px;
+  --nv-radius-none: 0;
+  --nv-duration-exit: 100ms;
+  --nv-ease-in: cubic-bezier(0.4, 0, 1, 1);
+}
+
+[data-density="compact"] {
+  --nv-control-sm: 28px;
+  --nv-control-md: 32px;
+  --nv-row: 26px;
+  --nv-tree-row: 24px;
+  --nv-tab-h: 32px;
+  --nv-diff-line: 18px;
+  --nv-panel-pad: 12px;
+  --nv-list-gap: 2px;
+  --nv-statusbar-h: 22px;
+}
+
+:root,
+[data-theme="dark"] {
+  --nv-statusbar-bg: #0F1417;
+  --nv-text-muted: #8C9EA0;
+  --nv-shadow-popover: 0 1px 2px rgb(0 0 0 / 0.3), 0 6px 16px rgb(0 0 0 / 0.28);
+}
+
+[data-theme="light"] {
+  --nv-statusbar-bg: #EEEBE3;
+  --nv-text-muted: #556668;
+  --nv-shadow-popover: 0 1px 2px rgb(23 35 40 / 0.06), 0 6px 16px rgb(23 35 40 / 0.08);
+}
+
 /* Tool call card */
 
 .nv-toolcard {
@@ -662,4 +708,13 @@ button.nv-statusbar__item:hover {
 
 .nv-tabs__close:hover {
   background: var(--nv-raised-hover);
+}
+
+.nv-budget__unknown {
+  color: var(--nv-amber);
+}
+
+.nv-toolcard--group > .nv-toolcard__body {
+  display: grid;
+  gap: var(--nv-space-1);
 }

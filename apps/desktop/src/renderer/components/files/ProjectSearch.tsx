@@ -34,6 +34,8 @@ interface ReplaceOutcome {
   replacements: number;
   files: number;
   notes: string[];
+  /** The replace went into a restore point (it can be undone as a whole). */
+  undoable?: boolean;
 }
 
 interface Query extends SearchOptions {
@@ -185,6 +187,17 @@ export function ProjectSearch({ onClose }: { onClose?: () => void }) {
     if (!workspaceId || !regex) return;
     setApplying(true);
     const result: ReplaceOutcome = { replacements: 0, files: 0, notes: [] };
+    // E4: every replaced file goes into ONE restore point first, so the whole replace can be undone.
+    let checkpointId: string | null = null;
+    if (client.checkpoints) {
+      try {
+        checkpointId = (await client.checkpoints.create({ workspaceId, label: copy.checkpointLabel(pattern), reason: "user_replace" })).id;
+      } catch (error) {
+        setApplying(false);
+        setOutcome({ ...result, notes: [copy.checkpointFailed(describeUiError(toUiError(error)).title)] });
+        return;
+      }
+    }
     for (const group of groups) {
       if (unchecked.has(group.path)) continue;
       // Re-read the editor state at apply time: a buffer may have become dirty since the preview.
@@ -206,6 +219,7 @@ export function ProjectSearch({ onClose }: { onClose?: () => void }) {
           path: group.path,
           content: replaced.text,
           expectedHash: file.hash,
+          ...(checkpointId ? { checkpointId } : {}),
         });
         if (written.status === "conflict") {
           result.notes.push(copy.skippedConflict(group.path));
@@ -218,7 +232,7 @@ export function ProjectSearch({ onClose }: { onClose?: () => void }) {
       }
     }
     setApplying(false);
-    setOutcome(result);
+    setOutcome({ ...result, undoable: checkpointId !== null });
     setPreviewOpen(false);
     searchNow();
   };
@@ -303,6 +317,7 @@ export function ProjectSearch({ onClose }: { onClose?: () => void }) {
 
       {outcome ? (
         <Callout tone={outcome.files > 0 ? "success" : "info"} title={outcome.files > 0 ? copy.resultTitle(outcome.replacements, outcome.files) : copy.resultNone}>
+          {outcome.undoable && outcome.files > 0 ? <p className="nova-note">{copy.undoHint}</p> : null}
           {outcome.notes.length > 0 ? (
             <ul className="nv-search__notes">
               {outcome.notes.map((note) => (

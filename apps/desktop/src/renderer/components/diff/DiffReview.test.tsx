@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import type { IpcResult, ReviewDecision, ReviewResult } from "@nova/shared";
+import type { IpcResult, MissionDiff, ReviewDecision, ReviewResult } from "@nova/shared";
 import { installDomPolyfills } from "../../test/dom";
 import { DiffReview } from "./DiffReview";
 import { renderWithMission } from "./test-helpers";
@@ -8,8 +8,7 @@ import { renderWithMission } from "./test-helpers";
 installDomPolyfills();
 afterEach(cleanup);
 
-const PATCH = `diff --git a/src/cart.ts b/src/cart.ts
---- a/src/cart.ts
+const PATCH = `--- a/src/cart.ts
 +++ b/src/cart.ts
 @@ -1,3 +1,3 @@ export function total()
  const a = 1;
@@ -22,15 +21,22 @@ const PATCH = `diff --git a/src/cart.ts b/src/cart.ts
  y
 `;
 
-function withGitDiff(reviewed: ReviewDecision[][], result?: (decisions: ReviewDecision[]) => ReviewResult) {
+function withMissionDiff(reviewed: ReviewDecision[][], result?: (decisions: ReviewDecision[]) => ReviewResult) {
   return renderWithMission({
     edits: [{ path: "src/cart.ts", change: "modified", additions: 2, deletions: 1 }],
     displayMode: "expert",
     overrides: (base) => ({
       ...base,
-      git: { ...base.git, diff: () => Promise.resolve({ ok: true, value: { patch: PATCH, truncated: false } }) },
       missions: {
         ...base.missions,
+        diff: ({ missionId }): Promise<IpcResult<MissionDiff>> =>
+          Promise.resolve({
+            ok: true,
+            value: {
+              missionId,
+              files: [{ path: "src/cart.ts", change: "modified", beforeHash: null, currentHash: null, patch: PATCH, missing: null }],
+            },
+          }),
         review: ({ decisions }): Promise<IpcResult<ReviewResult>> => {
           reviewed.push(decisions);
           return Promise.resolve({ ok: true, value: result ? result(decisions) : { applied: decisions, conflicts: [] } });
@@ -44,7 +50,7 @@ function withGitDiff(reviewed: ReviewDecision[][], result?: (decisions: ReviewDe
 describe("DiffReview", () => {
   it("reviews hunk by hunk with the keyboard and sends one decision per hunk", async () => {
     const reviewed: ReviewDecision[][] = [];
-    withGitDiff(reviewed);
+    withMissionDiff(reviewed);
     const region = await screen.findByRole("region", { name: "Relecture des changements" });
     expect(screen.getByText(/Diff — 1 fichier · \+2 −1 · mission « Corriger le panier »/)).toBeTruthy();
     expect(within(region).getByRole("region", { name: "bloc 1 sur 2, lignes 1 à 3" })).toBeTruthy();
@@ -72,7 +78,7 @@ describe("DiffReview", () => {
 
   it("shows a conflict from main instead of claiming the revert happened", async () => {
     const reviewed: ReviewDecision[][] = [];
-    withGitDiff(reviewed, (decisions) => ({ applied: [], conflicts: decisions.map(({ path, hunkIndex }) => ({ path, hunkIndex })) }));
+    withMissionDiff(reviewed, (decisions) => ({ applied: [], conflicts: decisions.map(({ path, hunkIndex }) => ({ path, hunkIndex })) }));
     await screen.findByRole("region", { name: "Relecture des changements" });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Restaurer" }));
@@ -83,7 +89,7 @@ describe("DiffReview", () => {
 
   it("asks before cancelling everything and lists the files", async () => {
     const reviewed: ReviewDecision[][] = [];
-    withGitDiff(reviewed);
+    withMissionDiff(reviewed);
     await screen.findByRole("region", { name: "Relecture des changements" });
     fireEvent.click(screen.getByRole("button", { name: "Tout annuler" }));
     const dialog = screen.getByRole("dialog", { name: "Annuler tous les changements de la mission ?" });
@@ -104,7 +110,7 @@ describe("DiffReview", () => {
       git: false,
       ui: (missionId) => <DiffReview missionId={missionId} />,
     });
-    expect(await screen.findByText(/Diff indisponible sans Git/)).toBeTruthy();
+    await screen.findByRole("region", { name: "Relecture des changements" });
     expect(screen.getAllByText("Non vérifié")).toHaveLength(2);
     expect(screen.getAllByText("aucun test")).toHaveLength(2);
     // A created file is removed, not "restored".

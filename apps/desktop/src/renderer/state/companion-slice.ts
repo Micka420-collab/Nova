@@ -40,6 +40,8 @@ export interface CompanionData {
   missionOutcome: (LastOutcome & { title: string | null }) | null;
   quietUntil: number | null;
   menuOpen: boolean;
+  /** Chat facts (`chatFactSuggestions`) the user closed: that fact is not proposed again. */
+  dismissedFacts: readonly string[];
   /** An action is running (the menu shows it; a second click waits). */
   busy: boolean;
 }
@@ -56,6 +58,7 @@ export interface CompanionActions {
   /** Outcome of a companion gesture handled outside the executor (file drop, model question). */
   showOutcome(outcome: ActionOutcome): void;
   dismissBubble(): void;
+  dismissFact(factId: string): void;
   setMenuOpen(open: boolean): void;
 }
 
@@ -69,6 +72,11 @@ export interface CompanionStoreDeps {
   openSettings(): void;
   /** P5 watch in main; absent until `companion.watch` exists in the IPC contract. */
   watch?: NomiActionPorts["watch"];
+  /**
+   * Forwards quiet mode to main (its notification policy holds system notifications); absent
+   * until `companion.setQuiet` exists in the IPC contract, then quiet mode is this window's only.
+   */
+  setQuiet?(until: number | null): Promise<void>;
   now?: () => number;
 }
 
@@ -95,7 +103,11 @@ export function createCompanionStore(deps: CompanionStoreDeps): CompanionStore {
       },
       approvals: { list: (req) => deps.client.approvals.list(req) },
       watch: deps.watch ?? unavailableWatch,
-      setQuiet: (until) => set({ quietUntil: until }),
+      setQuiet: (until) => {
+        set({ quietUntil: until });
+        // The bubble already says quiet mode is on; a failed forward must not be silent either.
+        deps.setQuiet?.(until).catch(() => set({ bubble: outcomeFromError(new Error("quiet")) }));
+      },
     };
 
     async function finish(outcome: ActionOutcome): Promise<ActionOutcome> {
@@ -112,6 +124,7 @@ export function createCompanionStore(deps: CompanionStoreDeps): CompanionStore {
       missionOutcome: null,
       quietUntil: null,
       menuOpen: false,
+      dismissedFacts: [],
       busy: false,
 
       async hydrate(workspaceId) {
@@ -193,6 +206,11 @@ export function createCompanionStore(deps: CompanionStoreDeps): CompanionStore {
 
       dismissBubble() {
         set({ bubble: null });
+      },
+
+      dismissFact(factId) {
+        // Bounded: fact ids are per failure, the list only needs the recent ones.
+        set((state) => ({ dismissedFacts: [factId, ...state.dismissedFacts.filter((id) => id !== factId)].slice(0, 20) }));
       },
 
       setMenuOpen(open) {

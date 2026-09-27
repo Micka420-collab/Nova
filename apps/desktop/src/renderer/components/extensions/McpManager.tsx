@@ -10,6 +10,7 @@ import { useApp, useClient } from "../../state/context";
 import { PlusIcon } from "../icons";
 import { MCP_STATE_TONES, McpServerDetail } from "./McpServerDetail";
 import { McpServerForm } from "./McpServerForm";
+import { McpSources } from "./McpSources";
 
 const t = fr.extensions;
 
@@ -160,6 +161,15 @@ export function McpManager() {
             )}
           </div>
         </div>
+      ) : null}
+      {list.status === "ready" ? (
+        <McpSources
+          workspace={workspace}
+          onAdded={(view) => {
+            upsert(view);
+            setSelectedId(view.config.id);
+          }}
+        />
       ) : null}
       {form ? (
         <McpServerForm

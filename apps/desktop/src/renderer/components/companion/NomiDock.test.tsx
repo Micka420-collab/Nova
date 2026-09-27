@@ -70,7 +70,6 @@ function setup({ withCompanion = true } = {}) {
   return { appStore, companion, calls, log, fake };
 }
 
-const trigger = () => screen.getByRole("button", { name: /Nomi|Démarrage|Réponse|Mission/ });
 const flush = () => act(() => new Promise((resolve) => setTimeout(resolve)));
 
 describe("NomiDock", () => {
@@ -174,5 +173,45 @@ describe("NomiDock", () => {
     expect(within(region).getByText(/^Coût estimé : /)).toBeTruthy();
     // Level 1 is local: no call reached main.
     expect(fake.calls.slice(before)).toEqual([]);
+  });
+
+  it("a failed answer in a conversation not on screen is a P6 fact: open it, or close the fact for good", async () => {
+    const { appStore } = setup();
+    act(() => {
+      appStore.setState({
+        lastOutcome: {
+          kind: "error",
+          at: Date.now(),
+          conversationId: "c1",
+          error: { code: "timeout", httpStatus: null, retryAfterSec: null, providerMessage: null, retryable: true },
+        },
+      });
+    });
+    const region = screen.getByRole("status", { name: "Messages de Nomi" });
+    expect(within(region).getByText("La dernière réponse a échoué (délai dépassé).")).toBeTruthy();
+    act(() => {
+      fireEvent.click(within(region).getByRole("button", { name: "Voir la conversation" }));
+    });
+    expect(appStore.getState().activeId).toBe("c1");
+    expect(appStore.getState().ui.route).toBe("chat");
+    // On screen now: the conversation shows its own error, Nomi stays silent.
+    expect(within(region).queryByText("La dernière réponse a échoué (délai dépassé).")).toBeNull();
+    act(() => {
+      appStore.getState().goHome();
+    });
+    act(() => {
+      fireEvent.click(within(region).getByRole("button", { name: "Fermer" }));
+    });
+    expect(region.textContent).toBe("");
+  });
+
+  it("announces terminal transitions only (success, error, waiting), never a working pose", () => {
+    const { appStore } = setup();
+    const announce = () => document.querySelector(".nova-nomi-announce")?.textContent ?? null;
+    expect(announce()).toBe("");
+    act(() => {
+      appStore.setState({ lastOutcome: { kind: "success", at: Date.now(), conversationId: "c1", error: null } });
+    });
+    expect(announce()).toMatch(/^Réponse terminée · /);
   });
 });

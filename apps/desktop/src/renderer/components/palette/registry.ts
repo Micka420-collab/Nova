@@ -9,6 +9,8 @@ import { WORK_MODE_LABELS } from "../../copy/fr-atelier";
 import { errorToast } from "../../lib/errors";
 import { liveMission, pendingApprovalList, selectedMissionView, type AppState, type AppStore } from "../../state/store";
 import { isMissionActive, missionFacts, type MissionView } from "../missions/timeline";
+import type { CompanionStore } from "../../state/companion-slice";
+import { focusAgentComposer, focusZone } from "./zones";
 
 export type CommandCategory =
   | "app"
@@ -17,6 +19,7 @@ export type CommandCategory =
   | "settings"
   | "view"
   | "layout"
+  | "focus"
   | "file"
   | "review"
   | "mission"
@@ -43,6 +46,8 @@ export type Availability = { ok: true } | { ok: false; reason: string };
 export interface CommandDeps {
   store: AppStore;
   toast: ToastApi;
+  /** Nomi's store (P9/P12: its menu is reachable from the palette and the keyboard). */
+  companion?: Pick<CompanionStore, "getState">;
 }
 
 export interface CommandDefinition {
@@ -117,6 +122,19 @@ export function buildCommands(): CommandDefinition[] {
       run: (_, { store }) => {
         const { ui, setUi } = store.getState();
         setUi({ paletteOpen: !ui.paletteOpen });
+      },
+    },
+    {
+      // P12: Nomi's menu (every Nomi action) from anywhere, without the mouse.
+      id: "app.nomiMenu",
+      title: c.nomiMenu,
+      category: "app",
+      keywords: ["nomi", "compagnon", "menu"],
+      keys: [{ key: "n", mod: true, shift: true }],
+      when: (ctx) => ctx.state.settings?.companion.visible !== false,
+      run: (_, { store, companion }) => {
+        store.getState().setUi({ paletteOpen: false });
+        companion?.getState().setMenuOpen(true);
       },
     },
     {
@@ -216,6 +234,37 @@ export function buildCommands(): CommandDefinition[] {
         setUi({ dockOpen: !ui.dockOpen, ...(ui.layout === "converse" ? { workbenchOpen: true } : {}) });
       },
     },
+    {
+      id: "focus.nextZone",
+      title: c.nextZone,
+      category: "focus",
+      keywords: ["zone", "panneau", "focus"],
+      keys: [{ key: "F6" }],
+      global: true,
+      run: () => focusZone(1),
+    },
+    {
+      id: "focus.previousZone",
+      title: c.previousZone,
+      category: "focus",
+      keywords: ["zone", "panneau", "focus"],
+      keys: [{ key: "F6", shift: true }],
+      global: true,
+      run: () => focusZone(-1),
+    },
+    {
+      id: "focus.composer",
+      title: c.focusComposer,
+      category: "focus",
+      keywords: ["composer", "message", "objectif"],
+      keys: [{ key: "l", ...MOD }],
+      global: true,
+      run: (_, { store }) => {
+        const { ui, setUi } = store.getState();
+        setUi({ route: "chat", paletteOpen: false, ...(ui.layout === "build" ? { agentOpen: true } : {}) });
+        focusAgentComposer();
+      },
+    },
     { id: "layout.showConversations", title: c.showConversations, category: "layout", run: (_, { store }) => store.getState().showExplorer("conversations") },
     { id: "layout.showFiles", title: c.showFiles, category: "layout", run: (_, { store }) => store.getState().showExplorer("files") },
     { id: "layout.showMissions", title: c.showMissions, category: "layout", run: (_, { store }) => store.getState().showExplorer("missions") },
@@ -289,6 +338,21 @@ export function buildCommands(): CommandDefinition[] {
       run: (ctx, { store }) => {
         const view = targetMission(ctx.state);
         if (view) store.getState().openDoc({ kind: "mission", missionId: view.mission.id });
+      },
+    },
+    {
+      id: "mission.timeline",
+      title: c.showTimeline,
+      category: "mission",
+      keywords: ["journal", "chronologie"],
+      keys: [{ key: "i", mod: true, shift: true }],
+      when: (ctx) => targetMission(ctx.state) !== null,
+      run: (ctx, { store }) => {
+        const view = targetMission(ctx.state);
+        if (!view) return;
+        const state = store.getState();
+        state.selectMission(view.mission.id);
+        state.setUi({ route: "chat", agentOpen: true, paletteOpen: false });
       },
     },
     {

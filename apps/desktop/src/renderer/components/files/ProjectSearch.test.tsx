@@ -114,6 +114,10 @@ describe("ProjectSearch", () => {
     expect(fake.disk.get("src/d.ts")).toBe("// TODO four");
     expect(fake.writes.map((write) => write.path).sort()).toEqual(["src/a.ts", "src/d.ts"]);
     expect(fake.writes.find((write) => write.path === "src/a.ts")?.expectedHash).toBe(fakeHash(FILES["src/a.ts"]));
+    // One restore point for the whole replace, carried by every write.
+    expect(fake.checkpoints).toEqual([{ workspaceId: expect.any(String), label: "Remplacer « todo »", reason: "user_replace" }]);
+    expect(new Set(fake.writes.map((write) => write.checkpointId))).toEqual(new Set(["00000000-0000-4000-8000-000000000001"]));
+    expect(screen.getByText("Annulable depuis Points de reprise.")).toBeTruthy();
   });
 
   it("can leave a file out of the replacement", async () => {

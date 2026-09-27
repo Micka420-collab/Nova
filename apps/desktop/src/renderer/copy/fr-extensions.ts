@@ -1,5 +1,5 @@
 // French copy of the Extensions space (MCP servers manager, M3/M5). Merged into `fr.extensions`.
-import type { McpServerState, McpToolPermission } from "@nova/shared";
+import type { McpServerState, McpToolPermission, UntrustedTextFlag } from "@nova/shared";
 
 const plural = (count: number, one: string, many: string) => `${count} ${count > 1 ? many : one}`;
 
@@ -16,6 +16,14 @@ export const MCP_PERMISSION_LABELS: Record<McpToolPermission, string> = {
   allow: "Autoriser",
   ask: "Demander",
   deny: "Refuser",
+};
+
+export const UNTRUSTED_FLAG_LABELS: Record<UntrustedTextFlag, string> = {
+  override_instructions: "tente de remplacer tes consignes",
+  imperative: "donne des ordres au modèle",
+  concealment: "demande de te cacher quelque chose",
+  sensitive_target: "vise des secrets ou des fichiers sensibles",
+  hidden_markup: "contient du texte caché",
 };
 
 export const extensionsCopy = {
@@ -65,7 +73,33 @@ export const extensionsCopy = {
   journal: "Journal",
   journalHint: "Dernières lignes de la sortie d'erreur du serveur (secrets masqués).",
   journalEmpty: "Le serveur n'a rien écrit sur sa sortie d'erreur.",
-  journalNone: "Lance « Tester la connexion » pour lire les dernières lignes du serveur.",
+  journalNone: "Lance « Tester la connexion » ou « Lire le journal » pour voir les dernières lignes du serveur.",
+  journalRead: "Lire le journal",
+  journalFailed: "Le journal n'a pas pu être lu",
+  // Catalog and project import (M3/M4)
+  catalogTitle: "Services recommandés",
+  catalogIntro:
+    "Vérifiés par NOVA (version épinglée). Rien n'est installé ni lancé tant que tu ne l'ajoutes pas ; la commande exacte est affichée.",
+  catalogAdd: (name: string) => `Ajouter ${name}`,
+  catalogLicense: (license: string | null) => `Licence : ${license ?? "inconnue"}`,
+  catalogCommand: "Commande",
+  catalogMissing: (names: string) => `À renseigner : ${names}`,
+  catalogAdded: (name: string) => `${name} ajouté`,
+  catalogForTesting: "pour tester",
+  importTitle: "Importer le .mcp.json du projet",
+  importAction: "Lire .mcp.json",
+  importIntro: "Les serveurs lus sont ajoutés désactivés : relis-les, complète les valeurs demandées, puis active-les.",
+  importNone: "Aucun serveur importable dans ce fichier.",
+  importFailed: "Le fichier .mcp.json n'a pas pu être lu",
+  importAdd: "Ajouter (désactivé)",
+  importNeeds: (names: string) => `Valeurs à saisir : ${names}`,
+  importWarnings: {
+    unsupported_transport: "transport non pris en charge (SSE ou WebSocket)",
+    invalid_entry: "entrée illisible",
+    variable_reference: "contient des variables ${…} à remplacer",
+    secret_in_file: "un secret écrit en clair sera déplacé vers le coffre",
+    runs_local_command: "lance un programme sur cet ordinateur",
+  },
   // Tools
   toolsHeading: "Outils et permissions",
   toolsLoading: "Lecture des outils…",
@@ -88,6 +122,7 @@ export const extensionsCopy = {
   noDescription: "Aucune description fournie.",
   imperativeWarning:
     "Cette description contient des consignes adressées au modèle : traitée comme du texte, jamais comme une règle.",
+  flagsFound: (kinds: string) => `Repéré (heuristique) : ${kinds}.`,
   // Form
   formAddTitle: "Ajouter un serveur MCP",
   formEditTitle: (name: string) => `Modifier « ${name} »`,

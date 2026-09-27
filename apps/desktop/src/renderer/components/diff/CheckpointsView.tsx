@@ -2,7 +2,7 @@
 // never overwrites a file changed since: a conflict is shown, and nothing is written.
 import { useCallback, useEffect, useState } from "react";
 import { Badge, Button, Callout, Dialog, EmptyState, Skeleton, useToast } from "@nova/ui";
-import type { Checkpoint, CheckpointFile, RestoreAllResult } from "@nova/shared";
+import type { Checkpoint, CheckpointFile, MergeProposal, RestoreAllResult } from "@nova/shared";
 import { fr } from "../../copy/fr";
 import { describeUiError, errorToast, toUiError, type UiError } from "../../lib/errors";
 import { formatRelative } from "../../lib/format";
@@ -31,7 +31,24 @@ export function CheckpointsView({ missionId }: { missionId: string | null }) {
   const now = useNow(60_000);
   const [keyed, setKeyed] = useState<{ key: string; load: Load } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [conflict, setConflict] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<{ checkpointId: string; path: string } | null>(null);
+  const [merge, setMerge] = useState<{ key: string; proposal: MergeProposal | null } | null>(null);
+  const conflictKey = conflict ? `${conflict.checkpointId}:${conflict.path}` : null;
+  const proposal = merge && merge.key === conflictKey ? merge.proposal : null;
+
+  // A conflict gets a merge proposal: the agent's change undone ON TOP of the user's version.
+  useEffect(() => {
+    if (!conflict || !conflictKey) return;
+    let current = true;
+    client.checkpoints
+      .proposeMerge(conflict)
+      .then((next) => current && setMerge({ key: conflictKey, proposal: next }))
+      // No proposal: comparing in the editor stays available.
+      .catch(() => current && setMerge({ key: conflictKey, proposal: null }));
+    return () => {
+      current = false;
+    };
+  }, [client, conflict, conflictKey]);
   const [confirm, setConfirm] = useState<Checkpoint | null>(null);
   const [outcome, setOutcome] = useState<{ checkpointId: string; result: RestoreAllResult } | null>(null);
 
@@ -70,7 +87,7 @@ export function CheckpointsView({ missionId }: { missionId: string | null }) {
     setBusy(key);
     try {
       const result = await client.checkpoints.restoreFile({ checkpointId: checkpoint.id, path });
-      if (result.status === "conflict") setConflict(path);
+      if (result.status === "conflict") setConflict({ checkpointId: checkpoint.id, path });
       else {
         toast.show({ title: copy.restored(path), tone: "success" });
         void refreshGit();
@@ -80,6 +97,21 @@ export function CheckpointsView({ missionId }: { missionId: string | null }) {
       toast.show(errorToast(error, copy.restoreFailed));
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function applyMerge(target: { checkpointId: string; path: string }, clean: Extract<MergeProposal, { status: "clean" }>) {
+    setConflict(null);
+    try {
+      const result = await client.checkpoints.applyMerge({ ...target, merged: clean.merged, expectedHash: clean.currentHash });
+      if (result.status === "conflict") toast.show({ title: copy.mergeStale, tone: "warning" });
+      else {
+        toast.show({ title: copy.merged(target.path), tone: "success" });
+        void refreshGit();
+        refresh();
+      }
+    } catch (error) {
+      toast.show(errorToast(error, copy.restoreFailed));
     }
   }
 
@@ -202,19 +234,26 @@ export function CheckpointsView({ missionId }: { missionId: string | null }) {
               {copy.keepMine}
             </Button>
             <Button
-              variant="primary"
+              variant={proposal?.status === "clean" ? "secondary" : "primary"}
               onClick={() => {
-                const path = conflict;
+                const path = conflict?.path;
                 setConflict(null);
                 if (path) revealFile(path, null);
               }}
             >
               {copy.compare}
             </Button>
+            {conflict && proposal?.status === "clean" ? (
+              <Button variant="primary" onClick={() => void applyMerge(conflict, proposal)}>
+                {copy.applyMerge}
+              </Button>
+            ) : null}
           </>
         }
       >
-        {conflict ? <code>{conflict}</code> : null}
+        {conflict ? <code>{conflict.path}</code> : null}
+        {proposal?.status === "clean" ? <p className="nova-note">{copy.mergeClean}</p> : null}
+        {proposal?.status === "conflicting" ? <p className="nova-note">{copy.mergeConflicting}</p> : null}
       </Dialog>
 
       <Dialog

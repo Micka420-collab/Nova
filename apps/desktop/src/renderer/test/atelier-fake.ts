@@ -242,6 +242,8 @@ export function createAtelierFake(seed: AtelierFakeSeed = {}): AtelierFake {
         reviews.push(list);
         return ok({ applied: list, conflicts: [] });
       },
+      // No checkpoint data in this fake: the mission's diff lists no file content.
+      diff: ({ missionId }) => ok({ missionId, files: [] }),
       onEvent: (listener) => {
         listeners.add(listener);
         return () => {

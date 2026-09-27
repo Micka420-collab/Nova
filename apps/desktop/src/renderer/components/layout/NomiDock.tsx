@@ -2,28 +2,37 @@ import {
   EMPTY_COMPANION_FACTS,
   NOMI_COPY,
   buildNomiMenu,
+  chatFactSuggestions,
   currentActivity,
   focusMission,
   planModelExplanation,
   type ChangeLine,
   type CompanionFactsState,
   type Explanation,
+  type FactAction,
   type NomiMenuFacts,
 } from "@nova/companion";
 import type { CompanionSignal, ModelInfo } from "@nova/shared";
 import { Nomi, StatusPill, type BadgeTone, type NomiState } from "@nova/ui";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useStore } from "zustand";
 import { fr } from "../../copy/fr";
 import { describeProviderError } from "../../lib/errors";
 import { REDUCED_MOTION_QUERY, useMediaQuery, useOnline } from "../../lib/hooks";
 import { useApp, useAppStore } from "../../state/context";
 import { OUTCOME_WINDOW_MS, deriveNomiState } from "../../state/nomi";
 import { NEW_CONVERSATION, companionPhase, selectedModelId, type AppData } from "../../state/store";
+import { createTerminalStore } from "../../state/terminal-slice";
 import { useCompanion, useCompanionStore } from "../companion/CompanionContext";
 import { NomiBubble } from "../companion/NomiBubble";
 import { NomiMenu } from "../companion/NomiMenu";
 import { useNomiDrop } from "../companion/useNomiDrop";
+import { useOptionalShellServices } from "./AtelierHost";
+// oxlint-disable-next-line import/no-unassigned-import -- side-effect stylesheet (extracted to a file by Vite)
 import "../companion/companion.css";
+
+/** Stand-in when no shell (and so no terminal) is around: nothing to watch. */
+const EMPTY_TERMINAL_STORE = createTerminalStore();
 
 /** Title of the conversation the last outcome belongs to, when the chat view does not show it. */
 function outcomeElsewhere(state: AppData): string | null {
@@ -48,6 +57,10 @@ const PILL_TONES: Record<NomiState, BadgeTone> = {
 };
 
 const EMPTY_SIGNALS: CompanionSignal[] = [];
+const NO_FACTS: readonly string[] = [];
+
+/** States announced to screen readers (NOMI.md §5): terminal transitions only, never thinking → working. */
+const ANNOUNCED_STATES: ReadonlySet<NomiState> = new Set(["success", "error", "waiting"]);
 const MINUTE_MS = 60_000;
 
 /**
@@ -103,6 +116,12 @@ export function NomiDock() {
   const systemReduced = useMediaQuery(REDUCED_MOTION_QUERY);
 
   const companionStore = useCompanionStore();
+  const shell = useOptionalShellServices();
+  // P5: the terminal on screen, while its command runs, can be watched by Nomi.
+  const unwatchedSessionId = useStore(shell?.terminal ?? EMPTY_TERMINAL_STORE, (state) => {
+    const active = state.sessions.find((session) => session.id === state.activeId);
+    return active && active.state === "running" && active.owner === "user" ? active.id : null;
+  });
   const facts = useCompanion((state) => state.facts, EMPTY_COMPANION_FACTS);
   const missionOutcome = useCompanion((state) => state.missionOutcome, null);
   const quietUntil = useCompanion((state) => state.quietUntil, null);
@@ -111,6 +130,7 @@ export function NomiDock() {
   const bubble = useCompanion((state) => state.bubble, null);
   const menuOpen = useCompanion((state) => state.menuOpen, false);
   const busy = useCompanion((state) => state.busy, false);
+  const dismissedFacts = useCompanion((state) => state.dismissedFacts, NO_FACTS);
 
   const latestOutcomeAt = Math.max(lastOutcome?.at ?? 0, missionOutcome?.at ?? 0) || null;
   const now = useDockClock(latestOutcomeAt);
@@ -159,8 +179,7 @@ export function NomiDock() {
     mission,
     pendingApprovals: Object.values(approvals).filter((a) => a.status === "pending"),
     recentError: recentError(lastOutcome, facts),
-    // No `companion.watch` in the IPC contract yet: the entry stays hidden rather than dead.
-    unwatchedSessionId: null,
+    unwatchedSessionId,
     quietUntil,
     now,
   });
@@ -188,7 +207,26 @@ export function NomiDock() {
     else state.selectMission(target.missionId);
   }
 
+  const failure = lastOutcome?.kind === "error" && lastOutcome.error && elsewhere !== null ? lastOutcome : null;
+  const fact =
+    chatFactSuggestions({
+      keyAbsent: connection === null ? null : connection.state === "absent",
+      lastFailure: failure?.error
+        ? { conversationId: failure.conversationId, at: failure.at, code: failure.error.code, retryable: failure.error.retryable }
+        : null,
+    }).find((item) => !dismissedFacts.includes(item.factId)) ?? null;
+
+  function runFact(action: FactAction) {
+    const state = appStore.getState();
+    if (action.type === "open_provider_settings") state.openSettings("providers");
+    else {
+      state.openConversation(action.conversationId);
+      if (action.type === "choose_model") state.openModelPicker("conversation");
+    }
+  }
+
   const compact = Boolean(companion && !companion.visible);
+  const announcement = ANNOUNCED_STATES.has(view.state) ? status : "";
   return (
     <div className="nova-dock-wrap" {...drop.targetProps}>
       {menuOpen ? (
@@ -206,6 +244,9 @@ export function NomiDock() {
         suggestion={suggestion}
         signal={signal}
         drop={drop.drop}
+        fact={fact}
+        onFactAction={runFact}
+        onFactDismiss={(factId) => companionStore.getState().dismissFact(factId)}
         askModel={askModel}
         busy={busy}
         onRespond={(response) => void companionStore.getState().respond(response)}
@@ -249,6 +290,9 @@ export function NomiDock() {
           </>
         )}
       </button>
+      <span className="nova-nomi-announce" aria-live="polite">
+        {announcement}
+      </span>
     </div>
   );
 }

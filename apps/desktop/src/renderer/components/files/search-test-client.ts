@@ -1,6 +1,7 @@
 // Small in-memory AtelierClient for quick open / project search tests: files in a map, a settable
 // search.files/search.text answer, and a write that honors expectedHash like main.
 import type {
+  CheckpointCreateRequest,
   FileContent,
   FileSearchResult,
   FileWriteRequest,
@@ -40,6 +41,8 @@ export interface SearchFake {
   textAnswer: ((query: SearchQuery) => Promise<SearchResult>) | null;
   /** Paths whose next write answers `conflict` (another program wrote first). */
   conflictOnWrite: Set<string>;
+  /** Restore points created (project replace). */
+  checkpoints: CheckpointCreateRequest[];
 }
 
 function readOf(disk: Map<string, string>, path: string): FileContent {
@@ -59,6 +62,7 @@ export function createSearchFake(files: Record<string, string>): SearchFake {
     filesAnswer: null,
     textAnswer: null,
     conflictOnWrite: new Set(),
+    checkpoints: [],
   };
 
   const searchText = (query: SearchQuery): SearchResult => {
@@ -85,6 +89,9 @@ export function createSearchFake(files: Record<string, string>): SearchFake {
       facts: unavailable,
       close: unavailable,
       setInstructionConsent: unavailable,
+      reopen: unavailable,
+      getEditorState: unavailable,
+      setEditorState: unavailable,
     },
     files: {
       list: () => Promise.resolve([]),
@@ -124,6 +131,20 @@ export function createSearchFake(files: Record<string, string>): SearchFake {
     git: {
       status: () => Promise.resolve({ available: false }),
       diff: unavailable,
+    },
+    checkpoints: {
+      create: (request) => {
+        fake.checkpoints.push(request);
+        return Promise.resolve({
+          id: `00000000-0000-4000-8000-${String(fake.checkpoints.length).padStart(12, "0")}`,
+          workspaceId: request.workspaceId,
+          missionId: null,
+          label: request.label,
+          reason: request.reason,
+          createdAt: 1,
+          files: [],
+        });
+      },
     },
   };
   return fake;

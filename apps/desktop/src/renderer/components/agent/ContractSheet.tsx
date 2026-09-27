@@ -1,6 +1,6 @@
 // Plan + contract sheet shown before a mission starts (UX.md minute 5, §7.1; FEATURES A9/A13).
 // The plan is editable (reorder, remove, add, rewrite); the contract is prefilled by the profile.
-import { useId, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button, Callout, IconButton, Switch, TextArea, TextField } from "@nova/ui";
 import { OPERATION_CLASSES, PERMISSION_PROFILES, type AcceptanceKind, type MissionContractInput, type MissionPlanResult, type MissionTaskDraft } from "@nova/shared";
 import { fr } from "../../copy/fr";
@@ -42,11 +42,16 @@ export interface ContractSheetProps {
   blocked: { reason: string; action?: { label: string; onAction: () => void } } | null;
   onLaunch: (tasks: MissionTaskDraft[] | null, contract: MissionContractInput) => void;
   onCancel: () => void;
+  /** Web toggle chosen in the goal composer; overrides the plan's contract when set. */
+  webSearch?: boolean | null;
 }
 
-export function ContractSheet({ result, workspacePath, expert, starting, error, blocked, onLaunch, onCancel }: ContractSheetProps) {
+export function ContractSheet({ result, workspacePath, expert, starting, error, blocked, onLaunch, onCancel, webSearch = null }: ContractSheetProps) {
   const id = useId();
-  const [draft, setDraft] = useState<ContractDraft>(() => draftFromPlan(result));
+  const [draft, setDraft] = useState<ContractDraft>(() => {
+    const initial = draftFromPlan(result);
+    return webSearch === null ? initial : { ...initial, webSearch };
+  });
   const [errors, setErrors] = useState<ContractErrors>({});
   const [editContract, setEditContract] = useState(expert);
   const [newStep, setNewStep] = useState("");
@@ -66,12 +71,25 @@ export function ContractSheet({ result, workspacePath, expert, starting, error, 
     onLaunch(validation.tasks, validation.contract);
   };
 
-  const onKeyDown = (event: KeyboardEvent<HTMLFormElement>) => {
-    if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey) {
-      event.preventDefault();
-      launch();
-    }
-  };
+  // Ctrl/⌘+Entrée launches from anywhere in the sheet (POWER_UX §2.2 `mission.launch`). A plain
+  // Entrée never does: the launch button is not a submit button, so a text field cannot spend money.
+  const form = useRef<HTMLFormElement>(null);
+  const launchRef = useRef(launch);
+  useEffect(() => {
+    launchRef.current = launch;
+  });
+  useEffect(() => {
+    const element = form.current;
+    if (!element) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        launchRef.current();
+      }
+    };
+    element.addEventListener("keydown", onKeyDown);
+    return () => element.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const edit = (next: ContractDraft) => {
     setDraft(next);
@@ -80,12 +98,12 @@ export function ContractSheet({ result, workspacePath, expert, starting, error, 
 
   return (
     <form
+      ref={form}
       className="nova-contract"
       aria-labelledby={`${id}-plan`}
-      onKeyDown={onKeyDown}
       onSubmit={(event) => {
+        // Implicit submission (Entrée in a field) must not launch a paid mission.
         event.preventDefault();
-        launch();
       }}
     >
       <section className="nova-contract__block" aria-labelledby={`${id}-plan`}>
@@ -210,6 +228,7 @@ export function ContractSheet({ result, workspacePath, expert, starting, error, 
             {copy.contract.profile} : <strong>{PROFILE_LABELS[draft.profile]}</strong>
           </li>
           <li>{draft.hostsText.trim() ? `${copy.contract.hosts} : ${draft.hostsText.split(/\s+/).filter(Boolean).join(", ")}` : copy.contract.hostsNone}</li>
+          <li>{draft.webSearch ? copy.context.webOn : copy.context.webOff}</li>
           <li>{copy.contract.asksBefore}</li>
           <li>
             {copy.contract.isolation} :{" "}
@@ -256,10 +275,8 @@ export function ContractSheet({ result, workspacePath, expert, starting, error, 
                     checked={draft.profile === profile}
                     onChange={() => edit({ ...draft, profile })}
                   />
-                  <span>
-                    <strong>{PROFILE_LABELS[profile]}</strong>
-                    <span className="nova-note">{PROFILE_HINTS[profile]}</span>
-                  </span>
+                  <strong>{PROFILE_LABELS[profile]}</strong>
+                  <span className="nova-note">{PROFILE_HINTS[profile]}</span>
                 </label>
               ))}
             </fieldset>
@@ -295,7 +312,7 @@ export function ContractSheet({ result, workspacePath, expert, starting, error, 
               label={copy.contract.webSearch}
               description={copy.contract.webSearchHint}
               checked={draft.webSearch}
-              onCheckedChange={(webSearch) => edit({ ...draft, webSearch })}
+              onCheckedChange={(checked) => edit({ ...draft, webSearch: checked })}
             />
           </div>
         ) : (
@@ -318,17 +335,17 @@ export function ContractSheet({ result, workspacePath, expert, starting, error, 
         </Callout>
       ) : null}
       {blocked ? (
-        <p className="nova-contract__blocked" role="status">
+        <output className="nova-contract__blocked">
           <span>{blocked.reason}</span>
           {blocked.action ? (
             <Button size="sm" variant="ghost" onClick={blocked.action.onAction}>
               {blocked.action.label}
             </Button>
           ) : null}
-        </p>
+        </output>
       ) : null}
       <div className="nova-contract__actions">
-        <Button type="submit" variant="primary" loading={starting} disabled={!canLaunch} aria-keyshortcuts="Control+Enter Meta+Enter" title={`${copy.contract.launch} (${MOD_KEY}+Entrée)`}>
+        <Button variant="primary" loading={starting} disabled={!canLaunch} onClick={launch} aria-keyshortcuts="Control+Enter Meta+Enter" title={`${copy.contract.launch} (${MOD_KEY}+Entrée)`}>
           {copy.contract.launch}
         </Button>
         <Button variant="ghost" onClick={onCancel} disabled={starting}>

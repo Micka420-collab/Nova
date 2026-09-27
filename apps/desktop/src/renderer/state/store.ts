@@ -35,6 +35,7 @@ import {
   withApproval,
   type MissionView,
 } from "../components/missions/timeline";
+import { extractMentions } from "../components/agent/mentions";
 import { toUiError, type UiError } from "../lib/errors";
 import {
   applyActiveStreams,
@@ -180,6 +181,8 @@ export interface MissionsState {
   plan: PlanState;
   /** Estimates of the plans launched in this session (the end card compares them with the observed cost). */
   estimates: Record<string, MissionPlanResult["estimate"]>;
+  /** « Web » toggle of the goal composer (W1): overrides the plan's contract; null = keep main's default. */
+  webPreference: boolean | null;
 }
 /** Unsent composer text of a conversation, with the error of its last failed send (one lifetime). */
 export interface Draft {
@@ -264,6 +267,8 @@ export interface AppActions {
 
   // Workspace (the editor/files lane builds on `workspace.current`)
   openWorkspace(): Promise<void>;
+  /** Reopens a recent folder by id (no picker). */
+  reopenWorkspace(workspaceId: string): Promise<void>;
   closeWorkspace(): Promise<void>;
   refreshGit(): Promise<void>;
 
@@ -272,10 +277,12 @@ export interface AppActions {
   refreshMissions(): Promise<void>;
   planMission(goal: string): Promise<void>;
   discardPlan(): void;
+  setWebPreference(value: boolean | null): void;
   startMission(missionId: string, tasks: MissionTaskDraft[] | null, contract: MissionContractInput): Promise<void>;
   selectMission(id: string | null): void;
   pauseMission(id: string): Promise<void>;
-  resumeMission(id: string): Promise<void>;
+  /** `budgetUsd` raises the mission's cap first (a mission suspended by its budget). */
+  resumeMission(id: string, budgetUsd?: number): Promise<void>;
   stopMission(id: string): Promise<void>;
   refreshApprovals(): Promise<void>;
   decideApproval(id: string, decision: "approve" | "deny", scope: ApprovalScope): Promise<void>;
@@ -346,6 +353,7 @@ export function initialData(): AppData {
       detailError: null,
       plan: { status: "idle" },
       estimates: {},
+      webPreference: null,
     },
     approvals: {},
     workMode: "discuss",
@@ -594,6 +602,47 @@ export function createAppStore(client: NovaApi): AppStore {
       }
     };
 
+    /** Opens (picker) or reopens (recent) a folder: the atelier then follows it. */
+    const activateWorkspace = async (open: () => Promise<Workspace | null>): Promise<void> => {
+      set((state) => ({ workspace: { ...state.workspace, status: "loading", error: null } }));
+      let opened: Workspace | null;
+      try {
+        opened = await open();
+      } catch (error) {
+        set((state) => ({
+          workspace: { ...state.workspace, status: state.workspace.current ? "ready" : "error", error: toUiError(error) },
+        }));
+        throw error;
+      }
+      if (!opened) {
+        // The user cancelled the picker: nothing changes.
+        set((state) => ({ workspace: { ...state.workspace, status: state.workspace.current ? "ready" : "idle" } }));
+        return;
+      }
+      const workspace = opened;
+      set((state) => ({
+        ...resetAtelier(),
+        workspace: { current: workspace, facts: null, status: "ready", error: null, git: null },
+        ui: {
+          ...state.ui,
+          explorer: "files",
+          explorerOpen: true,
+          layout: state.ui.displayMode === "expert" ? "build" : state.ui.layout,
+          docs: state.ui.docs.some((doc) => doc.kind === "editor") ? state.ui.docs : [...state.ui.docs, { kind: "editor" }],
+        },
+      }));
+      client.workspace
+        .facts({ workspaceId: workspace.id, refresh: false })
+        .then((facts) => {
+          if (get().workspace.current?.id === workspace.id) set((state) => ({ workspace: { ...state.workspace, facts } }));
+        })
+        // Facts are optional context (stack banner, test command); unknown stays unknown.
+        .catch(() => undefined);
+      void get().refreshGit();
+      void get().refreshMissions();
+      void get().refreshApprovals();
+    };
+
     const resetAtelier = (): Partial<AppData> => {
       const initial = initialData();
       return { workspace: initial.workspace, missions: initial.missions, approvals: {} };
@@ -605,6 +654,10 @@ export function createAppStore(client: NovaApi): AppStore {
       start() {
         const unsubscribe = client.chat.onEvent(onEvent);
         const unsubscribeMissions = client.missions.onEvent(onMissionEvent);
+        // Every approval, a mission's or not: the card and the pending count follow main.
+        const unsubscribeApprovals = client.approvals.onEvent(({ approval }) =>
+          set((state) => ({ approvals: { ...state.approvals, [approval.id]: approval } })),
+        );
         void get().loadCore();
         void get().refreshConversations();
         void get().loadCatalog(false);
@@ -617,6 +670,7 @@ export function createAppStore(client: NovaApi): AppStore {
         return () => {
           unsubscribe();
           unsubscribeMissions();
+          unsubscribeApprovals();
           if (listTimer) clearTimeout(listTimer);
           if (gitTimer) clearTimeout(gitTimer);
           if (missionsTimer) clearTimeout(missionsTimer);
@@ -698,7 +752,18 @@ export function createAppStore(client: NovaApi): AppStore {
       async send(content, conversationId) {
         const modelId = selectedModelId(get(), conversationId);
         if (!modelId) throw new Error("send() called without a selected model");
-        const result = await client.chat.send({ conversationId, content, modelId });
+        // C6/W1: with a folder open, the @mentions of the message and the Web button go with it.
+        const workspaceId = get().workspace.current?.id ?? null;
+        const attachments = workspaceId ? extractMentions(content) : [];
+        const webSearch = get().missions.webPreference === true;
+        const result = await client.chat.send({
+          conversationId,
+          content,
+          modelId,
+          ...(workspaceId ? { workspaceId } : {}),
+          ...(attachments.length > 0 ? { attachments } : {}),
+          ...(webSearch ? { webSearch } : {}),
+        });
         // Stream events are emitted only after this result (runtime contract), so none were lost.
         const state = get();
         const createdHere = conversationId === null;
@@ -887,7 +952,14 @@ export function createAppStore(client: NovaApi): AppStore {
 
       revealFile(path, line) {
         get().openDoc({ kind: "editor" });
-        set((state) => ({ ui: { ...state.ui, reveal: { path, line, nonce: nextNonce() } } }));
+        // VISUAL.md §3: opening a file puts the workbench in the center (build), also in Créer.
+        set((state) => ({
+          ui: {
+            ...state.ui,
+            ...(state.workspace.current ? { layout: "build" as const, route: "chat" as const } : {}),
+            reveal: { path, line, nonce: nextNonce() },
+          },
+        }));
       },
 
       consumeReveal(requestNonce) {
@@ -936,43 +1008,11 @@ export function createAppStore(client: NovaApi): AppStore {
       },
 
       async openWorkspace() {
-        set((state) => ({ workspace: { ...state.workspace, status: "loading", error: null } }));
-        let opened: Workspace | null;
-        try {
-          opened = await client.workspace.open();
-        } catch (error) {
-          set((state) => ({
-            workspace: { ...state.workspace, status: state.workspace.current ? "ready" : "error", error: toUiError(error) },
-          }));
-          throw error;
-        }
-        if (!opened) {
-          // The user cancelled the picker: nothing changes.
-          set((state) => ({ workspace: { ...state.workspace, status: state.workspace.current ? "ready" : "idle" } }));
-          return;
-        }
-        const workspace = opened;
-        set((state) => ({
-          ...resetAtelier(),
-          workspace: { current: workspace, facts: null, status: "ready", error: null, git: null },
-          ui: {
-            ...state.ui,
-            explorer: "files",
-            explorerOpen: true,
-            layout: state.ui.displayMode === "expert" ? "build" : state.ui.layout,
-            docs: state.ui.docs.some((doc) => doc.kind === "editor") ? state.ui.docs : [...state.ui.docs, { kind: "editor" }],
-          },
-        }));
-        client.workspace
-          .facts({ workspaceId: workspace.id, refresh: false })
-          .then((facts) => {
-            if (get().workspace.current?.id === workspace.id) set((state) => ({ workspace: { ...state.workspace, facts } }));
-          })
-          // Facts are optional context (stack banner, test command); unknown stays unknown.
-          .catch(() => undefined);
-        void get().refreshGit();
-        void get().refreshMissions();
-        void get().refreshApprovals();
+        await activateWorkspace(() => client.workspace.open());
+      },
+
+      async reopenWorkspace(workspaceId) {
+        await activateWorkspace(() => client.workspace.reopen({ workspaceId }));
       },
 
       async closeWorkspace() {
@@ -1048,6 +1088,10 @@ export function createAppStore(client: NovaApi): AppStore {
         patchMissions({ plan: { status: "idle" } });
       },
 
+      setWebPreference(value) {
+        patchMissions({ webPreference: value });
+      },
+
       async startMission(missionId, tasks, contract) {
         const plan = get().missions.plan;
         const result = plan.status === "ready" || plan.status === "starting" || plan.status === "error" ? plan.result : null;
@@ -1081,8 +1125,8 @@ export function createAppStore(client: NovaApi): AppStore {
         putMission(await client.missions.pause({ missionId: id }));
       },
 
-      async resumeMission(id) {
-        putMission(await client.missions.resume({ missionId: id }));
+      async resumeMission(id, budgetUsd) {
+        putMission(await client.missions.resume({ missionId: id, ...(budgetUsd === undefined ? {} : { budgetUsd }) }));
       },
 
       async stopMission(id) {

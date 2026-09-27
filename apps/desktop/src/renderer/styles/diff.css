@@ -135,3 +135,13 @@
 .nova-checkpoints__file > :last-child {
   margin-left: auto;
 }
+
+.nova-diff__change {
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-xs);
+}
+
+.nova-diff__verified {
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-xs);
+}

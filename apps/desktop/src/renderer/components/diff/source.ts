@@ -1,6 +1,7 @@
-// Where the mission's diff comes from. No contract gives the mission's own per-file diff yet
-// (proposed: `missions.diff`); until then the git-backed source compares the disk with HEAD for
-// each file the mission touched, and says so.
+// Where the mission's diff comes from. `missions.diff` (main) gives the mission's own change per
+// file — content before its first write → disk now — with the SAME hunks `missions.review`
+// reverts; it is the source of the review. The git-backed source (disk vs HEAD) remains for
+// callers that only have git.
 import type { NovaApi } from "@nova/shared";
 import type { FileTouch } from "../missions/timeline";
 import { createdFileDiff, parseUnifiedDiff, type DiffFileData } from "./parse";
@@ -15,8 +16,11 @@ export interface MissionDiffFile {
 }
 
 export interface MissionDiffSource {
-  /** "git": disk vs last commit (may include the user's own uncommitted edits). */
-  kind: "git" | "none";
+  /**
+   * "mission": before the mission → now (hunk indexes are the review's).
+   * "git": disk vs last commit (may include the user's own uncommitted edits).
+   */
+  kind: "mission" | "git" | "none";
   load(missionId: string, files: readonly FileTouch[]): Promise<MissionDiffFile[]>;
 }
 
@@ -56,3 +60,28 @@ export const noDiffSource: MissionDiffSource = {
     return Promise.resolve(files.map((touch) => ({ touch, diff: null, missing: "no_git" as const, truncated: false })));
   },
 };
+
+const MISSING_FROM_MAIN = {
+  binary: "binary",
+  too_large: "unreadable",
+  unreadable: "unreadable",
+  no_change: "no_change",
+} as const;
+
+/** The mission's own diff from main (`missions.diff`); files the events name but main does not know stay listed. */
+export function missionDiffSource(client: NovaApi): MissionDiffSource {
+  return {
+    kind: "mission",
+    async load(missionId, files) {
+      const diff = await client.missions.diff({ missionId });
+      const byPath = new Map(diff.files.map((file) => [file.path, file]));
+      return files.map((touch): MissionDiffFile => {
+        const file = byPath.get(touch.path);
+        if (!file) return { touch, diff: null, missing: "no_change", truncated: false };
+        if (file.patch === null) return { touch, diff: null, missing: file.missing ? MISSING_FROM_MAIN[file.missing] : "unreadable", truncated: false };
+        const parsed = parseUnifiedDiff(file.patch)[0] ?? null;
+        return { touch, diff: parsed, missing: parsed ? null : "unreadable", truncated: false };
+      });
+    },
+  };
+}

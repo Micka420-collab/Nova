@@ -30,6 +30,7 @@ import { findModel } from "../models/filter";
 import { isMissionActive, type MissionView } from "../missions/timeline";
 import { approvalTargetText } from "./AgentApproval";
 import { ContractSheet } from "./ContractSheet";
+import { ContextInspector, MentionPicker, useMentionPicker } from "./GoalContext";
 import { MissionTimeline } from "./MissionTimeline";
 import { installTypingTracker } from "./typing";
 
@@ -248,6 +249,7 @@ function GoalComposer({ mode }: { mode: Exclude<WorkMode, "discuss"> }) {
   const hasMissions = useApp((state) => state.missions.list.length > 0);
   const guard = useMissionGuard();
   const [goal, setGoal] = useState("");
+  const picker = useMentionPicker(goal, setGoal);
   const suggestions = [copy.agent.suggestionUnderstand, copy.agent.suggestionVerify, copy.agent.suggestionFix];
   return (
     <div className="nova-agent__goal">
@@ -256,27 +258,33 @@ function GoalComposer({ mode }: { mode: Exclude<WorkMode, "discuss"> }) {
       ) : null}
       <RecentMissions />
       {hasWorkspace ? (
-        <div className="nova-agent__suggestions" aria-label={copy.agent.suggestions} role="group">
+        <fieldset className="nova-agent__suggestions">
+          <legend className="nv-visually-hidden">{copy.agent.suggestions}</legend>
           {suggestions.map((text) => (
             <Button key={text} size="sm" variant="secondary" onClick={() => setGoal(text)}>
               {text}
             </Button>
           ))}
-        </div>
+        </fieldset>
       ) : null}
-      <Composer
-        label={copy.agent.goalLabel}
-        placeholder={copy.agent.goalPlaceholder[mode]}
-        streaming={false}
-        blocked={guard}
-        value={goal}
-        onValueChange={setGoal}
-        onSend={async (content) => {
-          await planMission(content);
-          return true;
-        }}
-        onStop={() => undefined}
-      />
+      {/* Capture phase: the mention picker takes ↑ ↓ Entrée Échap only while it is open. */}
+      <div className="nova-agent__composer" onKeyDownCapture={picker.onKeyDownCapture}>
+        <MentionPicker picker={picker} />
+        <Composer
+          label={copy.agent.goalLabel}
+          placeholder={copy.agent.goalPlaceholder[mode]}
+          streaming={false}
+          blocked={guard}
+          value={goal}
+          onValueChange={setGoal}
+          onSend={async (content) => {
+            await planMission(content);
+            return true;
+          }}
+          onStop={() => undefined}
+        />
+        {hasWorkspace ? <ContextInspector goal={goal} onGoalChange={setGoal} /> : null}
+      </div>
     </div>
   );
 }
@@ -290,6 +298,7 @@ function MissionPane() {
   const discardPlan = useApp((state) => state.discardPlan);
   const planMission = useApp((state) => state.planMission);
   const openModelPicker = useApp((state) => state.openModelPicker);
+  const webPreference = useApp((state) => state.missions.webPreference);
   const online = useOnline();
   const guard = useMissionGuard();
   const toast = useToast();
@@ -336,6 +345,7 @@ function MissionPane() {
         starting={plan.status === "starting"}
         error={plan.status === "error" ? plan.error : null}
         blocked={guard}
+        webSearch={webPreference}
         onLaunch={(tasks, contract) => {
           startMission(result.mission.id, tasks, contract).catch((error: unknown) =>
             toast.show(errorToast(error, copy.contract.launchFailed)),
@@ -391,7 +401,7 @@ function ApprovalReminder() {
   const oldest = pending[0];
   if (!oldest) return null;
   return (
-    <p className="nova-agent__reminder" role="status">
+    <output className="nova-agent__reminder">
       <span>
         {copy.agent.approvalReminder}
         {pending.length > 1 ? ` · ${copy.statusBar.approvals(pending.length)}` : ""}
@@ -399,7 +409,7 @@ function ApprovalReminder() {
       <Button size="sm" variant="ghost" onClick={() => focusApproval(oldest.id)} aria-keyshortcuts="Control+Shift+A Meta+Shift+A">
         {copy.agent.seeApproval}
       </Button>
-    </p>
+    </output>
   );
 }
 
