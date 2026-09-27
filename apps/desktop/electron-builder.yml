@@ -1,7 +1,6 @@
 # Packaging. The app is fully bundled by electron-vite into out/ (no runtime node_modules).
 appId: io.github.micka420collab.nova
 productName: NOVA
-executableName: nova
 directories:
   output: release
   buildResources: build
@@ -21,6 +20,8 @@ electronFuses:
   grantFileProtocolExtraPrivileges: false
 artifactName: "NOVA-${version}-${os}-${arch}.${ext}"
 linux:
+  # Lowercase binary on Linux only (CLI convention); Windows and macOS keep the product name NOVA.
+  executableName: nova
   target:
     - AppImage
     - deb
