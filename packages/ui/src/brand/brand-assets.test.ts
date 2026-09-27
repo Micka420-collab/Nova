@@ -2,11 +2,10 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { NOMI_BODY, NOMI_HEAD, NOMI_TOP } from "../nomi/geometry";
 import { palettes } from "../tokens";
-import { MARK_MOON, MARK_PATH, WORDMARK_PATH } from "./paths";
+import { MARK_PATH, WORDMARK_PATH } from "./paths";
 
 const asset = (name: string) => readFileSync(new URL(`../../assets/${name}`, import.meta.url));
 const svg = (name: string) => asset(name).toString("utf8");
-const moon = `cx="${MARK_MOON.cx}" cy="${MARK_MOON.cy}" r="${MARK_MOON.r}"`;
 
 /** Width and height from the IHDR chunk of a PNG file. */
 function pngSize(bytes: Buffer): { width: number; height: number } {
@@ -18,7 +17,6 @@ describe("brand assets stay in sync with the React components", () => {
   it.each(["logo-mark.svg", "logo-mark-mono.svg", "lockup.svg", "app-icon.svg"])("%s draws the shared mark", (name) => {
     const source = svg(name);
     expect(source).toContain(`d="${MARK_PATH}"`);
-    expect(source).toContain(moon);
   });
 
   it.each(["wordmark.svg", "lockup.svg"])("%s draws the shared wordmark", (name) => {

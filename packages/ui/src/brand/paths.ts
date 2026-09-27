@@ -3,11 +3,13 @@
  * (brand-assets.test.ts keeps them in sync). All shapes are strokes with round caps and joins.
  */
 
-/** Mark: an "N" whose last stem sweeps into an open orbit, with a moon resting in the opening. */
-export const MARK_VIEWBOX = "0 0 64 64";
-export const MARK_PATH = "M22 45V21L40 45V18C40 10.5 36.5 6 32 6A26 26 0 1 0 58 32";
-export const MARK_STROKE = 6;
-export const MARK_MOON = { cx: 50.4, cy: 13.6, r: 4.5 } as const;
+/**
+ * Mark: the owner's concept redrawn as filled Béziers (redraw IoU 0.98 vs the reference image) —
+ * a jade ribbon "N" whose two tails wrap into an orbit, with a moon. One path, 8% padding.
+ */
+export const MARK_VIEWBOX = "0 0 256 256";
+export const MARK_PATH =
+  "M113.1 44.4C166.9 44.4 177.5 107.7 177.6 146.1C180.3 151.8 184.6 153.1 192.1 153.1C206.7 153.1 215.5 145.7 215.5 131.2C215.5 106.3 189.6 88.9 172.6 78.4C200.2 82.2 235.5 108.2 235.5 141.3C235.5 158.8 225.7 173.1 209.4 173.1C163.6 173.1 126.6 63.6 82.1 63.6C66.9 63.6 60.8 75.9 56.2 84C56.9 57.5 88.8 44.4 113.1 44.4ZM60.6 87.5C104.3 87.5 136.6 192.6 179.8 192.6C192.8 192.6 199.2 183.4 205 175.9C201 200.2 170.6 211.6 146.8 211.6C99.5 211.6 83.1 167.1 84.7 126.5C75.2 121.9 66.8 118.7 57.1 118.7C46.4 118.7 40.7 122.5 40.7 132.4C40.7 156.1 73.1 179.7 90.8 188.3C67.4 187.5 20.5 154.3 20.5 125.3C20.5 105.5 42.7 87.5 60.6 87.5ZM221.7 61.7C221.7 69.8 215.1 76.4 207 76.4C198.9 76.4 192.3 69.8 192.3 61.7C192.3 53.6 198.9 47 207 47C215.1 47 221.7 53.6 221.7 61.7Z";
 
 /** Wordmark "NOVA": rounded N joints, ring O, V with a soft bottom, crossbar-less A (Λ). */
 export const WORDMARK_WIDTH = 153;
@@ -21,4 +23,6 @@ export const WORDMARK_STROKE = 5;
 /** Lockup: mark at full height, wordmark scaled so its cap height centers on the orbit. */
 export const LOCKUP_WIDTH = 191;
 export const LOCKUP_VIEWBOX = `0 0 ${LOCKUP_WIDTH} 64`;
+/** The 256-unit mark scaled to the 64-unit lockup height. */
+export const LOCKUP_MARK_TRANSFORM = "scale(0.25)";
 export const LOCKUP_WORDMARK_TRANSFORM = "translate(80 14.72) scale(0.72)";

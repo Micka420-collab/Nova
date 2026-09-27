@@ -1,11 +1,10 @@
 import { cx, svgA11y } from "../cx";
 import {
+  LOCKUP_MARK_TRANSFORM,
   LOCKUP_VIEWBOX,
   LOCKUP_WIDTH,
   LOCKUP_WORDMARK_TRANSFORM,
-  MARK_MOON,
   MARK_PATH,
-  MARK_STROKE,
   MARK_VIEWBOX,
   WORDMARK_HEIGHT,
   WORDMARK_PATH,
@@ -26,19 +25,7 @@ export interface LogoMarkProps {
 }
 
 function MarkShape() {
-  return (
-    <>
-      <path
-        d={MARK_PATH}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={MARK_STROKE}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx={MARK_MOON.cx} cy={MARK_MOON.cy} r={MARK_MOON.r} fill="currentColor" />
-    </>
-  );
+  return <path d={MARK_PATH} fill="currentColor" />;
 }
 
 function WordmarkShape() {
@@ -108,7 +95,7 @@ export function Lockup({ height = 32, tone = "brand", label = "NOVA", className 
       focusable="false"
       {...svgA11y(label)}
     >
-      <g className={tone === "brand" ? "nv-brand-accent" : undefined}>
+      <g className={tone === "brand" ? "nv-brand-accent" : undefined} transform={LOCKUP_MARK_TRANSFORM}>
         <MarkShape />
       </g>
       <g transform={LOCKUP_WORDMARK_TRANSFORM}>
