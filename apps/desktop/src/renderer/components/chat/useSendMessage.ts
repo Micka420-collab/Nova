@@ -1,33 +1,23 @@
-import { useCallback, useState } from "react";
-import type { ErrorCopy } from "../../copy/fr";
-import { describeUiError, toUiError } from "../../lib/errors";
+import { useCallback } from "react";
+import type { UiError } from "../../lib/errors";
 import { useApp } from "../../state/context";
+import { NEW_CONVERSATION } from "../../state/store";
 
-export interface SendError {
-  /** Conversation the failed message was meant for (null = a new conversation). */
-  conversationId: string | null;
-  copy: ErrorCopy;
-}
-
-/** Sends through the store; a failure is kept for an inline callout and the text stays in the composer. */
-export function useSendMessage(): {
-  send: (content: string, conversationId: string | null) => Promise<boolean>;
-  error: SendError | null;
+/**
+ * The composer draft of `conversationId` (null = a new conversation), kept in the store: its text
+ * and the error of its last failed send survive navigation together and end together.
+ */
+export function useSendMessage(conversationId: string | null): {
+  text: string;
+  setText: (text: string) => void;
+  send: (content: string) => Promise<boolean>;
+  error: UiError | null;
 } {
-  const sendMessage = useApp((state) => state.send);
-  const [error, setError] = useState<SendError | null>(null);
-  const send = useCallback(
-    async (content: string, conversationId: string | null) => {
-      setError(null);
-      try {
-        await sendMessage(content, conversationId);
-        return true;
-      } catch (caught) {
-        setError({ conversationId, copy: describeUiError(toUiError(caught)) });
-        return false;
-      }
-    },
-    [sendMessage],
-  );
-  return { send, error };
+  const key = conversationId ?? NEW_CONVERSATION;
+  const draft = useApp((state) => state.drafts[key] ?? null);
+  const setDraft = useApp((state) => state.setDraft);
+  const sendDraft = useApp((state) => state.sendDraft);
+  const setText = useCallback((text: string) => setDraft(conversationId, text), [setDraft, conversationId]);
+  const send = useCallback((content: string) => sendDraft(content, conversationId), [sendDraft, conversationId]);
+  return { text: draft?.text ?? "", setText, send, error: draft?.error ?? null };
 }

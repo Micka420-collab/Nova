@@ -24,7 +24,7 @@ Canal à définir par le propriétaire (question Q8 de [`DECISIONS.md`](DECISION
 | Renderer compromis | Faille dans une dépendance de l'interface | Le renderer n'a ni Node, ni réseau, ni clé ; seules des requêtes typées et validées atteignent le main |
 | Injection d'instructions (J2+) | Un fichier, une page ou une description d'outil MCP demande au modèle de lire `~/.ssh` | Contenus traités comme des données ; permissions décidées hors du modèle |
 | Fuite de secret | Clé dans un journal, un message d'erreur, un export, une capture | Masquage systématique, clé jamais renvoyée au renderer |
-| Vol de l'ordinateur ou copie du disque | Lecture du dossier de données | Clé chiffrée par le coffre du système ; niveau réel affiché |
+| Vol de l'ordinateur ou copie du disque | Lecture du dossier de données | Clé chiffrée par le coffre du système ; niveau réel affiché ; données supprimées effacées dans la base (voir [Effacement des données](#effacement-des-données)) |
 | Dépendance malveillante | Version compromise publiée sur npm | ADR-009 : délai de 3 jours, scripts d'installation limités, verrouillage |
 | Dépense non voulue | Relance automatique, boucle d'agent | Aucune relance automatique en J1 ; budgets avec réservation prévus en J3 |
 
@@ -53,7 +53,7 @@ Diagramme : [`ARCHITECTURE.md` → Frontières de confiance](ARCHITECTURE.md#fro
    - `weak-vault` : même chose avec le backend `basic_text`, uniquement après consentement explicite ;
    - `session` : en mémoire du main, perdue à la fermeture.
 3. Le renderer ne voit que `ProviderConnectionView` : état, mode, **4 derniers caractères** (`keyHint`), résultat de vérification.
-4. `connection.remove` supprime la connexion et le secret chiffré.
+4. `connection.remove` supprime la connexion et le secret chiffré (voir [Effacement des données](#effacement-des-données)).
 
 **Linux sans trousseau (coffre faible).** Electron se rabat sur `basic_text`, chiffré avec une clé codée en dur : n'importe qui ayant le fichier peut le déchiffrer. NOVA :
 
@@ -71,8 +71,8 @@ Diagramme : [`ARCHITECTURE.md` → Frontières de confiance](ARCHITECTURE.md#fro
 - CSP stricte : pas de script en ligne ni d'`eval`, ressources limitées à l'application. Une image distante dans une réponse de modèle n'est donc pas chargée.
 - Navigation verrouillée (`will-navigate` bloqué) et ouverture de fenêtres refusée.
 - Liens externes : `https` uniquement (`OpenExternalRequestSchema`), domaines en liste d'autorisation dans le main, ouverts dans le navigateur du système.
-- Demandes de permission (micro, caméra, notifications, géolocalisation…) refusées par défaut. Le micro sera autorisé en J4, explicitement et uniquement pour la fonction voix.
-- Fuses Electron à la mise en paquet : `RunAsNode` désactivé, options d'inspection Node désactivées, intégrité de l'archive vérifiée.
+- Demandes de permission (micro, caméra, notifications, géolocalisation, lecture du presse-papiers…) refusées. **Exception** : `clipboard-sanitized-write`, l'écriture de texte dans le presse-papiers, accordée uniquement aux pages de l'application (`nova://app`, ou le serveur de développement en `pnpm dev`) pour les boutons « Copier » et l'action explicite « Copier l'adresse » d'un lien refusé — rien n'est copié sans geste de l'utilisateur (`apps/desktop/src/main/security.ts`). Sans elle, `navigator.clipboard.writeText` échoue sous Electron 44. Conséquence acceptée : un renderer compromis pourrait écrire du texte dans le presse-papiers sans demande, mais pas le lire. Le micro sera autorisé en J4, explicitement et uniquement pour la fonction voix.
+- Fuses Electron à la mise en paquet (`apps/desktop/electron-builder.yml`) : `RunAsNode` désactivé, variable `NODE_OPTIONS` et options d'inspection Node ignorées, chargement depuis `app.asar` uniquement, validation d'intégrité de l'archive activée. **Limite** : Electron n'applique cette validation d'intégrité que sous macOS et Windows ; sous Linux (plateforme de référence, AppImage), une archive `app.asar` modifiée n'est pas détectée.
 
 En mode `pnpm dev`, le renderer est servi par le serveur de développement de Vite. Ces garanties se vérifient sur le build (`pnpm build`), celui qu'utilisent les E2E.
 
@@ -87,7 +87,7 @@ En mode `pnpm dev`, le renderer est servi par le serveur de développement de Vi
 
 | Portée | Règle | Statut |
 | --- | --- | --- |
-| Permissions du navigateur | Toutes refusées | J1 |
+| Permissions du navigateur | Toutes refusées, sauf `clipboard-sanitized-write` (écriture de texte dans le presse-papiers) pour les pages de l'application | J1 |
 | Outils du modèle | Aucun outil n'est donné au modèle en J1 : il ne peut que répondre du texte | J1 |
 | Moteur de permissions | allow / ask / deny par espace de travail, outil, opération, chemin, hôte et durée ; évalué dans le main, jamais par le modèle | Prévu J2 |
 | Profils | Lecture seule, Assisté, Autonome dans ce projet, Personnalisé | Prévu J2 |
@@ -104,15 +104,29 @@ En mode `pnpm dev`, le renderer est servi par le serveur de développement de Vi
 | Navigateur du système | Lien `https` autorisé | Sur clic de l'utilisateur | J1 |
 | Mises à jour | — | Pas de mise à jour automatique ; mises à jour signées prévues après la signature de code (Q3) | Prévu |
 
-**Point à vérifier.** Les E2E redirigent les appels OpenRouter vers un faux serveur local via `NOVA_OPENROUTER_BASE_URL`, et changent le dossier de données via `NOVA_USER_DATA_DIR`. La première variable envoie la clé à une autre adresse : dans un build distribué, elle doit être ignorée ou limitée à l'adresse de boucle locale. À confirmer dans le code du main et à consigner dans `STATUS.md`.
+**Variables de développement et d'E2E.** Trois variables d'environnement modifient le comportement du main : `NOVA_OPENROUTER_BASE_URL` (faux serveur OpenRouter, qui reçoit donc la clé), `NOVA_USER_DATA_DIR` (dossier de données isolé) et `ELECTRON_RENDERER_URL` (serveur de développement Vite, traité comme l'origine de l'application). Règle appliquée par `resolveLaunchOverrides` (`apps/desktop/src/main/security-policy.ts`) :
+
+- application empaquetée : les trois variables sont ignorées, et leur nom est journalisé ;
+- développement : les deux URL ne sont acceptées qu'en `http` ou `https` vers l'adresse de boucle locale (`127.0.0.1`, `localhost`, `[::1]`), et `NOVA_USER_DATA_DIR` seulement si c'est un chemin absolu ; sinon la variable est ignorée.
+
+Tests unitaires : `apps/desktop/src/main/security-policy.test.ts`. Vérifié aussi sur un build empaqueté Linux (dossier) le 2026-09-27 : les trois variables y sont ignorées.
 
 ## Journaux et masquage
 
 - Tout texte qui peut atteindre un journal, un détail d'erreur, un export ou l'interface passe par `redactSecrets` (`packages/shared/src/redact.ts`) : clés de type `sk-…` et jetons `Bearer` remplacés par `[secret masqué]`.
 - Messages des fournisseurs : masqués et tronqués à 500 caractères (`sanitizeProviderMessage`).
 - Seuls les 4 derniers caractères d'une clé peuvent être affichés (`keyHint`).
-- Le contenu des conversations n'a pas sa place dans les journaux. À vérifier dans le code du main.
+- Le contenu des conversations n'a pas sa place dans les journaux. Un E2E (`bridge-security.spec.ts`) vérifie qu'après une réponse en continu, ni la clé ni le contenu n'apparaissent dans les journaux sur disque.
 - Limite connue : le masquage reconnaît des formes de secrets, pas tous les secrets possibles. Toute nouvelle forme de clé (autre fournisseur) ajoute son motif et un test.
+
+## Effacement des données
+
+Retirer la clé (`connection.remove`), la remplacer, ou supprimer une conversation efface les lignes correspondantes de `nova.sqlite` (dossier de données). Depuis les correctifs de revue :
+
+- la base est ouverte avec `PRAGMA secure_delete = ON` : SQLite remplace par des zéros le contenu des lignes supprimées (texte chiffré de la clé, titres et messages) au lieu de simplement libérer la place ;
+- après une telle suppression, `PRAGMA wal_checkpoint(TRUNCATE)` recopie le journal WAL dans la base et le tronque, pour que les anciennes pages n'y restent pas.
+
+**Limites.** Ces mesures agissent sur les fichiers SQLite, pas sur le support physique. Un SSD (répartition de l'usure, blocs réalloués), un système de fichiers journalisé ou à copie sur écriture (btrfs, APFS, ZFS), des instantanés et des sauvegardes peuvent garder d'anciennes copies des données. NOVA ne peut pas garantir qu'elles sont irrécupérables sur le disque ; le chiffrement du disque par le système reste la protection contre la copie du disque. Rappel : sous Linux sans trousseau, le texte chiffré du coffre faible se déchiffre avec une clé publique ; une copie ancienne vaut donc la clé.
 
 ## Données qui quittent l'appareil
 

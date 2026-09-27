@@ -38,11 +38,11 @@ Objectif : un socle sur lequel chaque jalon peut s'appuyer sans le refaire.
 - [x] Contrat partagé : types du domaine, schémas IPC zod, canaux, masquage des secrets et ses tests
 - [x] Politique de chaîne d'approvisionnement dans `pnpm-workspace.yaml` (ADR-009)
 - [x] Documents de référence dans `docs/` (première version, à relire)
-- [ ] Tokens de design, polices, icônes et assets de marque dans `packages/ui`
-- [ ] Nomi : états visuels branchés sur les événements du runtime
-- [ ] CI GitHub Actions verte sur Linux, Windows et macOS
+- [x] Tokens de design, polices, icônes et assets de marque dans `packages/ui` — commits `a08ad93`, `996fd02` (logo en ruban, icônes régénérées)
+- [x] Nomi : états visuels branchés sur les événements du runtime — commit `a08ad93`
+- [ ] CI GitHub Actions verte : aucun run consigné à ce jour
 
-**Critère de sortie** : `pnpm check` passe en CI sur les trois OS ; les tokens validés sont reportés dans [`DESIGN_SYSTEM.md`](DESIGN_SYSTEM.md#tokens-validés).
+**Critère de sortie** : CI verte, c'est-à-dire `pnpm lint`, `pnpm typecheck` et `pnpm test` sur Linux (job `checks`, `ubuntu-latest` uniquement), puis build, E2E Playwright, `vault-smoke` et paquet non signé `electron-builder --dir` sur Linux, Windows et macOS (job `desktop`) ; les tokens validés sont reportés dans [`DESIGN_SYSTEM.md`](DESIGN_SYSTEM.md#tokens-validés). Les tests unitaires (dont `node:sqlite` et le coffre) ne tournent donc pas sous Windows ni macOS en CI.
 
 ## J1 — Vraie conversation · en cours
 
@@ -50,22 +50,27 @@ Objectif : une vraie requête fonctionne sur la plateforme de référence, et l'
 
 Dépend de : J0.
 
-- [ ] Application construite et lancée sur Linux x64 (référence, ADR-007)
-- [ ] Coffre de clés `safeStorage` : niveau réel affiché, clé de session par défaut sur coffre faible, consentement explicite au coffre faible
-- [ ] Vérification de clé (libellé, limite, reste) et suppression de la clé
-- [ ] Catalogue OpenRouter en direct, copie hors ligne datée, valeurs absentes affichées « inconnu »
-- [ ] Réponse en continu avec phases réelles (attente, réflexion, écriture) et usage final
-- [ ] Arrêt d'une génération, sans interface bloquée
-- [ ] Erreurs utiles : clé invalide, crédit épuisé, limite de débit, délai dépassé, coupure réseau, flux interrompu, aucun fournisseur disponible
-- [ ] Relance à l'initiative de l'utilisateur uniquement
-- [ ] Conversations persistées : liste, recherche, renommage, suppression
-- [ ] Reprise au démarrage : flux en cours marqués « interrompu », sans relance
-- [ ] Usage et coût par conversation (borne basse si un coût manque)
-- [ ] Réglages : thème, modèle par défaut, compagnon (visible, mouvement), `data_collection`
-- [ ] Renderer isolé, protocole `nova://`, CSP, IPC validé, permissions refusées, liens externes filtrés
-- [ ] E2E Playwright sur Linux sans écran (Xvfb), avec trousseau privé
-- [ ] Builds non signés et E2E en CI Windows et macOS
-- [ ] Accessibilité du parcours de conversation (clavier, focus, contraste, lecteur d'écran)
+Les cases cochées sont livrées dans `a08ad93` et couvertes par les tests unitaires, et pour les parcours des scénarios 1, 2, 3, 14 et 15 par les E2E sur Linux x64 contre le faux serveur (détail dans [`STATUS.md`](STATUS.md)). Correctifs de revue en cours.
+
+- [x] Application construite et lancée sur Linux x64 (référence, ADR-007)
+- [x] Coffre de clés `safeStorage` : niveau réel affiché, clé de session par défaut sur coffre faible, consentement explicite au coffre faible
+- [x] Vérification de clé (libellé, limite, reste) et suppression de la clé
+- [x] Catalogue OpenRouter en direct, copie hors ligne datée, valeurs absentes affichées « inconnu »
+- [x] Réponse en continu avec phases réelles (attente, réflexion, écriture) et usage final — faux serveur seulement ; pas encore essayé avec une vraie clé
+- [x] Arrêt d'une génération, sans interface bloquée
+- [x] Erreurs utiles : clé invalide, crédit épuisé, limite de débit, délai dépassé, coupure réseau, flux interrompu, aucun fournisseur disponible
+- [x] Relance à l'initiative de l'utilisateur uniquement
+- [x] Conversations persistées : liste, recherche, renommage, suppression
+- [x] Reprise au démarrage : flux en cours marqués « interrompu », sans relance
+- [x] Usage et coût par conversation (borne basse si un coût manque)
+- [x] Réglages : thème, modèle par défaut, compagnon (visible, mouvement), `data_collection`
+- [x] Renderer isolé, protocole `nova://`, CSP, IPC validé, permissions refusées (sauf écriture dans le presse-papiers, voir [`SECURITY.md`](SECURITY.md)), liens externes filtrés
+- [x] E2E Playwright sur Linux sans écran (Xvfb) — coffre faible ou session uniquement, car Playwright force `--password-store=basic`
+- [x] Niveau de coffre `os` sous Linux constaté hors Playwright (`e2e/vault-smoke.mjs` avec trousseau privé)
+- [ ] Coffre `os` sous Linux de bout en bout : clé chiffrée, redémarrage, relecture (aucun test versionné)
+- [ ] Builds non signés et E2E en CI Windows et macOS (CI en attente)
+- [ ] Accessibilité du parcours de conversation : clavier, focus et audit axe-core faits ; lecteur d'écran non vérifié
+- [ ] Scénario 1 avec un vrai compte OpenRouter
 
 **Critères de sortie**
 

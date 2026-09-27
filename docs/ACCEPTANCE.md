@@ -14,7 +14,8 @@ Les 18 scénarios obligatoires de NOVA, écrits comme des procédures vérifiabl
 
 | Moyen | Usage | Où |
 | --- | --- | --- |
-| E2E automatisé | Chaque changement, en CI sur Linux, Windows, macOS | `apps/desktop/e2e` : Playwright `_electron` sur le build, dossier de données temporaire (`NOVA_USER_DATA_DIR`), faux serveur OpenRouter local (`mock-openrouter.ts`), trousseau privé sous Linux |
+| E2E automatisé | Chaque changement, en CI sur Linux, Windows, macOS | `apps/desktop/e2e` : Playwright `_electron` sur le build, dossier de données temporaire (`NOVA_USER_DATA_DIR`), faux serveur OpenRouter local (`mock-openrouter.ts`). Playwright force `--password-store=basic` : sous Linux, ces E2E n'exercent que le coffre faible ou la clé de session |
+| Niveau de coffre | Chaque changement, en CI | `apps/desktop/e2e/vault-smoke.mjs`, application réelle hors Playwright : sous Linux avec le trousseau privé (`dbus-run-session -- bash e2e/run-with-keyring.sh …`, attendu `os`) et sans trousseau (attendu `weak`) ; `--expect os` sous Windows et macOS. Constate le niveau détecté, sans enregistrer ni relire de clé |
 | Manuel, service réel | Au moins une fois par jalon, sur la plateforme de référence | Vraie clé OpenRouter avec crédit, build installé |
 
 Le faux serveur ne coûte rien et rend les erreurs reproductibles : clés `valid`, `invalid`, `noCredit`, et marqueurs dans le message (`[slow]`, `[reasoning]`, `[429]`, `[502]`, `[cut]`, `[midstream-error]`). Il ne remplace pas le passage manuel avec le vrai service.
@@ -69,7 +70,7 @@ Les seuils chiffrés marqués « proposé » sont des propositions à confirmer 
 | 2 | État « valide » ; libellé, limite et reste de la clé, ou « inconnu » ; seuls les 4 derniers caractères sont visibles. |
 | 3 | Modèles issus du catalogue en direct ; prix par million de jetons ou « inconnu ». |
 | 4–5 | Le texte arrive progressivement ; la phase est visible (attente, réflexion éventuelle, écriture) ; à la fin : modèle servi, jetons, coût ou « inconnu ». |
-| 6 | La conversation est dans l'historique avec le même contenu et le statut « terminé ». Coffre `os` : la clé reste valide sans ressaisie. Clé de session : NOVA redemande la clé et l'historique reste lisible. |
+| 6 | La conversation est dans l'historique avec le même contenu et le statut « terminé ». Coffre `os` : la clé reste valide sans ressaisie (cas vérifiable seulement en manuel ou hors Playwright ; aucun test versionné à ce jour). Clé de session : NOVA redemande la clé et l'historique reste lisible. |
 
 **Preuve** : sortie E2E ; en manuel, capture et entrée dans `STATUS.md`. Enchaîner avec le scénario 16.
 
@@ -113,11 +114,11 @@ Les seuils chiffrés marqués « proposé » sont des propositions à confirmer 
 **Résultat attendu**
 
 - Plus aucun texte n'arrive après l'arrêt ; le faux serveur constate la fermeture de la connexion.
-- Le message garde son texte partiel et affiche « arrêté ».
-- La saisie redevient disponible immédiatement (seuil proposé : moins d'1 s) ; Nomi passe à « Arrêté » puis « Repos ».
+- Le message garde son texte partiel et affiche « Génération arrêtée ».
+- La saisie redevient disponible immédiatement (seuil proposé : moins d'1 s) ; Nomi affiche « Génération arrêtée », puis revient à « Nomi est disponible ».
 - Le nouveau message part normalement.
-- Après redémarrage, le message arrêté est toujours « arrêté ».
-- Variante 5 : le message est « interrompu » ; aucune requête n'est renvoyée au démarrage.
+- Après redémarrage, le message arrêté affiche toujours « Génération arrêtée ».
+- Variante 5 : le message affiche « Interrompue — le résultat côté fournisseur est incertain » ; aucune requête n'est renvoyée au démarrage.
 
 ## 4 — Changement multi-fichiers, test réel, diff, restauration ciblée
 

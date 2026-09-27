@@ -290,7 +290,8 @@ describe("OpenRouterProvider.streamChat", () => {
   it.each<[number, ProviderErrorCode, boolean]>([
     [400, "bad_request", false],
     [401, "invalid_key", false],
-    [402, "insufficient_credits", false],
+    // A 402 carrying Retry-After is OpenRouter's in-flight budget: wait, not top up.
+    [402, "rate_limited", true],
     [403, "forbidden", false],
     [404, "not_found", false],
     [408, "timeout", true],
@@ -319,6 +320,19 @@ describe("OpenRouterProvider.streamChat", () => {
     const { error } = await run(new OpenRouterProvider({ fetch: recorder.fetch }).streamChat(KEY, request()));
     expect(error?.info).toMatchObject({ code: "network", retryable: true, httpStatus: null });
     expect(error?.info.providerMessage).toContain("ENOTFOUND");
+  });
+
+  it("fails a key no HTTP header can carry as a non-retryable bad request, without any I/O", async () => {
+    const unusable = `${KEY}\u200b`;
+    const recorder = recordingFetch(() => jsonResponse(401, { error: { code: 401, message: "no" } }));
+    const provider = new OpenRouterProvider({ fetch: recorder.fetch });
+    const { error } = await run(provider.streamChat(unusable, request()), unusable);
+    expect(error?.info).toMatchObject({ code: "bad_request", retryable: false, httpStatus: null });
+    const checked = await provider.checkKey(`${KEY}…`).catch((caught: unknown) => caught);
+    expect(checked).toBeInstanceOf(ProviderError);
+    expect((checked as ProviderError).info).toMatchObject({ code: "bad_request", retryable: false });
+    expectNoSecret(checked as ProviderError, `${KEY}…`);
+    expect(recorder.calls).toEqual([]);
   });
 
   it("never leaks a key of any shape through errors", async () => {

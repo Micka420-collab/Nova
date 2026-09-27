@@ -217,10 +217,22 @@ body {
   list-style: none;
 }
 
-.nova-nav__empty {
+.nova-nav__empty,
+.nova-nav__more {
   padding: var(--nv-space-2);
   color: var(--nv-text-secondary);
   font-size: var(--nv-text-sm);
+}
+
+/* Focus target after a deletion: no ring on a heading that only holds the position. */
+.nova-nav__heading:focus {
+  outline: none;
+}
+
+.nova-conv__failed {
+  display: inline-flex;
+  flex: none;
+  color: var(--nv-danger);
 }
 
 .nova-nav__loading {
@@ -975,6 +987,12 @@ body {
   color: var(--nv-text-secondary);
 }
 
+.nova-context__next {
+  display: block;
+  font-size: var(--nv-text-xs);
+  color: var(--nv-text-secondary);
+}
+
 /* Models */
 
 .nova-models {
@@ -1205,6 +1223,13 @@ body {
   overflow-y: auto;
 }
 
+.nova-palette__outcome {
+  display: block;
+  padding: var(--nv-space-2);
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-sm);
+}
+
 .nova-palette [cmdk-group-heading] {
   padding: var(--nv-space-2) var(--nv-space-2) var(--nv-space-1);
   font-size: var(--nv-text-xs);
@@ -1239,4 +1264,18 @@ body {
   color: var(--nv-text-secondary);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Refused link: the real destination, host first, the full address unbroken by layout. */
+.nova-md__refused {
+  margin-top: var(--nv-space-3);
+}
+
+.nova-md__refused-origin {
+  font-weight: var(--nv-weight-medium);
+  color: var(--nv-text);
+}
+
+.nova-md__refused-url {
+  overflow-wrap: anywhere;
 }

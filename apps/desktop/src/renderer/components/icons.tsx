@@ -123,3 +123,9 @@ export const CloseIcon = ({ size }: IconProps) => (
     <path d="M6 6l12 12M18 6 6 18" />
   </Icon>
 );
+export const AlertIcon = ({ size }: IconProps) => (
+  <Icon size={size}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7.5v5.5M12 16.5h.01" />
+  </Icon>
+);

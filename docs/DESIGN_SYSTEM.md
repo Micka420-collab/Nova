@@ -7,7 +7,7 @@ Règles visuelles, de ton et d'accessibilité de NOVA. La source de vérité des
 - **Caractère** : un atelier calme et précis. Chaleureux sans familiarité, concret, sans effets gratuits.
 - **Noms** : NOVA (produit) et Nomi (compagnon), provisoires tant que la question Q1 de [`DECISIONS.md`](DECISIONS.md) n'est pas tranchée.
 - **Thèmes** : « Nuit minérale » (sombre) et « Papier minéral » (clair). Réglage par défaut : suivre le système (`theme: "system"`) ; sans indication, la feuille de style applique le thème sombre.
-- **Marque** : un N dont le dernier trait se prolonge en arc d'orbite, avec une lune. Assets dans `packages/ui/assets` (marque, marque monochrome, mot-symbole, combinaison, icône d'application).
+- **Marque** : le concept de ruban du propriétaire, redessiné en vecteur (commit `996fd02`) : un ruban jade en forme de N dont les deux extrémités s'enroulent en orbite, avec une lune. C'est une forme **pleine**, un seul tracé (`MARK_PATH` dans `packages/ui/src/brand/paths.ts`, `viewBox` `0 0 256 256`, marge de 8 %), lune comprise ; ni trait, ni cercle séparé. Le redessin recouvre l'image de référence à 0,98 (IoU). Assets dans `packages/ui/assets` (marque, marque monochrome, mot-symbole, combinaison, icône d'application) ; icônes PNG régénérées par `pnpm icons`.
 - **Nomi** : un petit cairn de trois galets doux, deux yeux, une orbite inclinée à la taille et un satellite.
 - **Signature** : l'orbite. Elle relie la marque et Nomi, et signale l'activité réelle (voir [Signature orbite](#signature-orbite)).
 - **Polices** : Manrope (interface) et JetBrains Mono (code, identifiants de modèles, valeurs chiffrées), embarquées localement (ADR-010).
@@ -50,6 +50,9 @@ Exemples de ton, pas le texte final.
 | `timeout` | Le modèle n'a pas répondu à temps. | Réessayer · Choisir un autre modèle |
 | `network` | Impossible de joindre OpenRouter. Connexion à vérifier. | Réessayer |
 | `stream_interrupted` | La réponse a été coupée. Le texte reçu est conservé. | Réessayer |
+| `truncated` | Réponse coupée à sa longueur maximale. Le texte reçu est conservé. | Réessayer |
+| `filtered` | Réponse bloquée par le filtre du fournisseur. | Changer de modèle |
+| `empty_response` | Le modèle n'a rien répondu. | Réessayer |
 | `no_provider` | Aucun fournisseur ne sert ce modèle avec le réglage de confidentialité actuel. | Voir le réglage · Choisir un autre modèle |
 | `model_unavailable` | Ce modèle est indisponible pour le moment. | Réessayer · Choisir un autre modèle |
 | statut `interrupted` | Réponse interrompue par la fermeture de NOVA. Son résultat côté fournisseur est inconnu. | Réessayer |
@@ -147,14 +150,19 @@ Mouvement réduit : `data-motion="reduce"`, ou préférence du système tant que
 
 ## Signature orbite
 
-- **Forme** : un arc ou une ellipse inclinée, fine, et un satellite. Dans la marque, l'arc prolonge le N ; chez Nomi, l'orbite entoure la taille.
+- **Forme** : une orbite et un satellite. Dans la marque, ce sont les deux extrémités du ruban qui s'enroulent en orbite, avec la lune ; chez Nomi et dans l'indicateur d'activité, une ellipse inclinée et fine entoure la taille.
 - **Usages** : marque, Nomi, indicateur d'activité ; plus tard la carte des missions (J2+).
 - **Règle d'or** : l'orbite ne bouge que si le runtime rapporte une activité réelle (phase de flux, état de mission). Au repos, elle est immobile : pas de boucle décorative, ce qui compte aussi pour la consommation au repos.
 - **Toujours doublée d'un texte** : l'orbite ne porte jamais seule une information ; chaque état de Nomi a un nom accessible en français.
 
 ## Composants
 
-Liste de travail pour `packages/ui` et le renderer. L'état réel est suivi dans [`STATUS.md`](STATUS.md). Primitives présentes dans `packages/ui/src/components` au 2026-09-27 : `Button`, `TextField`, `Switch`, `SegmentedControl`, `Badge`, `Callout`, `EmptyState`, `OrbitIndicator`.
+Liste de travail pour `packages/ui` et le renderer. L'état réel est suivi dans [`STATUS.md`](STATUS.md). Exports de `packages/ui/src/index.ts` au 2026-09-27 :
+
+- marque : `LogoMark`, `Wordmark`, `Lockup` ;
+- primitives : `Button`, `IconButton`, `TextField`, `TextArea`, `Switch`, `SegmentedControl`, `Badge`, `StatusPill`, `Callout`, `EmptyState`, `Dialog`, `Toaster` et `useToast`, `Tooltip`, `Kbd`, `VisuallyHidden`, `Skeleton`, `OrbitIndicator` ;
+- compagnon : `Nomi`, `NOMI_STATES`, `NOMI_STATE_LABELS` ;
+- galerie de développement : `ComponentGallery`.
 
 | Composant | Rôle | Jalon |
 | --- | --- | --- |
@@ -204,7 +212,7 @@ Chaque écran prévoit ses six états. « — » : sans objet.
 | `listening` | « Nomi écoute » | Appui pour parler actif | J4 |
 | `speaking` | « Nomi parle » | Lecture vocale en cours | J4 |
 
-Un arrêt (`stopped`) ramène à `idle` : ce n'est pas une erreur. Compagnon masqué (`companion.visible = false`) : l'état reste affiché en texte dans la conversation.
+Un arrêt (`stopped`) ramène à `idle` : ce n'est pas une erreur. Nomi affiche d'abord « Génération arrêtée » quelques secondes, puis « Nomi est disponible ». Compagnon masqué (`companion.visible = false`) : l'état reste affiché en texte dans la conversation.
 
 ```mermaid
 stateDiagram-v2

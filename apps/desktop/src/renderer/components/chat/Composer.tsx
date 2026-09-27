@@ -19,12 +19,30 @@ export interface ComposerProps {
   onSend: (content: string) => Promise<boolean>;
   onStop: () => void;
   autoFocus?: boolean;
+  /** Controlled text (a draft kept outside the composer); uncontrolled when omitted. */
+  value?: string;
+  onValueChange?: (value: string) => void;
 }
 
-export function Composer({ label, placeholder, streaming, blocked, onSend, onStop, autoFocus }: ComposerProps) {
+export function Composer({
+  label,
+  placeholder,
+  streaming,
+  blocked,
+  onSend,
+  onStop,
+  autoFocus,
+  value: controlled,
+  onValueChange,
+}: ComposerProps) {
   const id = useId();
   const textarea = useRef<HTMLTextAreaElement>(null);
-  const [value, setValue] = useState("");
+  const [local, setLocal] = useState("");
+  const value = controlled ?? local;
+  const setValue = (next: string) => {
+    if (controlled === undefined) setLocal(next);
+    onValueChange?.(next);
+  };
   const [sending, setSending] = useState(false);
   const content = value.trim();
   const canSend = content.length > 0 && !blocked && !streaming && !sending;

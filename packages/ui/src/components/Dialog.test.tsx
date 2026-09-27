@@ -88,6 +88,87 @@ describe("Dialog", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it("when the opener left the DOM (the row it deleted), gives focus to returnFocus", async () => {
+    function Rows() {
+      const [rows, setRows] = useState(["Premier", "Second"]);
+      const [open, setOpen] = useState(false);
+      const next = { current: null as HTMLButtonElement | null };
+      return (
+        <>
+          {rows.map((row) => (
+            <button key={row} type="button" ref={row === "Second" ? (node) => void (next.current = node) : undefined} onClick={() => setOpen(true)}>
+              {row}
+            </button>
+          ))}
+          <Dialog
+            open={open}
+            onClose={() => setOpen(false)}
+            title="Supprimer"
+            returnFocus={() => next.current}
+            footer={
+              <button
+                type="button"
+                onClick={() => {
+                  setRows(["Second"]);
+                  setOpen(false);
+                }}
+              >
+                Confirmer
+              </button>
+            }
+          />
+        </>
+      );
+    }
+    render(<Rows />);
+    const opener = screen.getByRole("button", { name: "Premier" });
+    opener.focus();
+    fireEvent.click(opener);
+    fireEvent.click(screen.getByRole("button", { name: "Confirmer" }));
+    await flushTasks();
+    expect(opener.isConnected).toBe(false);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Second" }));
+  });
+
+  it("without returnFocus, falls back to a focusable main landmark", async () => {
+    function Page() {
+      const [open, setOpen] = useState(false);
+      const [opener, setOpener] = useState(true);
+      return (
+        <main tabIndex={-1}>
+          {opener ? (
+            <button type="button" onClick={() => setOpen(true)}>
+              Ouvrir
+            </button>
+          ) : null}
+          <Dialog
+            open={open}
+            onClose={() => setOpen(false)}
+            title="Action"
+            footer={
+              <button
+                type="button"
+                onClick={() => {
+                  setOpener(false);
+                  setOpen(false);
+                }}
+              >
+                Valider
+              </button>
+            }
+          />
+        </main>
+      );
+    }
+    render(<Page />);
+    const opener = screen.getByRole("button", { name: "Ouvrir" });
+    opener.focus();
+    fireEvent.click(opener);
+    fireEvent.click(screen.getByRole("button", { name: "Valider" }));
+    await flushTasks();
+    expect(document.activeElement).toBe(screen.getByRole("main"));
+  });
+
   it("stays open when mounted open under StrictMode (replayed effect)", async () => {
     const onClose = vi.fn<() => void>();
     render(

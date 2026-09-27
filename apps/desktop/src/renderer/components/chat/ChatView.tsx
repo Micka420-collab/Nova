@@ -10,6 +10,7 @@ import { ChevronDownIcon, PanelRightIcon, PencilIcon } from "../icons";
 import { findModel } from "../models/filter";
 import { Composer } from "./Composer";
 import { MessageItem } from "./MessageItem";
+import { SendFailure } from "./SendFailure";
 import { useSendGuard } from "./useSendGuard";
 import { useSendMessage } from "./useSendMessage";
 
@@ -94,7 +95,7 @@ function MessageList({
 }: {
   messages: Message[];
   stream: StreamView | null;
-  onRetry: (message: Message) => void;
+  onRetry: (message: Message) => Promise<void>;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLElement>(null);
@@ -172,10 +173,8 @@ export function ChatView({ contextToggle }: { contextToggle: { open: boolean; to
   const stop = useApp((state) => state.stop);
   const retry = useApp((state) => state.retry);
   const guard = useSendGuard(modelId, "conversation");
-  const { send, error: sendFailure } = useSendMessage();
+  const draft = useSendMessage(activeId);
   const toast = useToast();
-  // A send error belongs to the conversation it happened in.
-  const sendError = sendFailure && sendFailure.conversationId === activeId ? sendFailure.copy : null;
 
   const shown = detail && detail.conversation.id === activeId ? detail : null;
   const model = findModel(models, modelId);
@@ -186,9 +185,14 @@ export function ChatView({ contextToggle }: { contextToggle: { open: boolean; to
     stop(activeId).catch((error: unknown) => toast.show(errorToast(error, fr.composer.stop)));
   }
 
-  function retryMessage(message: Message) {
+  /** Settles when the retry request is answered, so its button stays disabled until then. */
+  async function retryMessage(message: Message): Promise<void> {
     if (!activeId) return;
-    retry(activeId, message.id).catch((error: unknown) => toast.show(errorToast(error, fr.chat.retry)));
+    try {
+      await retry(activeId, message.id);
+    } catch (error) {
+      toast.show(errorToast(error, fr.chat.retry));
+    }
   }
 
   let body;
@@ -252,17 +256,15 @@ export function ChatView({ contextToggle }: { contextToggle: { open: boolean; to
       </header>
       {body}
       <div className="nova-chat__composer">
-        {sendError ? (
-          <Callout tone="danger" title={fr.composer.sendFailed}>
-            <p>{sendError.detail ? `${sendError.title}. ${sendError.detail}` : sendError.title}</p>
-          </Callout>
-        ) : null}
+        {draft.error ? <SendFailure error={draft.error} /> : null}
         <Composer
           key={activeId ?? "new"}
           label={fr.composer.label}
           streaming={stream !== null}
           blocked={guard}
-          onSend={(content) => send(content, activeId)}
+          value={draft.text}
+          onValueChange={draft.setText}
+          onSend={draft.send}
           onStop={stopActive}
           autoFocus
         />

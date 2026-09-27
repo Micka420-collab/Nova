@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { IpcErrorCode, ProviderErrorCode } from "@nova/shared";
 import { describeProviderError } from "../lib/errors";
-import { IPC_ERROR_COPY, PROVIDER_ERROR_COPY } from "./fr";
+import { IPC_ERROR_COPY, PROVIDER_ERROR_COPY, VAULT_LEVEL_COPY } from "./fr";
 
 // Exhaustive lists: adding a code to the shared contract without listing it here fails to compile.
 const PROVIDER_CODES = [
@@ -19,6 +19,10 @@ const PROVIDER_CODES = [
   "stream_interrupted",
   "provider_error",
   "aborted",
+  "truncated",
+  "filtered",
+  "empty_response",
+  "key_unreadable",
   "unknown",
 ] as const satisfies readonly ProviderErrorCode[];
 const IPC_CODES = [
@@ -27,6 +31,7 @@ const IPC_CODES = [
   "conflict",
   "vault_unavailable",
   "no_key",
+  "key_unreadable",
   "provider",
   "internal",
 ] as const satisfies readonly IpcErrorCode[];
@@ -58,8 +63,19 @@ describe("French error copy", () => {
     expect(PROVIDER_ERROR_COPY.network.title).toBe("Pas de connexion au fournisseur");
     expect(PROVIDER_ERROR_COPY.stream_interrupted.title).toBe("La réponse a été coupée en route");
     expect(PROVIDER_ERROR_COPY.aborted.title).toBe("Génération arrêtée");
-    expect(PROVIDER_ERROR_COPY.no_provider.detail).toMatch(/Confidentialité/);
     expect(PROVIDER_ERROR_COPY.not_found.detail).toMatch(/Confidentialité/);
+  });
+
+  it("presents no_provider as an availability problem, not as the user's privacy setting", () => {
+    // A 503 is usually an outage: the data policy is only a secondary hint (see mentionsDataPolicy).
+    expect(PROVIDER_ERROR_COPY.no_provider.detail).toMatch(/pour l'instant/);
+    expect(PROVIDER_ERROR_COPY.no_provider.detail).not.toMatch(/Confidentialité|conservation/);
+    expect(PROVIDER_ERROR_COPY.no_provider.action).toBe("Changer de modèle");
+  });
+
+  it("describes the vault as a capability, not as a fact about a key that may be a session key or absent", () => {
+    expect(VAULT_LEVEL_COPY.os.detail).toMatch(/^Les clés enregistrées dans le coffre sont chiffrées/);
+    expect(VAULT_LEVEL_COPY.unavailable.detail).not.toMatch(/^NOVA ne peut pas chiffrer la clé/);
   });
 
   it("puts the provider's Retry-After delay in the rate limit title", () => {

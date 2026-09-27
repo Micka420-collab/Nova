@@ -17,6 +17,8 @@ export interface NomiInput {
   connection: ProviderConnectionView | null;
   activeStreamPhase: StreamPhase | null;
   lastOutcome: LastOutcome | null;
+  /** Title of the conversation of `lastOutcome` when that conversation is not on screen. */
+  outcomeElsewhere?: string | null;
   now: number;
 }
 
@@ -36,7 +38,14 @@ function connectionDetail(connection: ProviderConnectionView, now: number): stri
   return connection.state === "error" ? fr.nomi.checkFailed : fr.nomi.unverified;
 }
 
-export function deriveNomiState({ online, connection, activeStreamPhase, lastOutcome, now }: NomiInput): NomiView {
+export function deriveNomiState({
+  online,
+  connection,
+  activeStreamPhase,
+  lastOutcome,
+  outcomeElsewhere = null,
+  now,
+}: NomiInput): NomiView {
   if (connection === null) return { state: "offline", label: fr.nomi.starting, detail: fr.nomi.startingDetail };
   if (connection.state === "absent") return { state: "offline", label: fr.nomi.noKey, detail: fr.nomi.noKeyDetail };
   if (connection.state === "invalid") {
@@ -53,7 +62,10 @@ export function deriveNomiState({ online, connection, activeStreamPhase, lastOut
   const detail = connectionDetail(connection, now);
   const recent = lastOutcome !== null && now - lastOutcome.at >= 0 && now - lastOutcome.at < OUTCOME_WINDOW_MS;
   if (recent && lastOutcome.kind === "success") return { state: "success", label: fr.nomi.success, detail };
-  if (recent && lastOutcome.kind === "error") return { state: "error", label: fr.nomi.error, detail: fr.nomi.errorDetail };
+  if (recent && lastOutcome.kind === "error") {
+    const errorDetail = outcomeElsewhere === null ? fr.nomi.errorDetail : fr.nomi.errorElsewhere(outcomeElsewhere);
+    return { state: "error", label: fr.nomi.error, detail: errorDetail };
+  }
   if (recent && lastOutcome.kind === "stopped") return { state: "idle", label: fr.nomi.stopped, detail };
   return { state: "idle", label: fr.nomi.idle, detail };
 }

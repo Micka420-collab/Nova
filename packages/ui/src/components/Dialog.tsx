@@ -14,6 +14,18 @@ export interface DialogProps {
   size?: "sm" | "md" | "lg";
   closeLabel?: string;
   className?: string;
+  /**
+   * Where focus goes on close when the element that opened the dialog is gone (e.g. the row it
+   * deleted). Defaults to the focusable main landmark, else the document.
+   */
+  returnFocus?: HTMLElement | (() => HTMLElement | null) | null;
+}
+
+function fallbackFocus(returnFocus: DialogProps["returnFocus"]): HTMLElement | null {
+  const target = typeof returnFocus === "function" ? returnFocus() : returnFocus;
+  if (target?.isConnected) return target;
+  // Only a landmark that accepts focus (tabindex) is used; otherwise focus stays on the document.
+  return document.querySelector<HTMLElement>("main[tabindex], [role='main'][tabindex]");
 }
 
 /** Modal built on native <dialog>: top layer, focus trap and inert background come from the platform. */
@@ -27,8 +39,14 @@ export function Dialog({
   size = "md",
   closeLabel = "Fermer",
   className,
+  returnFocus,
 }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
+  // Read at close time: the latest target, without reopening the dialog when it changes.
+  const returnFocusRef = useRef(returnFocus);
+  useLayoutEffect(() => {
+    returnFocusRef.current = returnFocus;
+  });
   const titleId = useId();
   const descriptionId = useId();
 
@@ -41,7 +59,16 @@ export function Dialog({
     if (!dialog.open) dialog.showModal();
     return () => {
       if (dialog.open) dialog.close();
-      opener?.focus();
+      if (opener?.isConnected) opener.focus();
+      else fallbackFocus(returnFocusRef.current)?.focus();
+      // The opener can leave the DOM in the same commit that closes the dialog (its row was deleted):
+      // once that commit is done, focus that fell back to the document moves to the fallback.
+      queueMicrotask(() => {
+        if (opener?.isConnected) return;
+        const active = document.activeElement;
+        if (active !== null && active !== document.body) return;
+        fallbackFocus(returnFocusRef.current)?.focus();
+      });
     };
   }, [open]);
 

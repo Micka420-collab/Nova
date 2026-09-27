@@ -12,15 +12,17 @@ Comment NOVA est construit aujourd'hui, et ce qui est prévu. Ce qui est « pré
 
 | Module | Rôle | État |
 | --- | --- | --- |
-| `apps/desktop/src/main` | Fenêtre, protocole `nova://`, gestionnaires IPC, coffre `safeStorage`, instanciation du store et du runtime | J1, en cours |
-| `apps/desktop/src/preload` | Pont `contextBridge` : expose `window.novaBridge` (type `NovaBridge`), canaux fixes | J1, en cours |
-| `apps/desktop/src/renderer` | Interface React : trois zones, conversation, réglages, Nomi. Microcopie dans `renderer/copy` | J1, en cours |
-| `apps/desktop/e2e` | Playwright `_electron`, faux serveur OpenRouter local, trousseau Linux privé | J1, en cours |
-| `packages/shared` | Types du domaine, schémas zod de l'IPC, noms de canaux, masquage des secrets | Contrat en place |
-| `packages/providers` | Interface `ModelProvider` et adaptateur OpenRouter (catalogue, clé, streaming, erreurs) | Contrat en place, adaptateur J1 en cours |
-| `packages/storage` | `NovaStore` sur `node:sqlite`, migrations versionnées | Contrat en place, implémentation J1 en cours |
-| `packages/agent-runtime` | Orchestration d'une génération : conversation → fournisseur → persistance → événements | J1, en cours |
-| `packages/ui` | Tokens de design, composants, compagnon Nomi, assets de marque | J1, en cours |
+| `apps/desktop/src/main` | Fenêtre, protocole `nova://`, gestionnaires IPC, coffre `safeStorage`, instanciation du store et du runtime | Implémenté (J1) |
+| `apps/desktop/src/preload` | Pont `contextBridge` : expose `window.novaBridge` (type `NovaBridge`), canaux fixes | Implémenté (J1) |
+| `apps/desktop/src/renderer` | Interface React : trois zones, conversation, réglages, Nomi. Microcopie dans `renderer/copy` | Implémenté (J1) |
+| `apps/desktop/e2e` | Specs Playwright `_electron` et faux serveur OpenRouter local ; `vault-smoke.mjs` (application réelle hors Playwright) et `run-with-keyring.sh` (trousseau Linux privé) pour le niveau de coffre | Implémenté (J1) |
+| `packages/shared` | Types du domaine, schémas zod de l'IPC, noms de canaux, masquage des secrets | Implémenté |
+| `packages/providers` | Interface `ModelProvider` et adaptateur OpenRouter (catalogue, clé, streaming, erreurs) | Implémenté (J1) ; streaming non essayé avec une vraie clé |
+| `packages/storage` | `NovaStore` sur `node:sqlite`, migrations versionnées | Implémenté (J1) |
+| `packages/agent-runtime` | Orchestration d'une génération : conversation → fournisseur → persistance → événements | Implémenté (J1) |
+| `packages/ui` | Tokens de design, composants, compagnon Nomi, assets de marque | Implémenté (J1) ; tokens non encore validés |
+
+Livré dans les commits `a08ad93` (tranche verticale) et `996fd02` (logo) ; correctifs de revue en cours. Ce qui a été réellement vérifié, et sur quelle plateforme, est dans [`STATUS.md`](STATUS.md).
 
 Modules prévus, créés seulement au démarrage de leur jalon (ADR-002) :
 
@@ -139,12 +141,12 @@ Contrat observable, indépendant des détails internes (ordre de lecture de la c
 
 1. `chat.send` répond immédiatement avec la conversation, les deux messages et un `streamId`.
 2. Des événements `phase` (`waiting` → `reasoning` → `writing`), `delta`, `meta`, `usage` suivent.
-3. Un seul événement terminal clôt le flux : `completed`, `stopped` ou `failed`. Invariant attendu, à couvrir par les tests du runtime.
+3. Un seul événement terminal clôt le flux : `completed`, `stopped` ou `failed`. Invariant couvert par les tests du runtime (`packages/agent-runtime/src/chat-runner.test.ts`).
 4. Au démarrage, `markInterruptedStreams()` passe en `interrupted` tout message resté `streaming` : le résultat côté fournisseur est inconnu, il n'est pas rejoué.
 5. `chat.active()` permet au renderer de retrouver les flux en cours après un rechargement de la fenêtre.
-6. `chat.retry` ne régénère que la dernière réponse d'une conversation, si elle est en erreur, arrêtée ou interrompue, et seulement à la demande de l'utilisateur.
+6. `chat.retry` ne régénère que la dernière réponse d'une conversation, si elle est en erreur, arrêtée ou interrompue, et seulement à la demande de l'utilisateur. La réponse précédente reste en place jusqu'au début de la nouvelle (ADR-011).
 
-Contexte envoyé au modèle (`packages/agent-runtime/src/prompt.ts`, en cours d'écriture) : un prompt système qui présente Nomi et précise qu'il n'a accès ni aux fichiers, ni au terminal, ni à Internet ; puis les messages de l'utilisateur et les réponses complètes non vides les plus récentes, dans une limite de 120 000 caractères. Le dernier message de l'utilisateur est toujours inclus.
+Contexte envoyé au modèle (`packages/agent-runtime/src/prompt.ts`) : un prompt système qui présente Nomi et précise qu'il n'a accès ni aux fichiers, ni au terminal, ni à Internet ; puis les messages de l'utilisateur et les réponses complètes non vides les plus récentes, dans une limite de 120 000 caractères. Le dernier message de l'utilisateur est toujours inclus.
 
 ## Frontières de confiance
 
@@ -177,9 +179,10 @@ Le détail des menaces et des contrôles par frontière est dans [`SECURITY.md`]
 
 ## Stockage
 
-- Un fichier SQLite dans le dossier de données de l'application (`AppInfo.dataDir`) ; les journaux dans `AppInfo.logDir`. Les fichiers de projet ne sont jamais copiés dans la base.
+- Un fichier SQLite, `nova.sqlite`, dans le dossier de données de l'application (`AppInfo.dataDir`), en journal WAL ; les journaux dans `AppInfo.logDir`. Les fichiers de projet ne sont jamais copiés dans la base.
 - Migrations en ajout seul, suivies par `PRAGMA user_version`, chacune dans sa propre transaction avec la mise à jour de version. Une base écrite par une version plus récente de NOVA est refusée (`UnsupportedSchemaError`), jamais rétrogradée.
 - Source de vérité du schéma : `packages/storage/src/migrations.ts`.
+- Suppression d'une clé ou d'une conversation : `secure_delete` et point de contrôle WAL (testé au niveau du store) ; détail et limites dans [`SECURITY.md`](SECURITY.md#effacement-des-données).
 
 ### Schéma v1
 
@@ -191,7 +194,7 @@ Le détail des menaces et des contrôles par frontière est dans [`SECURITY.md`]
 | `model_catalog` | Catalogue par fournisseur et date de récupération | Sert de copie hors ligne (`source: "cache"`, `refreshError`) |
 | `conversations` | Titre, dernier modèle choisi, dates | Index par date de mise à jour |
 | `messages` | Rôle, contenu, statut, modèle demandé, modèle et fournisseur servis, erreur, usage | Ordre par `seq` ; statuts `complete`, `streaming`, `stopped`, `error`, `interrupted` |
-| `usage_records` | Jetons (prompt, complétion, raisonnement, cache) et coût par génération | Survit à la suppression de son message : une réponse relancée a quand même été facturée |
+| `usage_records` | Jetons (prompt, complétion, raisonnement, cache) et coût par génération | Survit à la suppression de son message : une réponse relancée a quand même été facturée. `cost` à `NULL` quand le fournisseur ne le donne pas (ADR-011) |
 
 ### Entités prévues
 
@@ -228,7 +231,7 @@ Le modèle de données complet du produit est introduit jalon par jalon, chaque 
 | `nova:connection:test` | `connection.test` | `providerId` | `ProviderConnectionView` |
 | `nova:connection:remove` | `connection.remove` | `providerId` | `ProviderConnectionView` |
 | `nova:models:catalog` | `models.catalog` | `providerId`, `refresh` | `ModelCatalog` |
-| `nova:conversations:list` | `conversations.list` | recherche (200 caractères max) | `ConversationSummary[]` |
+| `nova:conversations:list` | `conversations.list` | recherche (200 caractères max) | `ConversationPage` : `{ items, hasMore }` (200 plus récentes ; la recherche atteint les plus anciennes) |
 | `nova:conversations:get` | `conversations.get` | `conversationId` (UUID) | `ConversationDetail` |
 | `nova:conversations:rename` | `conversations.rename` | titre (1 à 120 caractères) | `Conversation` |
 | `nova:conversations:delete` | `conversations.delete` | `conversationId` | — |
@@ -252,6 +255,7 @@ Deux niveaux : l'enveloppe IPC (le main ne lève jamais d'exception brute vers l
 | `not_found` | Conversation, message ou flux introuvable. |
 | `conflict` | Opération incompatible avec l'état courant. |
 | `vault_unavailable` | Le mode de stockage demandé n'est pas disponible sur ce système. |
+| `key_unreadable` | Une clé est enregistrée mais ne peut plus être déchiffrée (trousseau verrouillé, changé ou réinitialisé) : la déverrouiller ou la saisir à nouveau. |
 | `no_key` | Aucune clé configurée pour le fournisseur. |
 | `provider` | Échec côté fournisseur ; le détail est dans `providerError`. |
 | `internal` | Erreur inattendue ; message court, secrets masqués. |
@@ -260,7 +264,7 @@ Le texte affiché est choisi par le renderer à partir du code ; le message tech
 
 ### Erreurs fournisseur (`ProviderErrorInfo`)
 
-Correspondance appliquée par l'adaptateur OpenRouter (source de vérité : `packages/providers/src/errors.ts`). `retryable` est dérivé du code et indique seulement qu'une relance **par l'utilisateur** peut réussir : NOVA ne relance jamais seul une requête payante.
+Correspondance appliquée par l'adaptateur OpenRouter (source de vérité : `packages/providers/src/errors.ts`). Les codes `truncated`, `filtered` et `empty_response` (ADR-011) sont implémentés et testés (`chat-runner.test.ts`). `retryable` est dérivé du code et indique seulement qu'une relance **par l'utilisateur** peut réussir : NOVA ne relance jamais seul une requête payante.
 
 | Code | Origine | Relance utile |
 | --- | --- | --- |
@@ -272,12 +276,15 @@ Correspondance appliquée par l'adaptateur OpenRouter (source de vérité : `pac
 | `timeout` | HTTP 408, pas d'en-têtes en 30 s, silence de plus de 120 s | Oui |
 | `rate_limited` | HTTP 429, avec `Retry-After` si fourni | Oui, après le délai |
 | `model_unavailable` | HTTP 502 | Oui |
-| `no_provider` | HTTP 503 : aucun fournisseur ne satisfait les contraintes (dont `data_collection`) | Oui, ou changer de modèle ou de réglage |
+| `no_provider` | HTTP 503 : aucun fournisseur disponible pour ce modèle pour l'instant ; la politique `data_collection=deny` n'est évoquée que si elle est active ou citée par le fournisseur | Oui, ou changer de modèle ou de réglage |
 | `bad_request` | HTTP 400 | Non |
 | `provider_error` | Autre 5xx, erreur envoyée en cours de flux | Oui |
 | `network` | Hors ligne, DNS, connexion refusée | Oui |
 | `stream_interrupted` | Flux coupé avant la fin | Oui |
 | `aborted` | Arrêt demandé par l'utilisateur | — |
+| `truncated` | Fin sur `finish_reason: "length"` (limite de jetons de sortie) ; texte partiel conservé | Oui |
+| `filtered` | Fin sur `finish_reason: "content_filter"` (filtre du fournisseur) | Non |
+| `empty_response` | Flux terminé sans texte de réponse | Oui |
 | `unknown` | Tout autre cas | Non |
 
 Le message du fournisseur est masqué (`redactSecrets`) et tronqué à 500 caractères (`sanitizeProviderMessage`) avant d'être stocké ou affiché.

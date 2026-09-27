@@ -241,7 +241,7 @@ describe("ChatRunner.send", () => {
     const sent = runner.send({ conversationId: null, content: "Salut", modelId: MODEL });
     await expect(sent).rejects.toBeInstanceOf(RuntimeError);
     await expect(sent).rejects.toMatchObject(runtimeError("no_key"));
-    expect(store.listConversations()).toEqual([]);
+    expect(store.listConversations().items).toEqual([]);
     expect(provider.calls).toEqual([]);
   });
 
@@ -437,6 +437,179 @@ describe("ChatRunner.send", () => {
   });
 });
 
+describe("ChatRunner generation outcomes", () => {
+  function ending(finishReason: string, partial: string, reasoning = false): Script {
+    return async function* () {
+      if (reasoning) yield { type: "reasoning" };
+      if (partial) yield text(partial);
+      yield { type: "usage", usage: USAGE };
+      yield { type: "finish", finishReason };
+    };
+  }
+
+  it.each([
+    ["length", "Début coupé", "truncated", true],
+    ["content_filter", "Début", "filtered", false],
+    ["stop", "", "empty_response", true],
+  ] as const)(
+    "finish_reason %s with %j fails as %s (retryable: %s), text kept",
+    async (finishReason, partial, code, retryable) => {
+      const { store, provider, runner, events } = setup();
+      provider.push(ending(finishReason, partial, true));
+      const { streamId, assistantMessage, conversation } = await runner.send(fresh("Q"));
+      await runner.idle();
+
+      const stored = store.getMessage(assistantMessage.id);
+      expect(stored).toMatchObject({ status: "error", content: partial, usage: USAGE, error: { code, retryable } });
+      expect(terminals(events, streamId)).toMatchObject([{ type: "failed", error: { code } }]);
+      // Billed with a known cost: counted in the totals, not as unknown.
+      expect(store.conversationUsage(conversation.id)).toMatchObject({ cost: 0.0042, messagesWithUnknownCost: 0 });
+    },
+  );
+
+  it("never sends a truncated answer back as context, and lets the user retry it", async () => {
+    const { store, provider, runner } = setup();
+    provider.push(ending("length", "moitié de répon"));
+    const first = await runner.send(fresh("Q1"));
+    await runner.idle();
+    provider.push(answer("R1 entière"));
+    await runner.retry({
+      conversationId: first.conversation.id,
+      assistantMessageId: first.assistantMessage.id,
+      modelId: MODEL,
+    });
+    await runner.idle();
+    expect(provider.calls.at(-1)?.request.messages).toEqual([
+      { role: "system", content: NOVA_SYSTEM_PROMPT },
+      { role: "user", content: "Q1" },
+    ]);
+    expect(store.listMessages(first.conversation.id).map((m) => [m.content, m.status])).toEqual([
+      ["Q1", "complete"],
+      ["R1 entière", "complete"],
+    ]);
+  });
+});
+
+describe("ChatRunner unknown cost", () => {
+  it("records a null-cost usage for a possibly billed generation without reported usage", async () => {
+    const { store, provider, runner } = setup();
+    provider.push(answer("Sans usage", null));
+    const { conversation, assistantMessage } = await runner.send(fresh("Q"));
+    await runner.idle();
+    expect(store.getMessage(assistantMessage.id)).toMatchObject({ status: "complete", usage: null });
+    expect(store.conversationUsage(conversation.id)).toEqual({
+      promptTokens: 0,
+      completionTokens: 0,
+      cost: 0,
+      messagesWithUnknownCost: 1,
+    });
+  });
+
+  it("keeps a stopped answer's unknown cost after a successful retry replaced it", async () => {
+    const { store, provider, runner, waitFor } = setup();
+    provider.push(blocking(gate().opened, "Partiel"));
+    const sent = await runner.send(fresh("Q"));
+    await waitFor((e) => e.type === "delta");
+    runner.stop(sent.streamId);
+    await runner.idle();
+    const conversationId = sent.conversation.id;
+    expect(store.conversationUsage(conversationId).messagesWithUnknownCost).toBe(1);
+
+    provider.push(answer("Complète"));
+    await runner.retry({ conversationId, assistantMessageId: sent.assistantMessage.id, modelId: MODEL });
+    await runner.idle();
+    expect(store.getMessage(sent.assistantMessage.id)).toBeNull();
+    expect(store.conversationUsage(conversationId)).toMatchObject({ cost: 0.0042, messagesWithUnknownCost: 1 });
+  });
+
+  it("keeps an interrupted answer's unknown cost after a retry replaced it", async () => {
+    const { store, provider, runner } = setup();
+    const { id: conversationId } = store.createConversation({ title: "t", modelId: MODEL });
+    store.insertMessage({ conversationId, role: "user", content: "Q", status: "complete", modelId: null });
+    const lost = store.insertMessage({
+      conversationId,
+      role: "assistant",
+      content: "par",
+      status: "streaming",
+      modelId: MODEL,
+    });
+    store.markInterruptedStreams();
+    expect(store.conversationUsage(conversationId).messagesWithUnknownCost).toBe(1);
+    provider.push(answer("R"));
+    await runner.retry({ conversationId, assistantMessageId: lost.id, modelId: MODEL });
+    await runner.idle();
+    expect(store.conversationUsage(conversationId)).toMatchObject({ cost: 0.0042, messagesWithUnknownCost: 1 });
+  });
+
+  it("counts a failure after the model started reasoning as possibly billed", async () => {
+    const { store, provider, runner } = setup();
+    provider.push(async function* () {
+      yield { type: "meta", servedModel: null, servedProvider: null, generationId: "g" };
+      yield { type: "reasoning" };
+      throw new ProviderError(providerErrorInfo("stream_interrupted"));
+    });
+    const { conversation, assistantMessage } = await runner.send(fresh("Q"));
+    await runner.idle();
+    expect(store.getMessage(assistantMessage.id)).toMatchObject({ status: "error", content: "" });
+    expect(store.conversationUsage(conversation.id).messagesWithUnknownCost).toBe(1);
+  });
+
+  it.each([
+    ["insufficient_credits", 402],
+    ["rate_limited", 429],
+  ] as const)("does not count a %s refusal before any answer as billed", async (code, httpStatus) => {
+    const { store, provider, runner } = setup();
+    provider.push(failing(new ProviderError(providerErrorInfo(code, { httpStatus }))));
+    const { conversation } = await runner.send(fresh("Q"));
+    await runner.idle();
+    expect(store.conversationUsage(conversation.id).messagesWithUnknownCost).toBe(0);
+  });
+});
+
+describe("ChatRunner live view and provider facts", () => {
+  it("overlays the in-memory text of an active answer over its throttled stored copy", async () => {
+    const { store, provider, runner, waitFor } = setup({ persistThrottleMs: 60_000 });
+    const release = gate();
+    provider.push(blocking(release.opened, "Texte pas encore écrit", " puis la fin"));
+    const { conversation, assistantMessage } = await runner.send(fresh("Q"));
+    await waitFor((e) => e.type === "delta");
+    const stored = store.listMessages(conversation.id);
+    expect(stored.at(-1)?.content).toBe("");
+    expect(runner.overlayLive(stored).at(-1)).toMatchObject({
+      id: assistantMessage.id,
+      content: "Texte pas encore écrit",
+      status: "streaming",
+    });
+    release.open();
+    await runner.idle();
+    const settled = store.listMessages(conversation.id);
+    expect(runner.overlayLive(settled)).toEqual(settled);
+  });
+
+  it("reports provider errors with the key used before the failed event, but not stops", async () => {
+    const reports: { code: string; apiKey: string }[] = [];
+    let recorded = false;
+    const { provider, runner, waitFor, events } = setup({
+      onProviderError: async (error, apiKey) => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        reports.push({ code: error.code, apiKey });
+        recorded = true;
+      },
+    });
+    provider.push(failing(new ProviderError(providerErrorInfo("invalid_key", { httpStatus: 401 }))));
+    const first = await runner.send(fresh("Q"));
+    await waitFor((e) => e.type === "failed" && e.streamId === first.streamId);
+    expect(recorded).toBe(true);
+    expect(events.filter((e) => e.type === "failed")).toHaveLength(1);
+    provider.push(blocking(gate().opened, "x"));
+    const stopped = await runner.send(fresh("Q2"));
+    await waitFor((e) => e.type === "delta" && e.streamId === stopped.streamId);
+    runner.stop(stopped.streamId);
+    await runner.idle();
+    expect(reports).toEqual([{ code: "invalid_key", apiKey: "sk-or-v1-testkey000" }]);
+  });
+});
+
 describe("ChatRunner.retry", () => {
   async function failedExchange() {
     const context = setup();
@@ -456,8 +629,8 @@ describe("ChatRunner.retry", () => {
       modelId: OTHER_MODEL,
     });
     expect(assistantMessage).toMatchObject({ status: "streaming", modelId: OTHER_MODEL, content: "" });
-    expect(store.getMessage(failedId)).toBeNull();
     await runner.idle();
+    expect(store.getMessage(failedId)).toBeNull();
 
     expect(terminals(events, streamId).map((e) => e.type)).toEqual(["completed"]);
     expect(store.listMessages(conversationId).map((m) => [m.content, m.status])).toEqual([
@@ -472,6 +645,70 @@ describe("ChatRunner.retry", () => {
         { role: "user", content: "Q1" },
       ],
     });
+  });
+
+  it("keeps the previous answer until the retry produces text", async () => {
+    const { store, provider, runner, waitFor } = setup();
+    provider.push(blocking(gate().opened, "Premier jet utile"));
+    const sent = await runner.send(fresh("Q"));
+    await waitFor((e) => e.type === "delta");
+    runner.stop(sent.streamId);
+    await runner.idle();
+    const conversationId = sent.conversation.id;
+    const oldId = sent.assistantMessage.id;
+
+    const firstText = gate();
+    provider.push(async function* (request) {
+      await waitOrAbort(firstText.opened, request.signal);
+      yield text("Nouveau");
+    });
+    const retried = await runner.retry({ conversationId, assistantMessageId: oldId, modelId: MODEL });
+    await new Promise((resolve) => setImmediate(resolve));
+    // Still stored, but the live view shows the retry in its place.
+    expect(store.getMessage(oldId)?.content).toBe("Premier jet utile");
+    expect(runner.overlayLive(store.listMessages(conversationId)).map((m) => m.id)).toEqual([
+      sent.userMessage.id,
+      retried.assistantMessage.id,
+    ]);
+    firstText.open();
+    await runner.idle();
+    expect(store.listMessages(conversationId).map((m) => [m.id, m.content])).toEqual([
+      [sent.userMessage.id, "Q"],
+      [retried.assistantMessage.id, "Nouveau"],
+    ]);
+  });
+
+  it("restores the previous answer when the retry fails before producing anything", async () => {
+    const { store, provider, runner, events, waitFor } = setup();
+    provider.push(blocking(gate().opened, "Texte partiel précieux"));
+    const sent = await runner.send(fresh("Q"));
+    await waitFor((e) => e.type === "delta");
+    runner.stop(sent.streamId);
+    await runner.idle();
+    const conversationId = sent.conversation.id;
+    const oldId = sent.assistantMessage.id;
+    const before = store.listMessages(conversationId);
+
+    const limited = providerErrorInfo("rate_limited", { httpStatus: 429, retryAfterSec: 5 });
+    provider.push(failing(new ProviderError(limited)));
+    const retried = await runner.retry({ conversationId, assistantMessageId: oldId, modelId: MODEL });
+    await runner.idle();
+
+    // The failure is reported on the retry's message, which is not kept.
+    expect(terminals(events, retried.streamId)).toMatchObject([
+      { type: "failed", error: limited, message: { id: retried.assistantMessage.id, status: "error" } },
+    ]);
+    expect(store.getMessage(retried.assistantMessage.id)).toBeNull();
+    expect(store.listMessages(conversationId)).toEqual(before);
+    expect(runner.overlayLive(store.listMessages(conversationId))).toEqual(before);
+    // A refusal before any answer adds no unknown cost; the stopped answer still counts once.
+    expect(store.conversationUsage(conversationId).messagesWithUnknownCost).toBe(1);
+
+    // The previous answer is the last one again, so it can be retried.
+    provider.push(answer("Enfin"));
+    await runner.retry({ conversationId, assistantMessageId: oldId, modelId: MODEL });
+    await runner.idle();
+    expect(store.listMessages(conversationId).map((m) => m.content)).toEqual(["Q", "Enfin"]);
   });
 
   it("only accepts the last answer when it failed, was stopped or interrupted", async () => {

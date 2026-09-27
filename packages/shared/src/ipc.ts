@@ -6,7 +6,7 @@ import type {
   AppSettings,
   Conversation,
   ConversationDetail,
-  ConversationSummary,
+  ConversationPage,
   Message,
   ModelCatalog,
   ProviderConnectionView,
@@ -37,7 +37,9 @@ export const SetKeyRequestSchema = z.object({
     .trim()
     .min(8)
     .max(512)
-    .regex(/^\S+$/, "la clé ne doit pas contenir d'espaces"),
+    // Printable ASCII only: invisible or typographic characters (zero-width space, "…", smart
+    // quotes) cannot travel in an HTTP header and would otherwise look like a network failure.
+    .regex(/^[\x21-\x7E]+$/, "la clé contient un caractère invalide"),
   storage: z.enum(["vault", "weak-vault", "session"]),
 });
 
@@ -169,6 +171,8 @@ export type IpcErrorCode =
   | "conflict"
   | "vault_unavailable"
   | "no_key"
+  /** A stored key exists but cannot be decrypted (keyring locked, changed or reset). */
+  | "key_unreadable"
   | "provider"
   | "internal";
 
@@ -215,7 +219,7 @@ export interface NovaApi {
     catalog(req: CatalogRequest): Promise<ModelCatalog>;
   };
   conversations: {
-    list(req: ListConversationsRequest): Promise<ConversationSummary[]>;
+    list(req: ListConversationsRequest): Promise<ConversationPage>;
     get(req: ConversationIdRequest): Promise<ConversationDetail>;
     rename(req: RenameConversationRequest): Promise<Conversation>;
     delete(req: ConversationIdRequest): Promise<void>;

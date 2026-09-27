@@ -62,6 +62,13 @@ export interface UsageTotals {
   messagesWithUnknownCost: number;
 }
 
+export interface ConversationPage {
+  /** Most recently updated first. */
+  items: ConversationSummary[];
+  /** More (older) conversations exist beyond `items`; search reaches them. */
+  hasMore: boolean;
+}
+
 export interface ConversationDetail {
   conversation: Conversation;
   messages: Message[];
@@ -86,6 +93,14 @@ export type ProviderErrorCode =
   | "stream_interrupted"
   | "provider_error"
   | "aborted"
+  /** The model stopped at its output token limit (finish_reason "length"); partial text kept. */
+  | "truncated"
+  /** The provider's content filter ended the answer (finish_reason "content_filter"). */
+  | "filtered"
+  /** The stream completed without any answer text. */
+  | "empty_response"
+  /** A stored key exists but cannot be decrypted (keyring locked, changed or reset). */
+  | "key_unreadable"
   | "unknown";
 
 export interface ProviderErrorInfo {

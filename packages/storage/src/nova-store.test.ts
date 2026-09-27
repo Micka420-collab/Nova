@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -247,7 +247,8 @@ describe("listConversations", () => {
     clock = 3_000;
     const empty = store.createConversation({ title: "Vide", modelId: null }).id;
 
-    const list = store.listConversations();
+    const { items: list, hasMore } = store.listConversations();
+    expect(hasMore).toBe(false);
     expect(list.map((c) => c.id)).toEqual([empty, newer, older]);
     expect(list.map((c) => c.messageCount)).toEqual([0, 1, 2]);
     expect(list[0]?.preview).toBeNull();
@@ -256,13 +257,30 @@ describe("listConversations", () => {
 
     clock = 4_000;
     store.touchConversation(older, null);
-    expect(store.listConversations({ limit: 2 }).map((c) => c.id)).toEqual([older, empty]);
+    expect(store.listConversations({ limit: 2 })).toMatchObject({
+      items: [{ id: older }, { id: empty }],
+      hasMore: true,
+    });
+    expect(store.listConversations({ limit: 3 }).hasMore).toBe(false);
+  });
+
+  it("reports older conversations beyond the default page instead of hiding them silently", () => {
+    for (let index = 0; index < 201; index += 1) {
+      clock += 1;
+      store.createConversation({ title: `c${index}`, modelId: null });
+    }
+    const page = store.listConversations();
+    expect(page.items).toHaveLength(200);
+    expect(page.items.at(-1)?.title).toBe("c1");
+    expect(page.hasMore).toBe(true);
+    // Search still reaches the conversation left out of the page.
+    expect(store.listConversations({ query: "c0" }).items.map((c) => c.title)).toEqual(["c0"]);
   });
 
   it("previews the last non-empty message while an answer is still streaming", () => {
     const id = conversationWithMessages("t", ["Question posée"]);
     add(id, "assistant", "", "streaming");
-    expect(store.listConversations()[0]).toMatchObject({ messageCount: 2, preview: "Question posée" });
+    expect(store.listConversations().items[0]).toMatchObject({ messageCount: 2, preview: "Question posée" });
   });
 
   it("matches titles and contents literally and case-insensitively", () => {
@@ -271,7 +289,11 @@ describe("listConversations", () => {
     const underscore = conversationWithMessages("snake_case", ["x"]);
     conversationWithMessages("Autre", ["50 pourcent, sans underscore"]);
 
-    const ids = (query: string) => store.listConversations({ query }).map((c) => c.id).sort();
+    const ids = (query: string) =>
+      store
+        .listConversations({ query })
+        .items.map((c) => c.id)
+        .sort();
     expect(ids("ÉTÉ")).toEqual([byTitle]);
     expect(ids("mois")).toEqual([byContent]);
     expect(ids("%")).toEqual([byContent]);
@@ -279,6 +301,21 @@ describe("listConversations", () => {
     expect(ids("_")).toEqual([underscore]);
     expect(ids("   ")).toHaveLength(4);
     expect(ids("introuvable")).toEqual([]);
+  });
+
+  it("matches text whatever its Unicode normalization form", () => {
+    const decomposedTitle = conversationWithMessages("Cafe\u0301 du matin".normalize("NFD"), ["x"]);
+    const decomposedContent = conversationWithMessages("Sans titre", ["Un GRAND ÉLAN".normalize("NFD")]);
+    const ids = (query: string) =>
+      store
+        .listConversations({ query })
+        .items.map((c) => c.id)
+        .sort();
+    expect(ids("café")).toEqual([decomposedTitle]);
+    expect(ids("Cafe\u0301".normalize("NFD"))).toEqual([decomposedTitle]);
+    expect(ids("élan")).toEqual([decomposedContent]);
+    // NFKC also folds compatibility forms (full-width letters, ligatures).
+    expect(ids("ＣＡＦÉ")).toEqual([decomposedTitle]);
   });
 });
 
@@ -313,14 +350,87 @@ describe("usage", () => {
       messagesWithUnknownCost: 5,
     });
 
-    // Deleting a billed message (retry) keeps its usage in the totals.
+    // Deleting a billed message (retry) keeps its usage in the totals, and a null-cost record
+    // keeps counting as unknown once its message is gone.
     expect(r3).toBeDefined();
     expect(store.deleteMessage(r1?.id ?? "")).toBe(true);
+    expect(store.deleteMessage(r2?.id ?? "")).toBe(true);
     expect(store.conversationUsage(id)).toMatchObject({
       promptTokens: 150,
       cost: 0.25,
       messagesWithUnknownCost: 5,
     });
+  });
+
+  it("counts each unknown-cost generation once, before and after a retry supersedes it", () => {
+    const id = conversationWithMessages("t", ["Q"]);
+    const unknown = () => store.conversationUsage(id).messagesWithUnknownCost;
+    const fallback = { providerId: "openrouter" as const, modelId: "author/model" };
+    // Interrupted by a crash: no usage record, counted from its status, then kept by supersede.
+    const interrupted = add(id, "assistant", "par", "interrupted");
+    expect(unknown()).toBe(1);
+    expect(store.supersedeMessage(interrupted.id, fallback)).toBe(true);
+    expect(store.getMessage(interrupted.id)).toBeNull();
+    expect(unknown()).toBe(1);
+
+    // Already recorded with a null cost: supersede adds nothing, the record keeps counting.
+    const stopped = add(id, "assistant", "", "stopped");
+    store.recordUsage({
+      conversationId: id,
+      messageId: stopped.id,
+      providerId: "openrouter",
+      modelId: "author/model",
+      servedModel: null,
+      servedProvider: null,
+      usage: usage({ promptTokens: null, completionTokens: null, cost: null }),
+    });
+    expect(unknown()).toBe(2);
+    store.supersedeMessage(stopped.id, fallback);
+    expect(unknown()).toBe(2);
+
+    // A failure before any answer was not billed: superseding it records nothing.
+    const refused = add(id, "assistant", "", "error");
+    store.supersedeMessage(refused.id, fallback);
+    expect(unknown()).toBe(2);
+    expect(store.supersedeMessage(refused.id, fallback)).toBe(false);
+  });
+});
+
+describe("erasure on disk", () => {
+  it("leaves no bytes of a deleted secret or conversation in the database files", () => {
+    const dir = mkdtempSync(join(tmpdir(), "nova-erase-"));
+    const onDisk = openNovaStore(join(dir, "nova.sqlite"));
+    const diskContains = (marker: string) =>
+      readdirSync(dir).some((name) => readFileSync(join(dir, name)).includes(marker));
+    try {
+      const secretMarker = "SECRETMARKER-4f1c9a";
+      const titleMarker = "TITLEMARKER-7d2e0b";
+      const messageMarker = "MESSAGEMARKER-93ab11";
+      onDisk.putSecret({
+        id: "s1",
+        ciphertext: new TextEncoder().encode(`v10${secretMarker}`),
+        backend: "basic_text",
+        createdAt: 1,
+      });
+      const conversation = onDisk.createConversation({ title: titleMarker, modelId: null });
+      onDisk.insertMessage({
+        conversationId: conversation.id,
+        role: "user",
+        content: messageMarker.repeat(50),
+        status: "complete",
+        modelId: null,
+      });
+      expect(diskContains(secretMarker)).toBe(true);
+
+      onDisk.deleteSecret("s1");
+      onDisk.deleteConversation(conversation.id);
+      for (const marker of [secretMarker, titleMarker, messageMarker]) expect(diskContains(marker)).toBe(false);
+      onDisk.close();
+      for (const marker of [secretMarker, titleMarker, messageMarker]) expect(diskContains(marker)).toBe(false);
+    } finally {
+      onDisk.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

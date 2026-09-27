@@ -1,6 +1,6 @@
 import { useId, useState, type FormEvent } from "react";
 import { Button, Callout, IconButton, useToast } from "@nova/ui";
-import type { KeyCheckResult, KeyStorage, ProviderConnectionView, VaultLevel } from "@nova/shared";
+import type { KeyCheckResult, KeyStorage, ProviderConnectionView, ProviderErrorInfo, VaultLevel } from "@nova/shared";
 import { fr } from "../../copy/fr";
 import { describeProviderError, describeUiError, errorToast, toUiError } from "../../lib/errors";
 import { formatCost } from "../../lib/format";
@@ -39,8 +39,45 @@ export function KeyCheckSummary({ check }: { check: KeyCheckResult }) {
   );
 }
 
-/** Verified outcome of a key: check details, or why it could not be verified. */
-export function ConnectionOutcome({ connection }: { connection: ProviderConnectionView }) {
+/** Why a stored key is not verified, from the error the check actually got (never a guess). */
+function unverifiedReason(error: ProviderErrorInfo | null): string {
+  if (error === null) return fr.keySetup.unverifiedUnknown;
+  switch (error.code) {
+    case "network":
+    case "timeout":
+      return fr.keySetup.unverifiedUnreachable;
+    case "rate_limited":
+      return fr.keySetup.unverifiedRateLimited;
+    case "provider_error":
+    case "model_unavailable":
+    case "no_provider":
+    case "stream_interrupted":
+    case "empty_response":
+      return fr.keySetup.unverifiedServiceError;
+    default:
+      return `${describeProviderError(error).title}.`;
+  }
+}
+
+/** Verified outcome of a key: check details, or why it could not be verified and a way to test again. */
+export function ConnectionOutcome({ connection: saved }: { connection: ProviderConnectionView }) {
+  const testKey = useApp((state) => state.testKey);
+  const toast = useToast();
+  const [tested, setTested] = useState<ProviderConnectionView | null>(null);
+  const [testing, setTesting] = useState(false);
+  const connection = tested ?? saved;
+
+  async function test() {
+    setTesting(true);
+    try {
+      setTested(await testKey());
+    } catch (error) {
+      toast.show(errorToast(error, fr.providers.test));
+    } finally {
+      setTesting(false);
+    }
+  }
+
   if (connection.state === "valid" && connection.check) {
     return (
       <Callout tone="success" title={fr.keySetup.verifiedTitle}>
@@ -48,11 +85,30 @@ export function ConnectionOutcome({ connection }: { connection: ProviderConnecti
       </Callout>
     );
   }
-  if (connection.state === "unverified" || connection.state === "error") {
-    const reason = connection.lastError ? describeProviderError(connection.lastError).title : null;
+  if (connection.state === "invalid") {
+    const copy = describeProviderError(
+      connection.lastError ?? { code: "invalid_key", httpStatus: null, retryAfterSec: null, providerMessage: null, retryable: false },
+    );
     return (
-      <Callout tone="warning" title={fr.keySetup.unverifiedTitle}>
-        <p>{reason ? `${reason}. ${fr.keySetup.unverifiedBody}` : fr.keySetup.unverifiedBody}</p>
+      <Callout tone="danger" title={copy.title}>
+        <p>{copy.detail}</p>
+      </Callout>
+    );
+  }
+  if (connection.state === "unverified" || connection.state === "error") {
+    return (
+      <Callout
+        tone="warning"
+        title={fr.keySetup.unverifiedTitle}
+        action={
+          <Button size="sm" variant="secondary" loading={testing} onClick={() => void test()}>
+            {fr.providers.test}
+          </Button>
+        }
+      >
+        <p>
+          {unverifiedReason(connection.lastError)} {fr.keySetup.unverifiedNext}
+        </p>
       </Callout>
     );
   }

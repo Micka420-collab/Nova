@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Button, Dialog, TextField, useToast } from "@nova/ui";
+import { Button, Dialog, TextField, useToast, type DialogProps } from "@nova/ui";
 import type { ConversationSummary } from "@nova/shared";
 import { fr } from "../../copy/fr";
 import { errorToast } from "../../lib/errors";
@@ -63,6 +63,7 @@ export function ConfirmDialog({
   confirmLabel,
   onConfirm,
   onClose,
+  returnFocus,
 }: {
   title: string;
   description: string;
@@ -70,6 +71,8 @@ export function ConfirmDialog({
   /** Resolves when done; the dialog closes itself on success. */
   onConfirm: () => Promise<void>;
   onClose: () => void;
+  /** Focus target on close when the opener was removed by the confirmed action. */
+  returnFocus?: DialogProps["returnFocus"];
 }) {
   const [busy, setBusy] = useState(false);
   async function confirm() {
@@ -90,6 +93,7 @@ export function ConfirmDialog({
       title={title}
       description={description}
       size="sm"
+      returnFocus={returnFocus}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -104,7 +108,16 @@ export function ConfirmDialog({
   );
 }
 
-export function DeleteDialog({ conversation, onClose }: { conversation: ConversationSummary; onClose: () => void }) {
+export function DeleteDialog({
+  conversation,
+  onClose,
+  returnFocus,
+}: {
+  conversation: ConversationSummary;
+  onClose: () => void;
+  /** The deleted row takes its trash button with it: focus goes to a neighbor row or the list heading. */
+  returnFocus: () => HTMLElement | null;
+}) {
   const remove = useApp((state) => state.remove);
   const toast = useToast();
   return (
@@ -113,6 +126,7 @@ export function DeleteDialog({ conversation, onClose }: { conversation: Conversa
       description={fr.conversation.deleteDescription}
       confirmLabel={fr.conversation.deleteConfirm}
       onClose={onClose}
+      returnFocus={returnFocus}
       onConfirm={async () => {
         try {
           await remove(conversation.id);

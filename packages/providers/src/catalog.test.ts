@@ -106,6 +106,14 @@ describe("normalizeOpenRouterModel (malformed input)", () => {
     });
   });
 
+  it("derives the plain author of an alias id and keeps the id unchanged", () => {
+    expect(normalizeOpenRouterModel({ id: "~deepseek/deepseek-flash-latest" })).toMatchObject({
+      id: "~deepseek/deepseek-flash-latest",
+      author: "deepseek",
+    });
+    expect(normalizeOpenRouterModel({ id: "~/model" })).toBeNull();
+  });
+
   it("free variants are free whatever their listed price", () => {
     expect(normalizeOpenRouterModel({ id: "acme/model:free" })?.isFree).toBe(true);
   });

@@ -8,6 +8,7 @@ import { useApp } from "../../state/context";
 import { selectedModelId } from "../../state/store";
 import { Composer } from "../chat/Composer";
 import { useSendGuard } from "../chat/useSendGuard";
+import { SendFailure } from "../chat/SendFailure";
 import { useSendMessage } from "../chat/useSendMessage";
 import { findModel } from "../models/filter";
 import { Onboarding } from "../setup/Onboarding";
@@ -26,7 +27,7 @@ export function HomeView() {
   const openSettings = useApp((state) => state.openSettings);
   const [saved, setSaved] = useState<ProviderConnectionView | null>(null);
   const guard = useSendGuard(modelId, "new");
-  const { send, error } = useSendMessage();
+  const draft = useSendMessage(null);
   const now = useNow(60_000);
 
   if (connection?.state === "absent" || saved) {
@@ -81,17 +82,15 @@ export function HomeView() {
             <p>{fr.home.chooseModelBody}</p>
           </Callout>
         ) : null}
-        {error ? (
-          <Callout tone="danger" title={fr.composer.sendFailed}>
-            <p>{error.copy.detail ? `${error.copy.title}. ${error.copy.detail}` : error.copy.title}</p>
-          </Callout>
-        ) : null}
+        {draft.error ? <SendFailure error={draft.error} /> : null}
         <Composer
           label={fr.home.newIdeaLabel}
           placeholder={fr.home.newIdeaPlaceholder}
           streaming={false}
           blocked={guard}
-          onSend={(content) => send(content, null)}
+          value={draft.text}
+          onValueChange={draft.setText}
+          onSend={draft.send}
           onStop={() => undefined}
           autoFocus
         />
