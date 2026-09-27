@@ -55,7 +55,14 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 interface ChatBody {
   model?: string;
   messages?: { role: string; content: string }[];
+  tools?: unknown[];
 }
+
+const MISSION_PLAN = {
+  summary: "Je lis le panier puis je corrige le total.",
+  tasks: [{ title: "Corriger le total", acceptance: { kind: "manual", detail: "Le total additionne les prix." } }],
+};
+const MISSION_USAGE = { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120, cost: 0.0001 };
 
 export async function startMockOpenRouter(): Promise<MockOpenRouter> {
   const models = JSON.parse(readFileSync(fixturePath, "utf8")) as { data: unknown[] };
@@ -146,6 +153,34 @@ export async function startMockOpenRouter(): Promise<MockOpenRouter> {
         chunk({ role: "assistant", content: "", reasoning: "…" });
         await sleep(120);
       }
+    }
+
+    if (last.includes("[mission]")) {
+      // A scripted mission: plan (no tools) → read_file → edit_file → final answer. Each step is
+      // chosen by how many tool results the request already carries.
+      const finish = (reason: string) => {
+        send({ id, model, provider: "MockProvider", choices: [{ index: 0, delta: { content: "" }, finish_reason: reason }], usage: MISSION_USAGE });
+        res.end("data: [DONE]\n\n");
+      };
+      const toolCall = (name: string, args: unknown) => {
+        const call = { index: 0, id: `call_${id}`, type: "function", function: { name, arguments: JSON.stringify(args) } };
+        send({ id, model, provider: "MockProvider", choices: [{ index: 0, delta: { role: "assistant", content: null, tool_calls: [call] }, finish_reason: null }] });
+        finish("tool_calls");
+      };
+      if (!Array.isArray(body.tools)) {
+        chunk({ role: "assistant", content: JSON.stringify(MISSION_PLAN) });
+        return finish("stop");
+      }
+      const results = (body.messages ?? []).filter((message) => message.role === "tool").length;
+      if (results === 0) return toolCall("read_file", { path: "src/cart.ts" });
+      if (results === 1) {
+        return toolCall("edit_file", {
+          path: "src/cart.ts",
+          edits: [{ oldText: "return items.length;", newText: "return items.reduce((sum, price) => sum + price, 0);" }],
+        });
+      }
+      chunk({ role: "assistant", content: "Le total additionne maintenant les prix." });
+      return finish("stop");
     }
 
     if (last.includes("[slow]")) {

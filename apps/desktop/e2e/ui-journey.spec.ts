@@ -175,7 +175,9 @@ test("scenario 3 — stop keeps the partial answer, frees the UI, and cancels th
   await expect(page.getByRole("button", { name: "Arrêter" })).toHaveCount(0);
   await expect.poll(() => mock.requests.some((request) => request.aborted)).toBe(true);
   // A stopped generation may have been billed: its cost is unknown, never "0 constaté".
-  await expect(page.getByRole("complementary", { name: "Contexte" }).getByText(/coût inconnu|sans coût connu/)).toBeVisible();
+  // J2-A: the right-hand "Contexte" is a document of the workbench (VISUAL.md §1), no longer its own landmark.
+  const context = page.getByRole("complementary", { name: "Plan de travail" }).getByRole("tabpanel", { name: "Contexte" });
+  await expect(context.getByText(/coût inconnu|sans coût connu/)).toBeVisible();
   await shot(page, "21-stopped");
 
   const words = await page.getByText(/mot\d+/).first().textContent();

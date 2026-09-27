@@ -85,6 +85,7 @@ test("the renderer has no Node access and only the fixed bridge", async () => {
   expect(surface.bridgeGroups).toEqual([
     "app",
     "approvals",
+    "audit",
     "chat",
     "checkpoints",
     "companion",
