@@ -16,6 +16,7 @@
     "test:e2e": "electron-vite build && playwright test"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@nova/agent-runtime": "workspace:*",
     "@nova/providers": "workspace:*",
     "@nova/shared": "workspace:*",

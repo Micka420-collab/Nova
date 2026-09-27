@@ -1,0 +1,465 @@
+/*
+ * Nomi companion. Every state has a static pose (kept under reduced motion) and, with motion,
+ * an animation that only touches transform and opacity.
+ * Pose groups (*-pose) hold the static transform; their child groups hold the animation, so the two
+ * never fight over the same `transform`.
+ */
+
+.nv-nomi {
+  --_head: var(--nv-nomi-head);
+  --_body: var(--nv-nomi-body);
+  --_top: var(--nv-nomi-top);
+  --_sat: var(--nv-accent);
+  --_sat-angle: 35deg;
+  flex: none;
+  overflow: visible;
+}
+
+.nv-nomi[data-state="offline"] {
+  --_head: var(--nv-nomi-head-offline);
+  --_body: var(--nv-nomi-body-offline);
+  --_top: var(--nv-nomi-top-offline);
+  --_sat: var(--nv-nomi-body-offline);
+  --_sat-angle: 90deg;
+}
+
+.nv-nomi[data-state="error"] {
+  --_head: var(--nv-nomi-head-error);
+  --_body: var(--nv-nomi-body-error);
+  --_top: var(--nv-nomi-top-error);
+  --_sat: var(--nv-danger);
+  --_sat-angle: 125deg;
+}
+
+.nv-nomi[data-state="waiting"] {
+  --_sat: var(--nv-amber);
+  --_sat-angle: 110deg;
+}
+
+.nv-nomi[data-state="listening"] {
+  --_sat-angle: 150deg;
+}
+
+.nv-nomi[data-state="thinking"],
+.nv-nomi[data-state="working"] {
+  --_sat-angle: 0deg;
+}
+
+.nv-nomi[data-state="speaking"] {
+  --_sat-angle: 15deg;
+}
+
+.nv-nomi[data-state="success"] {
+  --_sat-angle: 70deg;
+}
+
+/* Shapes */
+
+.nv-nomi__shadow {
+  fill: var(--nv-nomi-eye);
+  opacity: 0.22;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.nv-nomi__pebble {
+  stroke: var(--nv-nomi-edge);
+  stroke-width: 1;
+}
+
+.nv-nomi__body {
+  fill: var(--_body);
+}
+
+.nv-nomi__face {
+  fill: var(--_head);
+}
+
+.nv-nomi__top {
+  fill: var(--_top);
+}
+
+.nv-nomi__pupil {
+  fill: var(--nv-nomi-eye);
+}
+
+.nv-nomi__glint {
+  fill: var(--_head);
+}
+
+.nv-nomi__mouth {
+  fill: var(--nv-nomi-eye);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.nv-nomi__lid {
+  fill: none;
+  stroke: var(--nv-nomi-eye);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.nv-nomi__ring {
+  fill: none;
+  stroke: var(--_sat);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.nv-nomi__ring--back {
+  opacity: 0.4;
+}
+
+.nv-nomi__ring--front {
+  opacity: 0.85;
+}
+
+.nv-nomi[data-state="offline"] .nv-nomi__ring {
+  opacity: 0.35;
+}
+
+.nv-nomi__satellite {
+  fill: var(--_sat);
+}
+
+/* Static poses */
+
+.nv-nomi__figure,
+.nv-nomi__breath,
+.nv-nomi__head-pose,
+.nv-nomi__head {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+
+.nv-nomi__eye {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.nv-nomi__head-pose,
+.nv-nomi__gaze-pose,
+.nv-nomi__eye,
+.nv-nomi__orbit-pose,
+.nv-nomi__sat-pose {
+  transition: transform var(--nv-duration-slow) var(--nv-ease-standard);
+}
+
+/* The orbit pose and its counter-rotation must stay equal and opposite to keep the satellite round. */
+.nv-nomi__orbit-pose {
+  transform: rotate(var(--_sat-angle));
+}
+
+.nv-nomi__sat-pose {
+  transform: rotate(calc(-1 * var(--_sat-angle)));
+}
+
+.nv-nomi[data-state="offline"] .nv-nomi__head-pose {
+  transform: translateY(0.8px) rotate(3deg);
+}
+
+.nv-nomi[data-state="offline"] .nv-nomi__satellite {
+  opacity: 0.55;
+}
+
+.nv-nomi[data-state="listening"] .nv-nomi__head-pose {
+  transform: rotate(-7deg);
+}
+
+.nv-nomi[data-state="listening"] .nv-nomi__eye {
+  transform: scale(1.12);
+}
+
+.nv-nomi[data-state="thinking"] .nv-nomi__head-pose {
+  transform: rotate(5deg);
+}
+
+.nv-nomi[data-state="thinking"] .nv-nomi__gaze-pose {
+  transform: translate(1.6px, -1.8px);
+}
+
+.nv-nomi[data-state="working"] .nv-nomi__gaze-pose {
+  transform: translate(-0.6px, 1.4px);
+}
+
+.nv-nomi[data-state="working"] .nv-nomi__eye {
+  transform: scaleY(0.78);
+}
+
+.nv-nomi[data-state="waiting"] .nv-nomi__gaze-pose {
+  transform: translateY(-1.3px);
+}
+
+.nv-nomi[data-state="speaking"] .nv-nomi__head-pose {
+  transform: translateY(-0.8px);
+}
+
+.nv-nomi[data-state="speaking"] .nv-nomi__eye {
+  transform: scaleY(0.84);
+}
+
+.nv-nomi[data-state="success"] .nv-nomi__head-pose {
+  transform: translateY(-0.6px) rotate(-3deg);
+}
+
+.nv-nomi[data-state="error"] .nv-nomi__head-pose {
+  transform: translateY(1.2px) rotate(6deg);
+}
+
+.nv-nomi[data-state="error"] .nv-nomi__eye {
+  transform: scaleY(0.55);
+}
+
+.nv-nomi[data-state="error"] .nv-nomi__gaze-pose {
+  transform: translateY(0.8px);
+}
+
+/* Animations */
+
+.nv-nomi[data-state="idle"] .nv-nomi__breath {
+  animation: nv-nomi-breathe 4.8s ease-in-out infinite;
+}
+
+.nv-nomi[data-state="idle"] .nv-nomi__eye {
+  animation: nv-nomi-blink 6.5s ease-in-out infinite;
+}
+
+.nv-nomi[data-state="listening"] .nv-nomi__head {
+  animation: nv-nomi-attend 3.2s ease-in-out infinite;
+}
+
+.nv-nomi[data-state="listening"] .nv-nomi__ring--front {
+  animation: nv-nomi-receive 3.2s ease-in-out infinite;
+}
+
+.nv-nomi[data-state="thinking"] .nv-nomi__gaze {
+  animation: nv-nomi-look 4.2s ease-in-out infinite;
+}
+
+/* Spin and counter-spin share duration and linear timing so the satellite never distorts. */
+.nv-nomi[data-state="thinking"] .nv-nomi__orbit {
+  animation: nv-nomi-spin 4.2s linear infinite;
+}
+
+.nv-nomi[data-state="thinking"] .nv-nomi__sat {
+  animation: nv-nomi-counter-spin 4.2s linear infinite;
+}
+
+.nv-nomi[data-state="working"] .nv-nomi__orbit {
+  animation: nv-nomi-spin 1.6s linear infinite;
+}
+
+.nv-nomi[data-state="working"] .nv-nomi__sat {
+  animation: nv-nomi-counter-spin 1.6s linear infinite;
+}
+
+.nv-nomi[data-state="waiting"] .nv-nomi__figure {
+  animation: nv-nomi-pulse 2.8s ease-in-out infinite;
+}
+
+.nv-nomi[data-state="waiting"] .nv-nomi__satellite {
+  animation: nv-nomi-glow 2.8s ease-in-out infinite;
+}
+
+.nv-nomi[data-state="speaking"] .nv-nomi__head {
+  animation: nv-nomi-speak 0.9s ease-in-out infinite;
+}
+
+.nv-nomi[data-state="speaking"] .nv-nomi__mouth {
+  animation: nv-nomi-talk 0.45s ease-in-out infinite alternate;
+}
+
+.nv-nomi[data-state="success"] .nv-nomi__figure {
+  animation: nv-nomi-hop 720ms var(--nv-ease-out) 1;
+}
+
+.nv-nomi[data-state="success"] .nv-nomi__shadow {
+  animation: nv-nomi-hop-shadow 720ms var(--nv-ease-out) 1;
+}
+
+.nv-nomi[data-state="error"] .nv-nomi__head {
+  animation: nv-nomi-droop 480ms var(--nv-ease-out) 1 both;
+}
+
+.nv-nomi--reduced-motion,
+.nv-nomi--reduced-motion * {
+  animation: none !important;
+  transition: none !important;
+}
+
+@keyframes nv-nomi-breathe {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  50% {
+    transform: scale(0.992, 1.028);
+  }
+}
+
+@keyframes nv-nomi-blink {
+  0%,
+  92%,
+  97%,
+  100% {
+    transform: scaleY(1);
+  }
+  94.5% {
+    transform: scaleY(0.1);
+  }
+}
+
+@keyframes nv-nomi-attend {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-3deg) translateY(-0.4px);
+  }
+}
+
+@keyframes nv-nomi-receive {
+  0%,
+  100% {
+    opacity: 0.85;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes nv-nomi-look {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  30% {
+    transform: translate(0.6px, 0.4px);
+  }
+  55% {
+    transform: translate(-2.6px, 0.2px);
+  }
+  80% {
+    transform: translate(-1.2px, 1.4px);
+  }
+}
+
+@keyframes nv-nomi-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Counter-rotation plus a fade while the satellite passes behind the pebbles (back half of the orbit). */
+@keyframes nv-nomi-counter-spin {
+  0% {
+    transform: rotate(0deg);
+    opacity: 1;
+  }
+  59% {
+    transform: rotate(-212.4deg);
+    opacity: 1;
+  }
+  64% {
+    transform: rotate(-230.4deg);
+    opacity: 0;
+  }
+  86% {
+    transform: rotate(-309.6deg);
+    opacity: 0;
+  }
+  91% {
+    transform: rotate(-327.6deg);
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(-360deg);
+    opacity: 1;
+  }
+}
+
+@keyframes nv-nomi-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.035);
+  }
+}
+
+@keyframes nv-nomi-glow {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes nv-nomi-speak {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-1.1px) rotate(-1deg);
+  }
+  65% {
+    transform: translateY(-0.3px) rotate(0.6deg);
+  }
+}
+
+@keyframes nv-nomi-talk {
+  from {
+    transform: scaleY(1);
+  }
+  to {
+    transform: scale(0.85, 0.35);
+  }
+}
+
+@keyframes nv-nomi-hop {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  35% {
+    transform: translateY(-5px);
+  }
+  62% {
+    transform: translateY(0);
+  }
+  80% {
+    transform: translateY(-1.4px);
+  }
+}
+
+@keyframes nv-nomi-hop-shadow {
+  0%,
+  62%,
+  100% {
+    transform: scale(1);
+    opacity: 0.22;
+  }
+  35% {
+    transform: scale(0.72);
+    opacity: 0.12;
+  }
+}
+
+/* Starts from the inverse of the error head pose, so the head visibly droops into it. */
+@keyframes nv-nomi-droop {
+  from {
+    transform: rotate(-6deg) translateY(-1.2px);
+  }
+  to {
+    transform: none;
+  }
+}

@@ -1,0 +1,121 @@
+import { useEffect } from "react";
+import { Button, Callout, Lockup, OrbitIndicator } from "@nova/ui";
+import { fr, PROVIDER_ERROR_COPY } from "./copy/fr";
+import { describeProviderError, describeUiError } from "./lib/errors";
+import { LIGHT_SCHEME_QUERY, useMediaQuery } from "./lib/hooks";
+import { useApp, useAppStore } from "./state/context";
+import { CommandPalette } from "./components/palette/CommandPalette";
+import { ModelPicker } from "./components/models/ModelPicker";
+import { Workshop } from "./components/layout/Workshop";
+
+/** data-theme / data-motion on <html>, as the design system expects. */
+function useDocumentPreferences() {
+  const theme = useApp((state) => state.settings?.theme ?? "system");
+  const motion = useApp((state) => state.settings?.companion.motion ?? "system");
+  const prefersLight = useMediaQuery(LIGHT_SCHEME_QUERY);
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.theme = theme === "system" ? (prefersLight ? "light" : "dark") : theme;
+    // "system" leaves the attribute out so the OS reduced-motion setting applies.
+    if (motion === "system") delete root.dataset.motion;
+    else root.dataset.motion = motion;
+  }, [theme, motion, prefersLight]);
+}
+
+function useGlobalShortcuts() {
+  const store = useAppStore();
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+      const { setUi, newConversation, openSettings, ui } = store.getState();
+      const key = event.key.toLowerCase();
+      if (key === "k") {
+        event.preventDefault();
+        setUi({ paletteOpen: !ui.paletteOpen });
+      } else if (key === "n") {
+        event.preventDefault();
+        setUi({ paletteOpen: false });
+        newConversation();
+      } else if (key === ",") {
+        event.preventDefault();
+        setUi({ paletteOpen: false });
+        openSettings();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [store]);
+}
+
+/** Announces the end of generations (never individual tokens) to screen readers. */
+function OutcomeAnnouncer() {
+  const outcome = useApp((state) => state.lastOutcome);
+  let message = "";
+  if (outcome?.kind === "success") message = fr.chat.announceCompleted;
+  else if (outcome?.kind === "stopped") message = fr.chat.announceStopped;
+  else if (outcome?.kind === "error") {
+    message = fr.chat.announceFailed((outcome.error ? describeProviderError(outcome.error) : PROVIDER_ERROR_COPY.unknown).title);
+  }
+  // A new node per outcome: the same message twice in a row is announced twice.
+  return (
+    <output className="nv-visually-hidden" aria-live="polite">
+      {outcome ? <span key={outcome.at}>{message}</span> : null}
+    </output>
+  );
+}
+
+function Boot() {
+  const boot = useApp((state) => state.boot);
+  const loadCore = useApp((state) => state.loadCore);
+  return (
+    <div className="nova-boot">
+      <Lockup height={32} />
+      {boot.status === "error" && boot.error ? (
+        <Callout
+          tone="danger"
+          title={fr.app.bootFailed}
+          action={
+            <Button variant="secondary" size="sm" onClick={() => void loadCore()}>
+              {fr.app.retry}
+            </Button>
+          }
+        >
+          <p>{describeUiError(boot.error).title}</p>
+        </Callout>
+      ) : (
+        <output className="nova-boot__status">
+          <OrbitIndicator active size={16} />
+          <span>{fr.app.booting}</span>
+        </output>
+      )}
+    </div>
+  );
+}
+
+export function App() {
+  const store = useAppStore();
+  const ready = useApp((state) => state.boot.status === "ready");
+  useEffect(() => store.getState().start(), [store]);
+  useDocumentPreferences();
+  useGlobalShortcuts();
+
+  if (!ready) return <Boot />;
+  return (
+    <>
+      <a
+        className="nova-skip"
+        href="#nova-main"
+        onClick={(event) => {
+          event.preventDefault();
+          document.getElementById("nova-main")?.focus();
+        }}
+      >
+        {fr.layout.skipToContent}
+      </a>
+      <Workshop />
+      <ModelPicker />
+      <CommandPalette />
+      <OutcomeAnnouncer />
+    </>
+  );
+}

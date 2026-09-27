@@ -1,0 +1,136 @@
+/*
+ * NOVA design tokens. Color values mirror src/tokens.ts (checked by tokens.test.ts).
+ * Theme: [data-theme="dark" | "light"] on <html> (dark is the default).
+ * Motion: reduced when [data-motion="reduce"], or when the OS asks for it and the app did not force
+ * [data-motion="full"].
+ */
+
+:root {
+  --nv-font-ui: "Manrope Variable", "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --nv-font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+
+  --nv-text-xs: 0.75rem;
+  --nv-text-sm: 0.8125rem;
+  --nv-text-md: 0.875rem;
+  --nv-text-lg: 1rem;
+  --nv-text-xl: 1.25rem;
+  --nv-text-2xl: 1.625rem;
+  --nv-text-3xl: 2.125rem;
+  --nv-leading-tight: 1.25;
+  --nv-leading-normal: 1.5;
+  --nv-weight-regular: 450;
+  --nv-weight-medium: 560;
+  --nv-weight-bold: 680;
+
+  --nv-space-1: 4px;
+  --nv-space-2: 8px;
+  --nv-space-3: 12px;
+  --nv-space-4: 16px;
+  --nv-space-5: 24px;
+  --nv-space-6: 32px;
+  --nv-space-7: 48px;
+
+  --nv-radius-xs: 6px;
+  --nv-radius-sm: 10px;
+  --nv-radius-md: 12px;
+  --nv-radius-lg: 16px;
+  --nv-radius-pill: 999px;
+
+  --nv-duration-fast: 120ms;
+  --nv-duration-base: 180ms;
+  --nv-duration-slow: 220ms;
+  --nv-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --nv-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --nv-control-sm: 30px;
+  --nv-control-md: 36px;
+}
+
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+  --nv-bg: #111619;
+  --nv-panel: #192226;
+  --nv-raised: #243035;
+  --nv-raised-hover: #2C3A40;
+  --nv-field: #0D1215;
+  --nv-border: #2A363B;
+  --nv-border-strong: #758689;
+  --nv-text: #F2F5F3;
+  --nv-text-secondary: #ABB9BB;
+  --nv-accent: #86D8BB;
+  --nv-accent-hover: #9FE2CA;
+  --nv-accent-soft: #1B3A31;
+  --nv-on-accent: #111619;
+  --nv-amber: #EEC181;
+  --nv-amber-soft: #3A3020;
+  --nv-danger: #F18A8A;
+  --nv-danger-hover: #F5A3A3;
+  --nv-danger-soft: #3D2426;
+  --nv-on-danger: #111619;
+  --nv-info: #9CC7D6;
+  --nv-info-soft: #1D3039;
+  --nv-focus: #86D8BB;
+  --nv-selection: #2F5E50;
+  --nv-tooltip-bg: #DDE5E2;
+  --nv-tooltip-text: #111619;
+  --nv-nomi-head: #C9D9D1;
+  --nv-nomi-body: #7C9A94;
+  --nv-nomi-top: #9DB8B1;
+  --nv-nomi-eye: #111619;
+  --nv-nomi-edge: #67847F;
+  --nv-nomi-head-error: #E3C2BF;
+  --nv-nomi-body-error: #A07F7D;
+  --nv-nomi-top-error: #C29F9C;
+  --nv-nomi-head-offline: #9AA3A4;
+  --nv-nomi-body-offline: #5D6769;
+  --nv-nomi-top-offline: #7B8587;
+
+  --nv-overlay: rgb(6 9 10 / 0.62);
+  --nv-shadow-raised: 0 1px 2px rgb(0 0 0 / 0.28), 0 10px 28px rgb(0 0 0 / 0.32);
+  --nv-scrollbar: #3A4A50;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --nv-bg: #F5F3EC;
+  --nv-panel: #EEEBE3;
+  --nv-raised: #FFFFFF;
+  --nv-raised-hover: #F4F2EC;
+  --nv-field: #FFFFFF;
+  --nv-border: #DDD8CC;
+  --nv-border-strong: #76848A;
+  --nv-text: #172328;
+  --nv-text-secondary: #4B5A5D;
+  --nv-accent: #216B56;
+  --nv-accent-hover: #1A5A48;
+  --nv-accent-soft: #DDEFE7;
+  --nv-on-accent: #FFFFFF;
+  --nv-amber: #7D5310;
+  --nv-amber-soft: #F6E8D0;
+  --nv-danger: #B3261E;
+  --nv-danger-hover: #9C1F18;
+  --nv-danger-soft: #F9E1DF;
+  --nv-on-danger: #FFFFFF;
+  --nv-info: #2B6076;
+  --nv-info-soft: #E0ECF1;
+  --nv-focus: #216B56;
+  --nv-selection: #BFE3D4;
+  --nv-tooltip-bg: #172328;
+  --nv-tooltip-text: #F2F5F3;
+  --nv-nomi-head: #C3D4CD;
+  --nv-nomi-body: #7F9D96;
+  --nv-nomi-top: #A3BCB5;
+  --nv-nomi-eye: #172328;
+  --nv-nomi-edge: #56736D;
+  --nv-nomi-head-error: #E6C9C5;
+  --nv-nomi-body-error: #A8807C;
+  --nv-nomi-top-error: #C9A5A1;
+  --nv-nomi-head-offline: #C9CFCF;
+  --nv-nomi-body-offline: #8E9798;
+  --nv-nomi-top-offline: #AAB2B3;
+
+  --nv-overlay: rgb(23 35 40 / 0.36);
+  --nv-shadow-raised: 0 1px 2px rgb(23 35 40 / 0.06), 0 10px 28px rgb(23 35 40 / 0.1);
+  --nv-scrollbar: #C9C4B8;
+}

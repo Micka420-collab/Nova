@@ -14,3 +14,6 @@ apps/desktop/e2e/artifacts/
 .env.*
 !.env.example
 *.key
+
+# Local, non-versioned dev libraries (e.g. GTK/keyring extracted without root)
+.devdeps/
