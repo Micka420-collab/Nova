@@ -66,8 +66,18 @@ jobs:
         run: |
           dbus-run-session -- bash e2e/run-with-keyring.sh xvfb-run -a node e2e/vault-smoke.mjs --expect os
           xvfb-run -a node e2e/vault-smoke.mjs --expect weak
+      # Headless macOS runners prompt for the login keychain; use a throwaway unlocked default one.
+      - name: Unlocked test keychain (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          security create-keychain -p nova-ci nova-ci.keychain
+          security default-keychain -s nova-ci.keychain
+          security unlock-keychain -p nova-ci nova-ci.keychain
+          security set-keychain-settings nova-ci.keychain
+          security list-keychains -d user -s nova-ci.keychain
       - name: Vault level (real app outside Playwright)
         if: runner.os != 'Linux'
+        timeout-minutes: 5
         working-directory: apps/desktop
         run: pnpm exec electron-vite build && node e2e/vault-smoke.mjs --expect os
       - name: E2E
