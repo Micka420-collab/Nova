@@ -1,46 +1,79 @@
 // Injection interfaces the executors adapt. Executors never touch the disk, a process, git or the
 // network themselves: main passes implementations that already enforce confinement (S2), the
-// domain policy (W4) and the MCP rules (M5). Shapes mirror the NovaApi request types so the main
-// services of the workspace (L2), web (L4) and MCP (L5) lanes plug in without adapters.
+// domain policy (W4) and the MCP rules (M5). The shapes are the ones the owning lanes built, so
+// their services plug in structurally, without adapters:
+// - files: `@nova/workspace` `WorkspaceFileOps` (files-service `fileOpsFor(workspaceId)`, L2);
+// - git: git-service `api.status/api.diff` + `commit` (L2);
+// - web: `WebService` (L4);
+// - mcp: `McpService` (L5).
 import type {
+  ContentHash,
   FetchedPage,
-  FileContent,
   FileEntry,
-  FileWriteResult,
-  FilesListRequest,
-  FilesMoveRequest,
-  FilesReadRequest,
-  FilesTrashRequest,
-  FileWriteRequest,
   GitDiff,
-  GitDiffRequest,
   GitStatus,
   IsolationLevel,
-  McpToolInfo,
   McpToolName,
   RelativePath,
   SearchQuery,
   SearchResult,
-  WebSearchResult,
+  ToolDefinition,
+  ToolResult,
+  WebCitation,
   WorkspaceFacts,
-  WorkspaceFactsRequest,
-  WorkspaceIdRequest,
 } from "@nova/shared";
 
-/** Confined workspace filesystem (main → fs-worker). Paths are canonical relative paths. */
-export interface WorkspaceFsApi {
-  list(req: FilesListRequest): Promise<FileEntry[]>;
-  read(req: FilesReadRequest): Promise<FileContent>;
-  /** Optimistic concurrency: a hash mismatch returns `conflict` and writes nothing. */
-  write(req: FileWriteRequest): Promise<FileWriteResult>;
-  move(req: FilesMoveRequest): Promise<FileEntry>;
-  /** OS trash, never a permanent delete. */
-  trash(req: FilesTrashRequest): Promise<void>;
-  searchText(req: SearchQuery, signal: AbortSignal): Promise<SearchResult>;
-  /** Files matching a gitignore-style glob (ripgrep `--files -g`), ignored files excluded. */
-  glob(req: { workspaceId: string; pattern: string; limit: number }, signal: AbortSignal): Promise<{ paths: RelativePath[]; truncated: boolean }>;
-  facts(req: WorkspaceFactsRequest): Promise<WorkspaceFacts>;
+// ---------------------------------------------------------------------------
+// Files (L2 WorkspaceFileOps, bound to one workspace)
+
+export interface FileReadOutcome {
+  path: RelativePath;
+  hash: ContentHash;
+  startLine: number;
+  endLine: number;
+  totalLines: number;
+  content: string;
+  /** The range was cut at TOOL_LIMITS.readMaxChars. */
+  truncated: boolean;
 }
+
+export type FileChangeOutcome =
+  | {
+      status: "written";
+      path: RelativePath;
+      hash: ContentHash;
+      size: number;
+      created: boolean;
+      additions: number;
+      deletions: number;
+      checkpointId: string;
+      excerpt: { startLine: number; text: string } | null;
+    }
+  | { status: "conflict"; path: RelativePath; currentHash: ContentHash | null };
+
+/**
+ * Confined file operations of ONE workspace. Every path is checked against the root and the C8
+ * exclusions; writes take the hash the agent last saw (null = must not exist) and never overwrite
+ * on mismatch; every change is snapshotted into the given checkpoint first (A10).
+ */
+export interface WorkspaceFileApi {
+  readFile(path: RelativePath, range?: { startLine?: number; endLine?: number }): Promise<FileReadOutcome>;
+  list(path: RelativePath): Promise<FileEntry[]>;
+  glob(pattern: string, limit: number): Promise<{ paths: RelativePath[]; truncated: boolean }>;
+  searchText(query: Omit<SearchQuery, "workspaceId">, signal?: AbortSignal): Promise<SearchResult>;
+  writeFile(path: RelativePath, content: string, options: { expectedHash: ContentHash | null; checkpointId: string }): Promise<FileChangeOutcome>;
+  editFile(
+    path: RelativePath,
+    edits: readonly { oldText: string; newText: string }[],
+    options: { expectedHash?: ContentHash; checkpointId: string },
+  ): Promise<FileChangeOutcome>;
+  move(from: RelativePath, to: RelativePath, options: { checkpointId: string }): Promise<FileEntry>;
+  /** OS trash, never a permanent delete; content checkpointed first. */
+  trash(path: RelativePath, options: { checkpointId: string }): Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
+// Commands
 
 export interface CommandSpec {
   workspaceId: string;
@@ -95,42 +128,75 @@ export interface CommandRunner {
   stopAll(missionId: string): Promise<void>;
 }
 
-/** System git CLI (L2/A5). */
+// ---------------------------------------------------------------------------
+// Git (L2 git-service)
+
 export interface GitApi {
-  status(req: WorkspaceIdRequest): Promise<GitStatus>;
-  diff(req: GitDiffRequest): Promise<GitDiff>;
-  /** Commits the given paths (all tracked changes when empty). Never pushes. */
-  commit(req: { workspaceId: string; message: string; paths: RelativePath[] }): Promise<{ sha: string }>;
+  status(req: { workspaceId: string }): Promise<GitStatus>;
+  diff(req: { workspaceId: string; path: RelativePath | null; staged: boolean }): Promise<GitDiff>;
+  /** Commits the given paths (`"all"` = every tracked change). Never pushes. */
+  commit(workspaceId: string, request: { message: string; paths: RelativePath[] | "all" }): Promise<{ sha: string }>;
 }
 
-/** Internet access from main (L4): the domain policy and SSRF guard are applied inside. */
+// ---------------------------------------------------------------------------
+// Web (L4 WebService)
+
+/** Where a web call happens: the workspace policy applies, the mission hosts restrict (W4). */
+export interface WebCallContext {
+  workspaceId: string | null;
+  /** Hosts the mission contract allows; null = no extra restriction. */
+  missionHosts: readonly string[] | null;
+}
+
 export interface WebApi {
-  search(
-    req: { workspaceId: string; missionId: string; query: string; maxResults: number; includeDomains: string[]; excludeDomains: string[] },
-    signal: AbortSignal,
-  ): Promise<WebSearchResult>;
-  fetchPage(req: { workspaceId: string; missionId: string; url: string }, signal: AbortSignal): Promise<FetchedPage>;
+  /** Domain policy for a URL (throws on an invalid or blocked URL). */
+  decide(url: string, context: WebCallContext): { action: "allow" | "ask" | "deny"; host: string };
+  /** Throws a `{ code }` error (`policy_ask`, `policy_denied`, `blocked_address`, `timeout`…). */
+  fetchPage(input: {
+    url: string;
+    context: WebCallContext;
+    /** Hosts approved for this call (the permission step covered them). */
+    approvedHosts?: readonly string[];
+    signal: AbortSignal;
+  }): Promise<{ page: FetchedPage; content: string }>;
+  webSearch(input: {
+    query: string;
+    context: WebCallContext;
+    maxResults?: number;
+    usageRef: { conversationId: string | null; messageId: string | null; missionId: string | null; toolCallId: string | null };
+    signal: AbortSignal;
+  }): Promise<{ result: { query: string; citations: WebCitation[]; costUsd: number | null }; content: string }>;
 }
 
-export interface McpCallOutcome {
-  isError: boolean;
-  /** Text content of the result (already capped by the MCP host). Untrusted. */
-  text: string;
-  server: string;
+// ---------------------------------------------------------------------------
+// MCP (L5 McpService)
+
+/** An enabled MCP tool as offered to the model (never a `deny` tool nor a disabled server). */
+export interface McpToolOffer {
+  definition: ToolDefinition & { name: McpToolName };
+  serverName: string;
+  toolName: string;
+  /** Per-tool permission set in the MCP manager; `ask` makes every call ask (mcp_tool_policy). */
+  permission: "allow" | "ask";
 }
 
-/** MCP tools (L5): only enabled tools with a model-facing name are listed. */
 export interface McpApi {
-  listTools(workspaceId: string): Promise<McpToolInfo[]>;
+  listToolsForModel(workspaceId: string): Promise<McpToolOffer[]>;
+  /** `approved`: the gateway allowed or the user approved this exact call. Returns untrusted output. */
   callTool(
-    req: { workspaceId: string; missionId: string; name: McpToolName; arguments: Record<string, unknown> },
-    signal: AbortSignal,
-  ): Promise<McpCallOutcome>;
+    name: string,
+    args: Record<string, unknown>,
+    context: { workspaceId: string; callId: string; signal: AbortSignal; approved: boolean },
+  ): Promise<ToolResult>;
 }
 
-/** Everything the built-in executors need. Missing capabilities make their tools `unavailable`. */
+// ---------------------------------------------------------------------------
+
+/** Everything the executors of one workspace need. Missing capabilities make their tools `unavailable`. */
 export interface ToolDeps {
-  fs: WorkspaceFsApi;
+  files: WorkspaceFileApi;
+  /** Detected project facts (test runner…); null = unknown. */
+  facts(): Promise<WorkspaceFacts | null>;
   commands: CommandRunner | null;
   git: GitApi | null;
   web: WebApi | null;

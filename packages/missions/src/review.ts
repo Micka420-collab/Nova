@@ -24,12 +24,13 @@ export interface ReviewFsGate {
   /** L2 checkpoint restore: current must equal the checkpoint's afterHash, else `conflict`. */
   restoreFile(checkpointId: string, path: RelativePath): Promise<RestoreFileResult>;
   /**
-   * Reverts hunks of diff(base → current) (hunk indexes in that diff's order, as shown by the
-   * review UI) by applying their inverse to the current file; refuses when the current hash is not
+   * Reverts hunks of diff(base → current) (hunk indexes in `diffHunks` order) by applying their
+   * inverse to the current file, through a new restore point; refuses when the current hash is not
    * `expectedCurrentHash` (nothing written).
    */
   revertHunks(input: {
     workspaceId: string;
+    missionId: string;
     path: RelativePath;
     baseHash: ContentHash | null;
     expectedCurrentHash: ContentHash | null;
@@ -62,6 +63,7 @@ export function buildReview(checkpoints: readonly Checkpoint[]): ReviewModel {
  */
 export async function applyReview(input: {
   workspaceId: string;
+  missionId: string;
   model: ReviewModel;
   decisions: readonly ReviewDecision[];
   fs: ReviewFsGate;
@@ -104,6 +106,7 @@ export async function applyReview(input: {
     }
     const outcome = await input.fs.revertHunks({
       workspaceId: input.workspaceId,
+      missionId: input.missionId,
       path,
       baseHash: file.beforeHash,
       expectedCurrentHash: current,

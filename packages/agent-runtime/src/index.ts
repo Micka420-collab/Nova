@@ -1,7 +1,9 @@
 export {
   ChatRunner,
   RuntimeError,
+  sourcesBlock,
   type ChatRunnerDeps,
+  type ChatTurnContext,
   type RuntimeErrorCode,
   type RuntimeLogger,
 } from "./chat-runner";

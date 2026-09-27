@@ -44,7 +44,11 @@ export function wrapUntrusted(content: string, origin: Provenance): string {
   ].join("\n");
 }
 
-/** A result: content bounded, secrets redacted, untrusted content fenced. */
+/**
+ * A result: content bounded, secrets redacted, untrusted content fenced. `prewrapped` content was
+ * already fenced by its owner (web pages, search results): it is bounded (head and tail kept, so
+ * the closing fence survives) but not fenced twice.
+ */
 export function makeResult(input: {
   callId: string;
   ok: boolean;
@@ -52,12 +56,13 @@ export function makeResult(input: {
   display: ToolDisplay;
   provenance: Provenance;
   durationMs: number;
+  prewrapped?: boolean;
 }): ToolResult {
   const bounded = capText(redactSecrets(input.content), TOOL_LIMITS.resultMaxChars - 400).text;
   return {
     callId: input.callId,
     ok: input.ok,
-    content: wrapUntrusted(bounded, input.provenance),
+    content: input.prewrapped === true ? bounded : wrapUntrusted(bounded, input.provenance),
     display: input.display,
     provenance: input.provenance,
     durationMs: input.durationMs,

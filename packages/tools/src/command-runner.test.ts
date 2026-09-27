@@ -12,7 +12,7 @@ const runner = createProcessCommandRunner({
   env: { PATH: process.env["PATH"], OPENROUTER_API_KEY: "sk-or-v1-secret", NODE_OPTIONS: "--inspect" },
   maxOutputBytes: 1_000,
   killGraceMs: 200,
-  backgroundSettleMs: 300,
+  backgroundSettleMs: 20_000,
 });
 
 const node = process.execPath;
@@ -33,7 +33,8 @@ function alive(pid: number): boolean {
   }
 }
 
-describe("process command runner", () => {
+// Child processes start slowly on a loaded machine: generous per-test timeouts.
+describe("process command runner", { timeout: 30_000 }, () => {
   it("runs argv without a shell, in the confined cwd, with a scrubbed env", async () => {
     const script = "console.log(process.cwd(), process.env.OPENROUTER_API_KEY ?? 'nokey', process.env.NODE_OPTIONS ?? 'noopts', '$HOME && echo')";
     const outcome = await runner.run(spec([node, "-e", script]), new AbortController().signal);

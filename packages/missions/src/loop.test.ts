@@ -33,6 +33,8 @@ describe("mission loop", () => {
     const types = h.types();
     expect(types.indexOf("checkpoint.created")).toBeLessThan(types.indexOf("tool.started", types.indexOf("checkpoint.created")));
     expect(h.checkpoints).toHaveLength(1);
+    // The file API recorded the change into the restore point created for this call.
+    expect(h.changes).toEqual([{ path: "src/cart.ts", checkpointId: h.checkpoints[0]?.id }]);
     expect(h.proofs).toMatchObject([{ kind: "test", exitCode: 0, command: ["pnpm", "vitest", "run", "--reporter=json", "cart"] }]);
     expect(h.events().some((event) => event.type === "task.updated" && event.task.state === "verified")).toBe(true);
     // Tools are resent on every request, and results travel back with their call ids.
@@ -64,7 +66,7 @@ describe("mission loop", () => {
     const h = createHarness({
       files: { "src/cart.ts": CART },
       tasks: [{ title: "Relire", acceptance: { kind: "manual", detail: "" } }],
-      decide: (request) => (request.tool === "edit_file" ? { decision: "deny", reason: "profile_forbids", ruleId: "profile:read_only", rememberable: false } : ALLOW),
+      decide: (request) => (request.tool === "edit_file" ? { decision: "deny", reason: "profile_forbids", ruleId: "profile:read_only", rememberable: false, explanation: "Règle de test." } : ALLOW),
       turns: [{ calls: [EDIT] }, { text: "Je ne peux pas modifier ce fichier." }],
     });
     await h.start();
@@ -85,7 +87,7 @@ describe("mission loop", () => {
     const h = createHarness({
       files: { "src/cart.ts": CART },
       tasks: [{ title: "Modifier", acceptance: { kind: "manual", detail: "" } }],
-      decide: (request) => (request.tool === "edit_file" ? { decision: "ask", reason: "profile_asks", ruleId: "profile:assisted", rememberable: true } : ALLOW),
+      decide: (request) => (request.tool === "edit_file" ? { decision: "ask", reason: "profile_asks", ruleId: "profile:assisted", rememberable: true, explanation: "Règle de test." } : ALLOW),
       approvals: {
         async request(input, options) {
           const pending = approvalFor(input.request, input.decision, "pending");

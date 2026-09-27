@@ -1,9 +1,8 @@
 // Test harness: the real loop, gateway, journal and tool registry over fake provider/tool APIs.
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type {
   Approval,
   Checkpoint,
-  FileContent,
   Mission,
   MissionContract,
   MissionEvent,
@@ -15,14 +14,15 @@ import type {
   WorkMode,
   WorkspaceFacts,
 } from "@nova/shared";
-import { createToolRegistry, toolsForMode, type CommandOutcome, type CommandRunner, type ToolDeps, type WorkspaceFsApi } from "@nova/tools";
+import { createToolRegistry, type CommandOutcome, type CommandRunner, type ToolDeps } from "@nova/tools";
+import { memoryFiles } from "../../../tools/src/__fixtures__/memory-files";
 import { createToolGateway, type ApprovalGate, type MissionToolContext } from "../gateway";
 import type { ProviderProxy, ProxyStreamEvent, ProxyStreamRequest } from "../index";
 import { createMissionJournal, type MissionEventRecordLike } from "../journal";
 import { MissionLoop } from "../loop";
+import { missionToolSet } from "../tool-set";
 
 export const WS = "11111111-1111-4111-8111-111111111111";
-const hash = (text: string): string => createHash("sha256").update(text).digest("hex");
 
 export const FACTS: WorkspaceFacts = {
   workspaceId: WS,
@@ -36,41 +36,6 @@ export const FACTS: WorkspaceFacts = {
   git: false,
   instructionFiles: [],
 };
-
-export function memoryFs(initial: Record<string, string>): { fs: WorkspaceFsApi; files: Map<string, string> } {
-  const files = new Map(Object.entries(initial));
-  const fs: WorkspaceFsApi = {
-    async list() {
-      return [];
-    },
-    async read({ path }): Promise<FileContent> {
-      const content = files.get(path);
-      if (content === undefined) throw Object.assign(new Error(`${path} not found`), { code: "not_found" });
-      return { path, content, hash: hash(content), size: content.length, binary: false, tooLarge: false, eol: "lf" };
-    },
-    async write({ path, content, expectedHash }) {
-      const current = files.get(path);
-      const currentHash = current === undefined ? null : hash(current);
-      if (currentHash !== expectedHash) return { status: "conflict", path, currentHash };
-      files.set(path, content);
-      return { status: "written", path, hash: hash(content), size: content.length };
-    },
-    async move() {
-      throw new Error("unused");
-    },
-    async trash() {},
-    async searchText() {
-      return { matches: [], truncated: false, durationMs: 0 };
-    },
-    async glob() {
-      return { paths: [], truncated: false };
-    },
-    async facts() {
-      return FACTS;
-    },
-  };
-  return { fs, files };
-}
 
 /** One scripted model turn: text and/or tool calls (arguments given raw, possibly malformed). */
 export interface ScriptedTurn {
@@ -123,7 +88,7 @@ export interface HarnessOptions {
   maxDurationMs?: number;
 }
 
-export const ALLOW: PermissionDecision = { decision: "allow", reason: "profile_allows", ruleId: "profile:test", rememberable: true };
+export const ALLOW: PermissionDecision = { decision: "allow", reason: "profile_allows", ruleId: "profile:test", rememberable: true, explanation: "Règle de test." };
 
 /** A command runner whose tests pass (vitest JSON) unless `failing` is set. */
 export function fakeTestRunner(options: { failing?: boolean } = {}): CommandRunner & { calls: string[][] } {
@@ -151,9 +116,9 @@ export function fakeTestRunner(options: { failing?: boolean } = {}): CommandRunn
 
 export function createHarness(options: HarnessOptions) {
   const mode = options.mode ?? "fix";
-  const { fs, files } = memoryFs(options.files ?? {});
+  const { api, files, changes } = memoryFiles(options.files ?? {});
   const commands = options.commands ?? fakeTestRunner();
-  const deps: ToolDeps = { fs, commands, git: null, web: null, mcp: null };
+  const deps: ToolDeps = { files: api, facts: async () => FACTS, commands, git: null, web: null, mcp: null };
   const registry = createToolRegistry({ deps });
   const now = Date.now;
 
@@ -190,7 +155,7 @@ export function createHarness(options: HarnessOptions) {
     budgetUsd: 0.5,
   };
   const missionId = randomUUID();
-  const allowedTools = toolsForMode(mode, { webSearch: false, mcpTools: [] });
+  const allowedTools = missionToolSet(mode, { webSearch: false, mcpTools: [] });
   const context: MissionToolContext = {
     workspaceId: WS, missionId, mode, contract, allowedTools, registry, seenVersions: new Map(), tainted: false,
   };
@@ -209,10 +174,9 @@ export function createHarness(options: HarnessOptions) {
     },
     approvals,
     checkpoints: {
-      async capture(input) {
+      create(input) {
         const checkpoint: Checkpoint = {
-          id: randomUUID(), workspaceId: input.workspaceId, missionId: input.missionId, label: input.label, reason: "tool_write", createdAt: now(),
-          files: input.paths.map((path) => ({ checkpointId: "x", path, beforeHash: files.has(path) ? hash(files.get(path) ?? "") : null, afterHash: null, userHashSeen: null })),
+          id: randomUUID(), workspaceId: input.workspaceId, missionId: input.missionId, label: input.label, reason: "tool_write", createdAt: now(), files: [],
         };
         checkpoints.push(checkpoint);
         return checkpoint;
@@ -252,7 +216,7 @@ export function createHarness(options: HarnessOptions) {
   const types = (): string[] => pushed.filter((event) => event.seq > 0).map((event) => event.type);
   const terminals = (): MissionEvent[] => pushed.filter((event) => ["mission.succeeded", "mission.failed", "mission.cancelled"].includes(event.type));
 
-  return { loop, start, missionId, files, requests, evaluated, proofs, checkpoints, states, events, types, terminals, journal, commands };
+  return { loop, start, missionId, files, changes, requests, evaluated, proofs, checkpoints, states, events, types, terminals, journal, commands };
 }
 
 /** Resolves once `predicate` holds for the pushed events (polls the microtask queue). */

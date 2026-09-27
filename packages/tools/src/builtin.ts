@@ -12,11 +12,10 @@ import {
   type OperationClass,
   type RelativePath,
   type ToolDisplay,
-  type ToolResult,
 } from "@nova/shared";
-import type { ToolDeps } from "./apis";
+import type { FileChangeOutcome, ToolDeps } from "./apis";
 import { ToolFailure, capText, makeResult, provenance, tail } from "./content";
-import type { ToolExecutionContext, ToolExecutor, ToolPermissionFacts } from "./index";
+import type { ExecutedToolResult, OwnerPolicy, ToolExecutionContext, ToolExecutor, ToolPermissionFacts } from "./index";
 import { parseTestOutput, testInvocation } from "./test-report";
 
 /** Accepts `./a`, `a/` and `.` from models; anything else must already be canonical (S2 in main). */
@@ -41,13 +40,14 @@ interface BuiltinSpec<S extends z.ZodType> {
   operation: OperationClass;
   description: string;
   schema: S;
-  facts(args: z.output<S>): ToolPermissionFacts[];
+  facts(args: z.output<S>): ToolPermissionFacts[] | Promise<ToolPermissionFacts[]>;
+  ownerPolicy?(args: z.output<S>, context: { workspaceId: string; missionHosts: readonly string[] | null }): Promise<OwnerPolicy | null>;
   checkpointPaths?(args: z.output<S>): RelativePath[];
-  run(args: z.output<S>, context: ToolExecutionContext, started: number): Promise<ToolResult>;
+  run(args: z.output<S>, context: ToolExecutionContext, started: number): Promise<ExecutedToolResult>;
 }
 
 function builtin<S extends z.ZodType>(spec: BuiltinSpec<S>): ToolExecutor<z.output<S>> {
-  return {
+  const executor: ToolExecutor<z.output<S>> = {
     name: spec.name,
     operation: spec.operation,
     definition: { name: spec.name, description: spec.description, inputSchema: inputSchema(spec.schema), operation: spec.operation },
@@ -56,35 +56,13 @@ function builtin<S extends z.ZodType>(spec: BuiltinSpec<S>): ToolExecutor<z.outp
     checkpointPaths: (args) => spec.checkpointPaths?.(args) ?? [],
     execute: (args, context) => spec.run(args, context, Date.now()),
   };
+  if (spec.ownerPolicy) executor.ownerPolicy = spec.ownerPolicy;
+  return executor;
 }
 
 function numberLines(lines: string[], firstLine: number): string {
   const width = String(firstLine + lines.length - 1).length;
   return lines.map((line, index) => `${String(firstLine + index).padStart(width, " ")}│ ${line}`).join("\n");
-}
-
-/** Line additions/deletions by multiset difference (exact for edits, approximate for moves of lines). */
-function lineDelta(before: string | null, after: string): { additions: number; deletions: number } {
-  const count = new Map<string, number>();
-  for (const line of before === null ? [] : before.split("\n")) count.set(line, (count.get(line) ?? 0) + 1);
-  let additions = 0;
-  for (const line of after.split("\n")) {
-    const left = count.get(line) ?? 0;
-    if (left > 0) count.set(line, left - 1);
-    else additions += 1;
-  }
-  let deletions = 0;
-  for (const left of count.values()) deletions += left;
-  return { additions, deletions };
-}
-
-async function readText(deps: ToolDeps, workspaceId: string, path: RelativePath) {
-  const file = await deps.fs.read({ workspaceId, path });
-  if (file.binary) throw new ToolFailure("too_large", `${path} is a binary file; it cannot be read as text`);
-  if (file.tooLarge || file.content === null) {
-    throw new ToolFailure("too_large", `${path} is larger than ${FILE_EDIT_MAX_BYTES} bytes; read a smaller file or search in it`);
-  }
-  return { ...file, content: file.content };
 }
 
 function describeEntry(entry: FileEntry): string {
@@ -101,7 +79,19 @@ function requireDep<T>(value: T | null, what: string): T {
   return value;
 }
 
+function requireCheckpoint(context: ToolExecutionContext): string {
+  if (context.checkpointId === null) throw new ToolFailure("unavailable", "restore points are unavailable; writing is disabled");
+  return context.checkpointId;
+}
+
+const webContext = (context: { workspaceId: string; missionHosts: readonly string[] | null }) => ({
+  workspaceId: context.workspaceId,
+  missionHosts: context.missionHosts,
+});
+
 export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
+  const { files } = deps;
+
   const readFile = builtin({
     name: "read_file",
     operation: "read",
@@ -116,33 +106,21 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
       .strict(),
     facts: (args) => [{ path: args.path }],
     async run(args, context, started) {
-      const file = await readText(deps, context.workspaceId, args.path);
+      const file = await files.readFile(args.path, {
+        ...(args.startLine === undefined ? {} : { startLine: args.startLine }),
+        ...(args.endLine === undefined ? {} : { endLine: args.endLine }),
+      });
       context.seenVersions.set(args.path, file.hash);
-      const lines = file.content.split(/\r?\n/);
-      const start = Math.min(args.startLine ?? 1, Math.max(lines.length, 1));
-      const end = Math.min(args.endLine ?? lines.length, lines.length);
-      let selected = lines.slice(start - 1, Math.max(end, start - 1));
-      let body = numberLines(selected, start);
-      let lastLine = start + selected.length - 1;
-      if (body.length > TOOL_LIMITS.readMaxChars) {
-        // Keep whole lines within the cap and tell the model where to continue.
-        let size = 0;
-        const kept: string[] = [];
-        for (const line of selected) {
-          size += line.length + 8;
-          if (size > TOOL_LIMITS.readMaxChars) break;
-          kept.push(line);
-        }
-        selected = kept;
-        lastLine = start + kept.length - 1;
-        body = `${numberLines(kept, start)}\n[truncated: continue with startLine=${lastLine + 1}]`;
-      }
-      const header = `${args.path} — lines ${start}-${lastLine} of ${lines.length}`;
+      const lines = file.content === "" && file.totalLines === 0 ? [] : file.content.split("\n");
+      const lastLine = lines.length === 0 ? file.startLine - 1 : file.startLine + lines.length - 1;
+      const body = lines.length === 0 ? "(empty file)" : numberLines(lines.map((line) => line.replace(/\r$/, "")), file.startLine);
+      const more = file.truncated || lastLine < file.totalLines ? `\n[continue with startLine=${lastLine + 1}]` : "";
+      const header = `${args.path} — lines ${file.startLine}-${lastLine} of ${file.totalLines}`;
       return makeResult({
         callId: context.callId,
         ok: true,
-        content: `${header}\n${body}`,
-        display: { kind: "file_read", path: args.path, startLine: start, endLine: lastLine, totalLines: lines.length },
+        content: `${header}\n${body}${more}`,
+        display: { kind: "file_read", path: args.path, startLine: file.startLine, endLine: lastLine, totalLines: file.totalLines },
         provenance: provenance("workspace_file", args.path),
         durationMs: Date.now() - started,
       });
@@ -156,7 +134,7 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
     schema: z.object({ path: anyPath.default("") }).strict(),
     facts: (args) => [args.path === "" ? {} : { path: args.path }],
     async run(args, context, started) {
-      const entries = await deps.fs.list({ workspaceId: context.workspaceId, path: args.path });
+      const entries = await files.list(args.path);
       const max = 500;
       const shown = entries.slice(0, max);
       const truncated = entries.length > max;
@@ -175,7 +153,7 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
   const glob = builtin({
     name: "glob",
     operation: "read",
-    description: "Find workspace files by glob pattern (e.g. \"src/**/*.ts\"). Ignored files are excluded.",
+    description: "Find workspace files by glob pattern (e.g. \"src/**/*.ts\"). Ignored and sensitive files are excluded.",
     schema: z
       .object({
         pattern: z.string().min(1).max(500),
@@ -184,7 +162,7 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
       .strict(),
     facts: () => [{}],
     async run(args, context, started) {
-      const result = await deps.fs.glob({ workspaceId: context.workspaceId, pattern: args.pattern, limit: args.limit }, context.signal);
+      const result = await files.glob(args.pattern, args.limit);
       const text = result.paths.join("\n") || "(no match)";
       const entries: FileEntry[] = result.paths.map((path) => ({
         path,
@@ -198,7 +176,7 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
       return makeResult({
         callId: context.callId,
         ok: true,
-        content: result.truncated ? `${text}\n[more matches: narrow the pattern]` : text,
+        content: result.truncated ? `${text}\n[more matches may exist: narrow the pattern]` : text,
         display: { kind: "file_list", path: "", entries, truncated: result.truncated },
         provenance: provenance("workspace_file", args.pattern),
         durationMs: Date.now() - started,
@@ -222,10 +200,7 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
       .strict(),
     facts: () => [{}],
     async run(args, context, started) {
-      const result = await deps.fs.searchText(
-        { workspaceId: context.workspaceId, wholeWord: false, ...args },
-        context.signal,
-      );
+      const result = await files.searchText({ wholeWord: false, ...args }, context.signal);
       const text = result.matches.map((match) => `${match.path}:${match.line}: ${match.lineText}`).join("\n") || "(no match)";
       return makeResult({
         callId: context.callId,
@@ -243,7 +218,7 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
     started: number,
     change: Extract<ToolDisplay, { kind: "file_change" }>,
     content: string,
-  ): ToolResult {
+  ): ExecutedToolResult {
     return makeResult({
       callId: context.callId,
       ok: true,
@@ -252,6 +227,18 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
       provenance: provenance("nova", change.path),
       durationMs: Date.now() - started,
     });
+  }
+
+  /** Written outcome, or the conflict explained to the model (nothing was written). */
+  function written(outcome: FileChangeOutcome, conflict: string): Extract<FileChangeOutcome, { status: "written" }> {
+    if (outcome.status === "conflict") throw new ToolFailure("conflict", conflict);
+    return outcome;
+  }
+
+  function excerptOf(outcome: Extract<FileChangeOutcome, { status: "written" }>): string {
+    if (!outcome.excerpt) return "";
+    const lines = outcome.excerpt.text.split("\n").map((line) => line.replace(/\r$/, ""));
+    return `\nAround the change:\n${numberLines(lines, outcome.excerpt.startLine)}`;
   }
 
   const writeFile = builtin({
@@ -264,23 +251,26 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
     checkpointPaths: (args) => [args.path],
     async run(args, context, started) {
       const expectedHash = context.seenVersions.get(args.path) ?? null;
-      const before = expectedHash === null ? null : (await readText(deps, context.workspaceId, args.path)).content;
-      const result = await deps.fs.write({ workspaceId: context.workspaceId, path: args.path, content: args.content, expectedHash });
-      if (result.status === "conflict") {
-        throw new ToolFailure(
-          "conflict",
-          expectedHash === null
-            ? `${args.path} already exists: read it first, then use edit_file (or write_file to replace it)`
-            : `${args.path} changed since you last read it (probably edited by the user): read it again before changing it`,
-        );
-      }
-      context.seenVersions.set(args.path, result.hash);
-      const delta = lineDelta(before, args.content);
+      const outcome = written(
+        await files.writeFile(args.path, args.content, { expectedHash, checkpointId: requireCheckpoint(context) }),
+        expectedHash === null
+          ? `${args.path} already exists: read it first, then use edit_file (or write_file to replace it)`
+          : `${args.path} changed since you last read it (probably edited by the user): read it again before changing it`,
+      );
+      context.seenVersions.set(args.path, outcome.hash);
       return changeResult(
         context,
         started,
-        { kind: "file_change", change: before === null ? "created" : "modified", path: args.path, fromPath: null, ...delta, checkpointId: context.checkpointId },
-        `${before === null ? "Created" : "Replaced"} ${args.path} (+${delta.additions} −${delta.deletions} lines, ${result.size} bytes).`,
+        {
+          kind: "file_change",
+          change: outcome.created ? "created" : "modified",
+          path: args.path,
+          fromPath: null,
+          additions: outcome.additions,
+          deletions: outcome.deletions,
+          checkpointId: outcome.checkpointId,
+        },
+        `${outcome.created ? "Created" : "Replaced"} ${args.path} (+${outcome.additions} −${outcome.deletions} lines, ${outcome.size} bytes).`,
       );
     },
   });
@@ -289,20 +279,12 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
     name: "edit_file",
     operation: "write",
     description:
-      "Edit an existing file by exact text replacement. Each oldText must match exactly once (whitespace included) unless replaceAll is true; all edits apply atomically or none.",
+      "Edit an existing file by exact text replacement. Each oldText must match exactly once (whitespace included; add surrounding lines to make it unique); all edits apply atomically or none.",
     schema: z
       .object({
         path: entryPath,
         edits: z
-          .array(
-            z
-              .object({
-                oldText: z.string().min(1).max(FILE_EDIT_MAX_BYTES),
-                newText: z.string().max(FILE_EDIT_MAX_BYTES),
-                replaceAll: z.boolean().default(false),
-              })
-              .strict(),
-          )
+          .array(z.object({ oldText: z.string().min(1).max(FILE_EDIT_MAX_BYTES), newText: z.string().max(FILE_EDIT_MAX_BYTES) }).strict())
           .min(1)
           .max(50),
       })
@@ -310,44 +292,25 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
     facts: (args) => [{ path: args.path }],
     checkpointPaths: (args) => [args.path],
     async run(args, context, started) {
-      const file = await readText(deps, context.workspaceId, args.path);
-      const crlf = file.eol === "crlf";
-      let content = file.content;
-      const changedAt: number[] = [];
-      for (const [index, edit] of args.edits.entries()) {
-        let oldText = edit.oldText;
-        let newText = edit.newText;
-        if (crlf && !content.includes(oldText) && !oldText.includes("\r\n")) {
-          oldText = oldText.replace(/\n/g, "\r\n");
-          newText = newText.replace(/\r?\n/g, "\r\n");
-        }
-        const first = content.indexOf(oldText);
-        if (first === -1) {
-          throw new ToolFailure("not_found", `edit ${index + 1}: oldText was not found in ${args.path}; read the file and copy the text exactly`);
-        }
-        if (!edit.replaceAll && content.indexOf(oldText, first + 1) !== -1) {
-          throw new ToolFailure("conflict", `edit ${index + 1}: oldText matches several places in ${args.path}; include more surrounding lines or set replaceAll`);
-        }
-        changedAt.push(content.slice(0, first).split("\n").length);
-        content = edit.replaceAll ? content.split(oldText).join(newText) : content.slice(0, first) + newText + content.slice(first + oldText.length);
-      }
-      if (content.length > FILE_EDIT_MAX_BYTES) throw new ToolFailure("too_large", "the edited file would exceed the size limit");
-      const result = await deps.fs.write({ workspaceId: context.workspaceId, path: args.path, content, expectedHash: file.hash });
-      if (result.status === "conflict") {
-        throw new ToolFailure("conflict", `${args.path} changed while editing (probably by the user): read it again`);
-      }
-      context.seenVersions.set(args.path, result.hash);
-      const lines = content.split(/\r?\n/);
-      const snippets = [...new Set(changedAt)].slice(0, 5).map((line) => {
-        const from = Math.max(1, line - 3);
-        return numberLines(lines.slice(from - 1, Math.min(lines.length, line + 6)), from);
-      });
-      const delta = lineDelta(file.content, content);
+      const seen = context.seenVersions.get(args.path);
+      const outcome = written(
+        await files.editFile(args.path, args.edits, { ...(seen === undefined ? {} : { expectedHash: seen }), checkpointId: requireCheckpoint(context) }),
+        `${args.path} changed since you last read it (probably edited by the user): read it again before editing`,
+      );
+      context.seenVersions.set(args.path, outcome.hash);
       return changeResult(
         context,
         started,
-        { kind: "file_change", change: "modified", path: args.path, fromPath: null, ...delta, checkpointId: context.checkpointId },
-        `Edited ${args.path} (${args.edits.length} edit(s), +${delta.additions} −${delta.deletions} lines). Around the changes:\n${snippets.join("\n…\n")}`,
+        {
+          kind: "file_change",
+          change: "modified",
+          path: args.path,
+          fromPath: null,
+          additions: outcome.additions,
+          deletions: outcome.deletions,
+          checkpointId: outcome.checkpointId,
+        },
+        `Edited ${args.path} (${args.edits.length} edit(s), +${outcome.additions} −${outcome.deletions} lines).${excerptOf(outcome)}`,
       );
     },
   });
@@ -360,7 +323,7 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
     facts: (args) => [{ path: args.from }, { path: args.to }],
     checkpointPaths: (args) => [args.from, args.to],
     async run(args, context, started) {
-      await deps.fs.move({ workspaceId: context.workspaceId, from: args.from, to: args.to });
+      await files.move(args.from, args.to, { checkpointId: requireCheckpoint(context) });
       const hash = context.seenVersions.get(args.from);
       context.seenVersions.delete(args.from);
       if (hash) context.seenVersions.set(args.to, hash);
@@ -381,7 +344,7 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
     facts: (args) => [{ path: args.path }],
     checkpointPaths: (args) => [args.path],
     async run(args, context, started) {
-      await deps.fs.trash({ workspaceId: context.workspaceId, path: args.path });
+      await files.trash(args.path, { checkpointId: requireCheckpoint(context) });
       context.seenVersions.delete(args.path);
       return changeResult(
         context,
@@ -412,17 +375,20 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
       if (args.background) {
         const { process, initialOutput, isolationLevel } = await runner.startBackground(spec, context.onOutput);
         const running = process.state === "running";
-        return makeResult({
-          callId: context.callId,
-          ok: running,
-          content: `${running ? "Started in the background" : `Exited immediately (code ${String(process.exitCode)})`}: ${args.argv.join(" ")} [process ${process.id}]\nFirst output:\n${initialOutput || "(none yet)"}`,
-          display: {
-            kind: "command", argv: args.argv, cwd: args.cwd, exitCode: process.exitCode, signal: null,
-            durationMs: Date.now() - started, outputTail: tail(initialOutput, 4_000), outputArtifactId: null, isolationLevel,
-          },
-          provenance: provenance("command_output", args.argv.join(" ")),
-          durationMs: Date.now() - started,
-        });
+        return {
+          ...makeResult({
+            callId: context.callId,
+            ok: running,
+            content: `${running ? "Started in the background" : `Exited immediately (code ${String(process.exitCode)})`}: ${args.argv.join(" ")} [process ${process.id}]\nFirst output:\n${initialOutput || "(none yet)"}`,
+            display: {
+              kind: "command", argv: args.argv, cwd: args.cwd, exitCode: process.exitCode, signal: null,
+              durationMs: Date.now() - started, outputTail: tail(initialOutput, 4_000), outputArtifactId: null, isolationLevel,
+            },
+            provenance: provenance("command_output", args.argv.join(" ")),
+            durationMs: Date.now() - started,
+          }),
+          argv: args.argv,
+        };
       }
       const outcome = await runner.run(spec, context.signal, context.onOutput);
       if (outcome.cancelled) throw new ToolFailure("cancelled", "the command was stopped");
@@ -430,38 +396,54 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
         ? `Timed out after ${args.timeoutMs} ms (process tree killed)`
         : `Exit code ${String(outcome.exitCode)}${outcome.signal ? ` (signal ${outcome.signal})` : ""}`;
       const output = capText(outcome.output, 20_000).text;
-      return makeResult({
-        callId: context.callId,
-        ok: outcome.exitCode === 0 && !outcome.timedOut,
-        content: `$ ${args.argv.join(" ")}\n${status}, ${outcome.durationMs} ms.\n${output || "(no output)"}${outcome.truncated ? `\n[only the last part of ${outcome.outputBytes} bytes was kept]` : ""}`,
-        display: {
-          kind: "command", argv: args.argv, cwd: args.cwd, exitCode: outcome.exitCode, signal: outcome.signal,
-          durationMs: outcome.durationMs, outputTail: tail(outcome.output, 4_000), outputArtifactId: null, isolationLevel: outcome.isolationLevel,
-        },
-        provenance: provenance("command_output", args.argv.join(" ")),
-        durationMs: Date.now() - started,
-      });
+      return {
+        ...makeResult({
+          callId: context.callId,
+          ok: outcome.exitCode === 0 && !outcome.timedOut,
+          content: `$ ${args.argv.join(" ")}\n${status}, ${outcome.durationMs} ms.\n${output || "(no output)"}${outcome.truncated ? `\n[only the last part of ${outcome.outputBytes} bytes was kept]` : ""}`,
+          display: {
+            kind: "command", argv: args.argv, cwd: args.cwd, exitCode: outcome.exitCode, signal: outcome.signal,
+            durationMs: outcome.durationMs, outputTail: tail(outcome.output, 4_000), outputArtifactId: null, isolationLevel: outcome.isolationLevel,
+          },
+          provenance: provenance("command_output", args.argv.join(" ")),
+          durationMs: Date.now() - started,
+        }),
+        argv: args.argv,
+      };
     },
   });
+
+  const testArgs = z
+    .object({
+      filter: z.array(z.string().min(1).max(1_000)).max(20).default([]),
+      timeoutMs: z.int().min(1_000).max(TOOL_LIMITS.commandTimeoutMaxMs).default(5 * 60_000),
+    })
+    .strict();
+
+  const NO_RUNNER = "no test runner was detected in this project; use run_command with the right command";
+  /** The project's test command for these arguments; null when no runner was detected. */
+  async function invocationFor(filter: string[]) {
+    const facts = await deps.facts();
+    return facts ? testInvocation(facts, filter) : null;
+  }
 
   const runTests = builtin({
     name: "run_tests",
     operation: "execute",
     description:
       "Run the project's detected test command (Vitest, Jest, pytest, go…) and report passed/failed counts and failures. Optional filter arguments narrow the run (file or test name).",
-    schema: z
-      .object({
-        filter: z.array(z.string().min(1).max(1_000)).max(20).default([]),
-        timeoutMs: z.int().min(1_000).max(TOOL_LIMITS.commandTimeoutMaxMs).default(5 * 60_000),
-      })
-      .strict(),
-    // The argv is only known after reading the facts; the engine sees the project's test command.
-    facts: () => [{ argv: ["<project test command>"] }],
+    schema: testArgs,
+    // The engine judges the exact argv that will run (the project's own test command); without a
+    // detected runner the call ends as `unavailable` before any permission is asked.
+    async facts(args) {
+      const invocation = await invocationFor(args.filter);
+      if (!invocation) throw new ToolFailure("unavailable", NO_RUNNER);
+      return [{ argv: invocation.argv }];
+    },
     async run(args, context, started) {
       const runner = requireDep(deps.commands, "command execution");
-      const facts = await deps.fs.facts({ workspaceId: context.workspaceId, refresh: false });
-      const invocation = testInvocation(facts, args.filter);
-      if (!invocation) throw new ToolFailure("unavailable", "no test runner was detected in this project; use run_command with the right command");
+      const invocation = await invocationFor(args.filter);
+      if (!invocation) throw new ToolFailure("unavailable", NO_RUNNER);
       const outcome = await runner.run(
         { workspaceId: context.workspaceId, missionId: context.missionId, argv: invocation.argv, cwd: "", timeoutMs: args.timeoutMs },
         context.signal,
@@ -469,29 +451,32 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
       );
       if (outcome.cancelled) throw new ToolFailure("cancelled", "the tests were stopped");
       const report = parseTestOutput(invocation.runner, outcome.output);
-      const passedRun = outcome.exitCode === 0 && !outcome.timedOut;
+      const passedRun = outcome.exitCode === 0 && !outcome.timedOut && (report?.failed ?? 0) === 0;
       const counts = report
         ? `${String(report.passed)} passed, ${String(report.failed)} failed, ${String(report.skipped)} skipped`
         : "counts unknown (report not parsable)";
       const failures = (report?.failures ?? []).map((failure) => `✗ ${failure.name}\n${failure.message}`).join("\n");
       const status = outcome.timedOut ? `timed out after ${args.timeoutMs} ms` : `exit code ${String(outcome.exitCode)}`;
       const rawTail = !report || !passedRun ? `\nOutput (end):\n${tail(outcome.output, 8_000)}` : "";
-      return makeResult({
-        callId: context.callId,
-        ok: passedRun,
-        content: `$ ${invocation.argv.join(" ")}\nTests ${passedRun ? "PASSED" : "FAILED"} (${status}): ${counts}.${failures ? `\n${failures}` : ""}${rawTail}`,
-        display: {
-          kind: "tests",
-          runner: invocation.runner,
-          passed: report?.passed ?? null,
-          failed: report?.failed ?? null,
-          skipped: report?.skipped ?? null,
-          exitCode: outcome.exitCode,
-          proofId: null,
-        },
-        provenance: provenance("command_output", invocation.argv.join(" ")),
-        durationMs: Date.now() - started,
-      });
+      return {
+        ...makeResult({
+          callId: context.callId,
+          ok: passedRun,
+          content: `$ ${invocation.argv.join(" ")}\nTests ${passedRun ? "PASSED" : "FAILED"} (${status}): ${counts}.${failures ? `\n${failures}` : ""}${rawTail}`,
+          display: {
+            kind: "tests",
+            runner: invocation.runner,
+            passed: report?.passed ?? null,
+            failed: report?.failed ?? null,
+            skipped: report?.skipped ?? null,
+            exitCode: outcome.exitCode,
+            proofId: null,
+          },
+          provenance: provenance("command_output", invocation.argv.join(" ")),
+          durationMs: Date.now() - started,
+        }),
+        argv: invocation.argv,
+      };
     },
   });
 
@@ -540,11 +525,14 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
   const gitCommit = builtin({
     name: "git_commit",
     operation: "git_mutation",
-    description: "Commit changes with a clear message (only the given paths when provided). Never pushes.",
+    description: "Commit changes with a clear message (only the given paths when provided, else every tracked change). Never pushes.",
     schema: z.object({ message: z.string().trim().min(1).max(2_000), paths: z.array(entryPath).max(500).default([]) }).strict(),
     facts: (args) => (args.paths.length > 0 ? args.paths.map((path) => ({ path })) : [{}]),
     async run(args, context, started) {
-      const { sha } = await requireDep(deps.git, "git").commit({ workspaceId: context.workspaceId, message: args.message, paths: args.paths });
+      const { sha } = await requireDep(deps.git, "git").commit(context.workspaceId, {
+        message: args.message,
+        paths: args.paths.length > 0 ? args.paths : "all",
+      });
       return makeResult({
         callId: context.callId, ok: true, content: `Committed ${sha.slice(0, 12)}: ${args.message.split("\n")[0] ?? ""}`,
         display: { kind: "git_commit", sha, message: args.message },
@@ -556,26 +544,25 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
   const webSearch = builtin({
     name: "web_search",
     operation: "network",
-    description: "Search the web. Returns cited results (title, URL, excerpt); cite the URLs you use.",
-    schema: z
-      .object({
-        query: z.string().trim().min(1).max(500),
-        maxResults: z.int().min(1).max(10).default(5),
-        includeDomains: z.array(z.string().min(1).max(253)).max(20).default([]),
-        excludeDomains: z.array(z.string().min(1).max(253)).max(20).default([]),
-      })
-      .strict(),
+    description: "Search the web (within the project's domain policy). Returns cited results (title, URL, excerpt); cite the URLs you use.",
+    schema: z.object({ query: z.string().trim().min(1).max(500), maxResults: z.int().min(1).max(10).default(5) }).strict(),
     facts: () => [{}],
     async run(args, context, started) {
-      const result = await requireDep(deps.web, "web search").search(
-        { workspaceId: context.workspaceId, missionId: context.missionId, ...args },
-        context.signal,
-      );
-      const text = result.citations.map((citation, index) => `[${index + 1}] ${citation.title}\n${citation.url}\n${citation.snippet}`).join("\n\n");
+      const { result, content } = await requireDep(deps.web, "web search").webSearch({
+        query: args.query,
+        maxResults: args.maxResults,
+        context: webContext(context),
+        usageRef: { conversationId: null, messageId: null, missionId: context.missionId, toolCallId: context.callId },
+        signal: context.signal,
+      });
       return makeResult({
-        callId: context.callId, ok: true, content: text || "No cited result was returned.",
-        display: { kind: "web_search", query: args.query, citations: result.citations, costUsd: result.costUsd },
-        provenance: provenance("web", args.query), durationMs: Date.now() - started,
+        callId: context.callId,
+        ok: true,
+        content: result.citations.length > 0 ? content : "No cited result was returned.",
+        display: { kind: "web_search", query: result.query, citations: result.citations, costUsd: result.costUsd },
+        provenance: provenance("web", args.query),
+        durationMs: Date.now() - started,
+        prewrapped: result.citations.length > 0,
       });
     },
   });
@@ -586,16 +573,34 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
     description: "Read a web page (http/https) as Markdown. Subject to the project's domain policy.",
     schema: z.object({ url: z.url({ protocol: /^https?$/ }).max(2_000) }).strict(),
     facts: (args) => [{ host: new URL(args.url).hostname.toLowerCase() }],
+    // W4: the domain policy asks or refuses on top of the permission engine.
+    async ownerPolicy(args, context) {
+      const web = requireDep(deps.web, "web access");
+      const decision = web.decide(args.url, webContext(context));
+      if (decision.action === "allow") return null;
+      return {
+        decision: decision.action,
+        reason: "domain_policy",
+        detail: decision.action === "deny" ? `the domain policy does not allow ${decision.host}` : `${decision.host} needs the user's approval`,
+      };
+    },
     async run(args, context, started) {
-      const page = await requireDep(deps.web, "web access").fetchPage(
-        { workspaceId: context.workspaceId, missionId: context.missionId, url: args.url },
-        context.signal,
-      );
+      const host = new URL(args.url).hostname.toLowerCase();
+      // Reaching here means this call was allowed or approved, host included.
+      const { page, content } = await requireDep(deps.web, "web access").fetchPage({
+        url: args.url,
+        context: webContext(context),
+        approvedHosts: [host],
+        signal: context.signal,
+      });
       return makeResult({
-        callId: context.callId, ok: true,
-        content: `${page.title ?? page.finalUrl}\n${page.finalUrl}\n\n${page.markdown}${page.truncated ? "\n[page truncated]" : ""}`,
+        callId: context.callId,
+        ok: true,
+        content,
         display: { kind: "web_page", url: page.finalUrl, title: page.title, truncated: page.truncated },
-        provenance: provenance("web", page.finalUrl), durationMs: Date.now() - started,
+        provenance: provenance("web", page.finalUrl),
+        durationMs: Date.now() - started,
+        prewrapped: true,
       });
     },
   });

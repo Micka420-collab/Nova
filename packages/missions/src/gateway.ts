@@ -1,8 +1,9 @@
 // Tool gateway (main side, S1/A12/A10): the only path from a model tool call to an effect.
 // Order per call: journal `tool.requested` → parse + validate arguments (invalid → error result,
-// never executed) → mode check (`mode_forbids`) → `permissions.evaluate` for every target
-// (strictest wins) → `ask` waits for the approval → checkpoint before writes → execute → journal
-// `tool.finished` (exactly once, whatever happens) → proof for tests/commands.
+// never executed) → mode check (`mode_forbids`) → `permissions.evaluate` for every target and the
+// owner's policy (web domain policy, MCP tool permission), strictest wins → `ask` waits for the
+// approval → checkpoint before writes → execute → journal `tool.finished` (exactly once, whatever
+// happens) → proof for tests/commands.
 import {
   isToolName,
   redactSecrets,
@@ -19,17 +20,26 @@ import {
   type ToolResult,
   type WorkMode,
 } from "@nova/shared";
-import { errorResult, type ToolPermissionFacts, type ToolRegistry } from "@nova/tools";
+import {
+  errorResult,
+  toToolFailure,
+  type ExecutedToolResult,
+  type OwnerPolicy,
+  type ToolExecutor,
+  type ToolPermissionFacts,
+  type ToolRegistry,
+} from "@nova/tools";
 import type { MissionEventInput, ToolGateway, ToolRunRequest } from "./index";
 
 export interface PermissionGate {
-  evaluate(request: PermissionRequest): PermissionDecision | Promise<PermissionDecision>;
+  /** L1 `PermissionsService.evaluate`: records the decision (audit) before returning it; may throw (then nothing runs). */
+  evaluate(request: PermissionRequest, options: { toolCallId: string }): PermissionDecision | Promise<PermissionDecision>;
 }
 
 export interface ApprovalGate {
   /**
-   * Creates the pending approval (L1 `approvals.request`), reports it through `onPending`, and
-   * resolves with the decided approval. An aborted signal must resolve it as `expired`.
+   * Creates the pending approval, reports it through `onPending`, and resolves with the decided
+   * approval. An aborted signal must resolve it (`expired` or `denied`), never leave it hanging.
    */
   request(
     input: { request: PermissionRequest; decision: PermissionDecision; toolCallId: string; missionId: string },
@@ -38,9 +48,8 @@ export interface ApprovalGate {
 }
 
 export interface CheckpointGate {
-  capture(input: { workspaceId: string; missionId: string; label: string; reason: "tool_write"; paths: RelativePath[] }): Promise<Checkpoint>;
-  /** Records the after-hashes of a checkpoint once the tool has written (A10). */
-  complete?(checkpointId: string): Promise<void>;
+  /** Creates the (empty) restore point of one tool call; the file API snapshots each file into it (A10). */
+  create(input: { workspaceId: string; missionId: string; label: string; reason: "tool_write" }): Checkpoint;
 }
 
 /** Per-mission state the gateway needs (built by the controller when the mission starts). */
@@ -57,6 +66,20 @@ export interface MissionToolContext {
   tainted: boolean;
 }
 
+/** What L1 `AuditService.recordToolExecution` takes (S5): no content, argv redacted by the sink. */
+export interface ToolExecutionAudit {
+  workspaceId: string;
+  missionId: string;
+  toolCallId: string;
+  tool: ToolName;
+  operation: ToolCallSummary["operation"];
+  target: string | null;
+  argv: string[] | null;
+  state: "succeeded" | "failed" | "cancelled" | "denied";
+  exitCode: number | null;
+  durationMs: number;
+}
+
 export interface ToolGatewayDeps {
   context(missionId: string): MissionToolContext | null;
   permissions: PermissionGate;
@@ -70,27 +93,38 @@ export interface ToolGatewayDeps {
     finish(id: string, state: "denied" | "succeeded" | "failed" | "cancelled", outcome: { exitCode: number | null; resultSummary: string | null }): void;
   };
   proofs: { insert(input: Omit<Proof, "id" | "createdAt">): Proof };
-  /** Audit trail (S5): one entry per decision and per outcome. */
-  audit?: (entry: {
-    workspaceId: string;
-    missionId: string;
-    toolCallId: string;
-    action: string;
-    decision: PermissionDecision["decision"] | null;
-    ruleId: string | null;
-    target: string | null;
-    outcome: string;
-  }) => void;
+  /** Audit trail of executions (S5); decisions are audited by the permission gate itself. */
+  audit?: (entry: ToolExecutionAudit) => void;
   now?: () => number;
 }
 
 const RANK: Record<PermissionDecision["decision"], number> = { allow: 0, ask: 1, deny: 2 };
 
+/** Owner policies (web domain policy, MCP tool setting) explained on the card and in the audit log. */
+const OWNER_EXPLANATIONS: Record<OwnerPolicy["reason"], Record<OwnerPolicy["decision"], string>> = {
+  domain_policy: {
+    ask: "La politique Internet de ce projet demande ton accord pour ce site.",
+    deny: "La politique Internet de ce projet refuse ce site.",
+  },
+  mcp_tool_policy: {
+    ask: "Cet outil MCP est réglé sur « Demander » : NOVA te demande à chaque appel.",
+    deny: "Cet outil MCP est bloqué pour ce projet.",
+  },
+};
+
 /** deny > ask > allow; among equals the first one (its rule is the one shown). */
 export function strictestDecision(decisions: readonly PermissionDecision[]): PermissionDecision {
   let result: PermissionDecision | null = null;
   for (const decision of decisions) if (!result || RANK[decision.decision] > RANK[result.decision]) result = decision;
-  return result ?? { decision: "ask", reason: "default_ask", ruleId: null, rememberable: true };
+  return (
+    result ?? {
+      decision: "ask",
+      reason: "default_ask",
+      ruleId: null,
+      rememberable: true,
+      explanation: "Aucune règle ne couvre cette action : NOVA te demande ton accord.",
+    }
+  );
 }
 
 function preview(raw: string): string {
@@ -128,7 +162,41 @@ const REFUSAL_HINT: Partial<Record<PermissionDecision["reason"], string>> = {
   outside_workspace: "the target is outside the workspace; stay inside the project",
   excluded_path: "this path is excluded (sensitive file); do not access it",
   contract_forbids: "the mission contract does not allow this; tell the user what you would need",
+  domain_policy: "the project's domain policy does not allow this site; use another source or tell the user",
 };
+
+/** Owner rule as a decision; a failing owner check (invalid or blocked URL) refuses. */
+async function ownerDecision(
+  executor: ToolExecutor,
+  args: unknown,
+  scope: { workspaceId: string; missionHosts: readonly string[] | null },
+): Promise<{ decision: PermissionDecision; detail: string } | null> {
+  if (!executor.ownerPolicy) return null;
+  let policy: OwnerPolicy | null;
+  try {
+    policy = await executor.ownerPolicy(args, scope);
+  } catch (error) {
+    const failure = toToolFailure(error, new AbortController().signal);
+    policy = { decision: "deny", reason: "domain_policy", detail: failure.message };
+  }
+  if (!policy) return null;
+  return {
+    decision: {
+      decision: policy.decision,
+      reason: policy.reason,
+      ruleId: `owner:${policy.reason}`,
+      // S6: an MCP tool set to "ask" asks every time; a host approval may be remembered.
+      rememberable: policy.reason === "domain_policy" && policy.decision === "ask",
+      explanation: OWNER_EXPLANATIONS[policy.reason][policy.decision],
+    },
+    detail: policy.detail,
+  };
+}
+
+/** `allowedHosts: []` means "no host restriction beyond the project's policy" (W4 restricts only). */
+export function missionHostsOf(contract: MissionContract): readonly string[] | null {
+  return contract.allowedHosts.length > 0 ? contract.allowedHosts : null;
+}
 
 export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
   const now = deps.now ?? Date.now;
@@ -144,7 +212,15 @@ export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
       const executor = context.registry.get(name);
       const operation = executor?.operation ?? "external";
       const parsed = executor ? context.registry.parseArguments(name, request.rawArguments) : null;
-      const facts: ToolPermissionFacts[] = executor && parsed?.ok ? executor.permissionFacts(parsed.args) : [{}];
+      let facts: ToolPermissionFacts[] = [{}];
+      let factsError: { code: Parameters<typeof errorResult>[1]; message: string } | null = null;
+      if (executor && parsed?.ok) {
+        try {
+          facts = await executor.permissionFacts(parsed.args);
+        } catch (error) {
+          factsError = toToolFailure(error, signal);
+        }
+      }
       const first = facts[0] ?? {};
       const summary: ToolCallSummary = {
         id: request.id,
@@ -156,6 +232,7 @@ export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
         argv: first.argv ?? null,
       };
       const started = now();
+      const missionHosts = missionHostsOf(context.contract);
       deps.toolCalls.insert({ id: request.id, missionId: context.missionId, tool: name, operation, arguments: summary.argumentsPreview });
       deps.journal.append({ type: "tool.requested", missionId: context.missionId, call: summary, taskId: null });
 
@@ -176,11 +253,13 @@ export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
           workspaceId: context.workspaceId,
           missionId: context.missionId,
           toolCallId: request.id,
-          action: `tool.${name}`,
-          decision: null,
-          ruleId: null,
-          target: summary.path ?? summary.host ?? summary.argv?.[0] ?? null,
-          outcome: state,
+          tool: name,
+          operation,
+          target: summary.path ?? summary.host ?? null,
+          argv: (result as ExecutedToolResult).argv ?? summary.argv,
+          state,
+          exitCode: exitCodeOf(result.display),
+          durationMs: now() - started,
         });
         return result;
       };
@@ -191,63 +270,55 @@ export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
           return finish("failed", errorResult(request.id, "unavailable", `the tool "${name}" is not available in this mission`));
         }
         if (!parsed.ok) return finish("failed", errorResult(request.id, "invalid_arguments", parsed.error));
+        if (factsError) return finish("failed", errorResult(request.id, factsError.code, factsError.message));
 
+        const permissionRequest = (fact: ToolPermissionFacts): PermissionRequest => ({
+          workspaceId: context.workspaceId,
+          missionId: context.missionId,
+          tool: name,
+          operation,
+          ...fact,
+          mode: context.mode,
+          tainted: context.tainted,
+        });
+        let ownerDetail: string | null = null;
         const decide = async (): Promise<PermissionDecision> => {
           if (!context.allowedTools.has(name)) {
-            return { decision: "deny", reason: "mode_forbids", ruleId: `builtin:mode-${context.mode}`, rememberable: false };
+            return {
+              decision: "deny",
+              reason: "mode_forbids",
+              ruleId: `builtin:mode-${context.mode}`,
+              rememberable: false,
+              explanation: "Ce mode de travail n'autorise pas cet outil.",
+            };
           }
           const decisions: PermissionDecision[] = [];
-          for (const fact of facts) {
-            decisions.push(
-              await deps.permissions.evaluate({
-                workspaceId: context.workspaceId,
-                missionId: context.missionId,
-                tool: name,
-                operation,
-                ...fact,
-                mode: context.mode,
-                tainted: context.tainted,
-              }),
-            );
+          for (const fact of facts) decisions.push(await deps.permissions.evaluate(permissionRequest(fact), { toolCallId: request.id }));
+          const owner = await ownerDecision(executor, parsed.args, { workspaceId: context.workspaceId, missionHosts });
+          if (owner) {
+            ownerDetail = owner.detail;
+            decisions.push(owner.decision);
           }
           return strictestDecision(decisions);
         };
         const decision = await decide();
         deps.toolCalls.setDecision(request.id, decision.decision, decision.ruleId);
-        deps.audit?.({
-          workspaceId: context.workspaceId,
-          missionId: context.missionId,
-          toolCallId: request.id,
-          action: `permission.${name}`,
-          decision: decision.decision,
-          ruleId: decision.ruleId,
-          target: summary.path ?? summary.host ?? summary.argv?.[0] ?? null,
-          outcome: decision.reason,
-        });
 
-        let approvalId: string | null = null;
         if (decision.decision === "ask") {
           let pendingEmitted = false;
           const approval = await deps.approvals.request(
-            {
-              request: { workspaceId: context.workspaceId, missionId: context.missionId, tool: name, operation, ...first, mode: context.mode, tainted: context.tainted },
-              decision,
-              toolCallId: request.id,
-              missionId: context.missionId,
-            },
+            { request: permissionRequest(first), decision, toolCallId: request.id, missionId: context.missionId },
             {
               signal,
               onPending: (pending) => {
                 pendingEmitted = true;
-                approvalId = pending.id;
                 deps.journal.append({ type: "tool.permission", missionId: context.missionId, callId: request.id, decision, approvalId: pending.id });
                 deps.journal.append({ type: "approval.requested", missionId: context.missionId, approval: pending });
               },
             },
           );
-          approvalId = approval.id;
           if (!pendingEmitted) {
-            deps.journal.append({ type: "tool.permission", missionId: context.missionId, callId: request.id, decision, approvalId });
+            deps.journal.append({ type: "tool.permission", missionId: context.missionId, callId: request.id, decision, approvalId: approval.id });
           }
           deps.journal.append({ type: "approval.resolved", missionId: context.missionId, approval });
           if (signal.aborted) return finish("cancelled", errorResult(request.id, "cancelled", "stopped by the user"));
@@ -261,23 +332,22 @@ export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
         } else {
           deps.journal.append({ type: "tool.permission", missionId: context.missionId, callId: request.id, decision, approvalId: null });
           if (decision.decision === "deny") {
-            const hint = REFUSAL_HINT[decision.reason] ?? "refused by the permission policy; do not retry the same action";
+            const hint = ownerDetail ?? REFUSAL_HINT[decision.reason] ?? "refused by the permission policy; do not retry the same action";
             return finish("denied", errorResult(request.id, "permission_denied", `refused (${decision.reason}): ${hint}`));
           }
         }
         if (signal.aborted) return finish("cancelled", errorResult(request.id, "cancelled", "stopped by the user"));
 
-        // A10: snapshot before any write or delete.
+        // A10: a restore point before any write or delete; the file API snapshots into it.
         let checkpointId: string | null = null;
         const paths = executor.checkpointPaths(parsed.args);
         if ((operation === "write" || operation === "delete") && paths.length > 0) {
           if (!deps.checkpoints) return finish("failed", errorResult(request.id, "unavailable", "restore points are unavailable; writing is disabled"));
-          const checkpoint = await deps.checkpoints.capture({
+          const checkpoint = deps.checkpoints.create({
             workspaceId: context.workspaceId,
             missionId: context.missionId,
             label: `${name} ${paths.join(", ")}`.slice(0, 200),
             reason: "tool_write",
-            paths,
           });
           checkpointId = checkpoint.id;
           deps.journal.append({ type: "checkpoint.created", missionId: context.missionId, checkpoint });
@@ -290,20 +360,25 @@ export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
           callId: request.id,
           isolationLevel: operation === "execute" ? context.contract.isolationLevel : null,
         });
-        let result = await executor.execute(parsed.args, {
+        let result: ExecutedToolResult = await executor.execute(parsed.args, {
           workspaceId: context.workspaceId,
           missionId: context.missionId,
           callId: request.id,
           signal,
           checkpointId,
           seenVersions: context.seenVersions,
-          onOutput: (stream, chunk) =>
-            deps.journal.append({ type: "tool.output", missionId: context.missionId, callId: request.id, stream, chunk: chunk.slice(0, 16_000) }),
+          missionHosts,
+          // Live output of this call only: a background process keeps printing after its call ended.
+          onOutput: (stream, chunk) => {
+            if (finished) return;
+            deps.journal.append({ type: "tool.output", missionId: context.missionId, callId: request.id, stream, chunk: redactSecrets(chunk.slice(0, 16_000)) });
+          },
         });
-        if (checkpointId && deps.checkpoints?.complete) await deps.checkpoints.complete(checkpointId);
         if (result.provenance.untrusted) context.tainted = true;
         result = recordProof(deps, context.missionId, request.id, result);
-        return finish(finishedState(result), result);
+        const { argv: _argv, ...forModel } = result;
+        finish(finishedState(result), result);
+        return forModel;
       } catch {
         return finish(
           signal.aborted ? "cancelled" : "failed",
@@ -315,16 +390,15 @@ export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
 }
 
 /** A4: tests and foreground commands leave a proof; the tests card points to it. */
-function recordProof(deps: ToolGatewayDeps, missionId: string, callId: string, result: ToolResult): ToolResult {
+function recordProof(deps: ToolGatewayDeps, missionId: string, callId: string, result: ExecutedToolResult): ExecutedToolResult {
   const display = result.display;
-  const argv = /^\$ (.+)$/m.exec(result.content)?.[1]?.split(" ") ?? null;
   if (display.kind === "tests") {
     const proof = deps.proofs.insert({
       missionId,
       taskId: null,
       toolCallId: callId,
       kind: "test",
-      command: argv,
+      command: result.argv ?? null,
       exitCode: display.exitCode,
       summary: summaryOf(result),
       outputRef: null,
@@ -347,4 +421,3 @@ function recordProof(deps: ToolGatewayDeps, missionId: string, callId: string, r
   }
   return result;
 }
-

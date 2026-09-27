@@ -9,7 +9,6 @@ import {
   type Checkpoint,
   type CheckpointsListRequest,
   type IsolationLevel,
-  type McpToolInfo,
   type Mission,
   type MissionBudget,
   type MissionContract,
@@ -34,13 +33,14 @@ import {
   type WorkMode,
   type WorkspaceFacts,
 } from "@nova/shared";
-import { toolsForMode, type CommandRunner, type ToolRegistry } from "@nova/tools";
+import type { CommandRunner, McpToolOffer, ToolRegistry } from "@nova/tools";
 import { estimateMission, type PricingLike } from "./budget";
 import { createToolGateway, type ApprovalGate, type CheckpointGate, type MissionToolContext, type PermissionGate, type ToolGatewayDeps } from "./gateway";
+import { missionToolSet } from "./tool-set";
 import type { MissionEventInput, ProviderProxy, ToolGateway } from "./index";
 import { createMissionJournal, eventFromRecord, type MissionEventRecordLike, type MissionJournal } from "./journal";
 import { planMission } from "./planner";
-import { applyReview, buildReview, type ReviewFsGate } from "./review";
+import { applyReview, buildReview, type ReviewFsGate, type ReviewModel } from "./review";
 import type { MainRuntimeHandlers, RuntimeLink } from "./runtime-link";
 
 // ---------------------------------------------------------------------------
@@ -79,6 +79,7 @@ export interface MissionStoreLike {
   listInterrupted(): MissionRecordLike[];
   replaceTasks(missionId: string, drafts: { title: string; acceptance: MissionTask["acceptance"] }[]): (MissionTask & { updatedAt: number })[];
   listTasks(missionId: string): (MissionTask & { updatedAt: number })[];
+  setTaskState(taskId: string, state: MissionTask["state"]): unknown;
   toolCalls: ToolGatewayDeps["toolCalls"];
   proofs: { insert: ToolGatewayDeps["proofs"]["insert"]; listByMission(missionId: string): Proof[] };
   cost: {
@@ -129,7 +130,7 @@ export interface MissionControllerDeps {
   workspaces: { get(id: string): { id: string; permissionProfile: PermissionProfile } | null };
   facts?(workspaceId: string): Promise<WorkspaceFacts | null>;
   /** Registry of one mission (built-ins over the injected APIs + enabled MCP tools snapshot). */
-  tools(input: { workspaceId: string; missionId: string }): Promise<{ registry: ToolRegistry; mcpTools: McpToolInfo[] }>;
+  tools(input: { workspaceId: string; missionId: string }): Promise<{ registry: ToolRegistry; mcpTools: readonly McpToolOffer[] }>;
   commands: Pick<CommandRunner, "stopAll"> | null;
   permissions: PermissionGate;
   approvals: ApprovalGate;
@@ -150,7 +151,11 @@ export interface MissionController {
   plan(req: MissionPlanRequest): Promise<MissionPlanResult>;
   start(req: MissionStartRequest): Promise<Mission>;
   pause(req: MissionIdRequest): Promise<Mission>;
-  resume(req: MissionIdRequest): Promise<Mission>;
+  /**
+   * `budgetUsd` (in-process until the IPC contract carries it) raises the mission budget before
+   * resuming a mission suspended at its cap; it can only go up.
+   */
+  resume(req: MissionIdRequest & { budgetUsd?: number }): Promise<Mission>;
   stop(req: MissionIdRequest): Promise<Mission>;
   list(req: MissionsListRequest): Promise<MissionPage>;
   get(req: MissionGetRequest): Promise<MissionDetail>;
@@ -168,6 +173,10 @@ export interface MissionController {
   /** Marks missions left running by a previous process as failed (call once at startup). */
   recoverInterrupted(): number;
   isRunning(missionId: string): boolean;
+  /** Contract of a mission (L1 `PermissionsService.contractOf`); null when unknown. */
+  contractOf(missionId: string): MissionContract | null;
+  /** A11: files the mission changed, before/after hashes, from its restore points. */
+  reviewModel(missionId: string): Promise<ReviewModel>;
 }
 
 const MAX_EVENTS = 2_000;
@@ -216,7 +225,12 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
       terminalWaiters.delete(missionId);
     },
   });
-  const append = (event: MissionEventInput): MissionEvent | null => journal.append(event);
+  const append = (event: MissionEventInput): MissionEvent | null => {
+    const stored = journal.append(event);
+    // The tasks table is the projection read by `missions.get`: keep it in step with the journal.
+    if (stored?.type === "task.updated") deps.store.setTaskState(stored.task.id, stored.task.state);
+    return stored;
+  };
 
   const mission = (id: string): MissionRecordLike => {
     const record = deps.store.get(id);
@@ -225,7 +239,7 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
   };
 
   /** The full contract is journaled (the table has no web search column); latest wins. */
-  const contractOf = (record: MissionRecordLike): MissionContract => {
+  const storedContract = (record: MissionRecordLike): MissionContract => {
     const events = deps.store.listEvents(record.id).map(eventFromRecord);
     for (const event of events.reverse()) {
       if (event.type === "mission.started" || event.type === "mission.created") return event.contract;
@@ -393,7 +407,7 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
         tasks = deps.store.listTasks(record.id).map(({ updatedAt: _updatedAt, ...task }) => task);
       }
       const { registry, mcpTools } = await deps.tools({ workspaceId: record.workspaceId, missionId: record.id });
-      const allowedTools = toolsForMode(record.mode, { webSearch: contract.webSearch, mcpTools });
+      const allowedTools = missionToolSet(record.mode, { webSearch: contract.webSearch, mcpTools });
       const tools = registry.definitions(allowedTools);
       running.set(record.id, {
         workspaceId: record.workspaceId,
@@ -429,7 +443,16 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
       if (record.state !== "suspended" && record.state !== "running" && record.state !== "waiting_approval") {
         throw new MissionError("conflict", `mission is ${record.state}`);
       }
-      if (!running.has(record.id)) throw new MissionError("conflict", "mission is not running in this session");
+      const context = running.get(record.id);
+      if (!context) throw new MissionError("conflict", "mission is not running in this session");
+      if (req.budgetUsd !== undefined) {
+        if (!(req.budgetUsd >= context.contract.budgetUsd) || req.budgetUsd > 1_000) {
+          throw new MissionError("invalid_request", "the budget can only be raised (at most 1 000 $)");
+        }
+        context.contract = { ...context.contract, budgetUsd: req.budgetUsd };
+        deps.store.updateContract(record.id, contractRecord(context.contract));
+        emitBudget(record.id);
+      }
       link?.resume(record.id);
       return toMission(record);
     },
@@ -458,7 +481,7 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
       const records = req.afterSeq > 0 ? deps.store.listEvents(record.id, req.afterSeq).slice(-MAX_EVENTS) : deps.store.listRecentEvents(record.id, MAX_EVENTS);
       return {
         mission: toMission(record),
-        contract: contractOf(record),
+        contract: running.get(record.id)?.contract ?? storedContract(record),
         tasks: deps.store.listTasks(record.id).map(({ updatedAt: _updatedAt, ...task }) => task),
         proofs: deps.store.proofs.listByMission(record.id),
         budget: budgetOf(record.id),
@@ -471,7 +494,7 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
       if (!isTerminalMissionState(record.state)) throw new MissionError("conflict", "review happens after the mission ends");
       if (!deps.checkpoints || !deps.reviewFs) throw new MissionError("unavailable", "review needs restore points");
       const checkpoints = await deps.checkpoints.list({ workspaceId: record.workspaceId, missionId: record.id, limit: 500 });
-      const result = await applyReview({ workspaceId: record.workspaceId, model: buildReview(checkpoints), decisions: req.decisions, fs: deps.reviewFs });
+      const result = await applyReview({ workspaceId: record.workspaceId, missionId: record.id, model: buildReview(checkpoints), decisions: req.decisions, fs: deps.reviewFs });
       if (result.applied.length > 0) {
         deps.store.reviews.record(record.id, result.applied);
         append({ type: "review.decided", missionId: record.id, decisions: result.applied });
@@ -530,6 +553,19 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
         appendEvent: (event) => void append(event),
         isRunning: (missionId) => running.has(missionId),
       };
+    },
+
+    contractOf(missionId) {
+      const context = running.get(missionId);
+      if (context) return context.contract;
+      const record = deps.store.get(missionId);
+      return record ? storedContract(record) : null;
+    },
+
+    async reviewModel(missionId) {
+      const record = mission(missionId);
+      if (!deps.checkpoints) return { files: [] };
+      return buildReview(await deps.checkpoints.list({ workspaceId: record.workspaceId, missionId: record.id, limit: 500 }));
     },
 
     recoverInterrupted() {

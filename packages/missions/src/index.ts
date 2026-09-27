@@ -148,14 +148,24 @@ export {
   type MissionStoreLike,
 } from "./controller";
 export {
+  createApprovalBridge,
+  type ApprovalBridge,
+  type ApprovalEventLike,
+  type ApprovalServiceLike,
+} from "./approval-bridge";
+export {
   createToolGateway,
+  missionHostsOf,
   strictestDecision,
   type ApprovalGate,
   type CheckpointGate,
   type MissionToolContext,
   type PermissionGate,
+  type ToolExecutionAudit,
   type ToolGatewayDeps,
 } from "./gateway";
+export { HUNK_CONTEXT_LINES, diffHunks, revertHunks, unifiedPatch, type LineHunk } from "./line-diff";
+export { missionToolSet } from "./tool-set";
 export { createMissionJournal, eventFromRecord, type MissionJournal, type MissionJournalDeps } from "./journal";
 export { DEFAULT_LOOP_LIMITS, MissionLoop, type LoopLimits, type MissionLoopDeps } from "./loop";
 export { NoProgressDetector } from "./no-progress";

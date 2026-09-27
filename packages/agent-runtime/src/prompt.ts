@@ -25,7 +25,7 @@ const MODE_SCOPE: Record<WorkMode, string> = {
   plan: "Mode Planifier : tu lis et cherches dans le projet pour proposer un plan ; tu ne modifies aucun fichier et ne lances aucune commande.",
   build: "Mode Construire : tu lis, modifies des fichiers et lances des commandes et des tests, dans les limites du contrat de la mission.",
   fix: "Mode Corriger : tu diagnostiques le symptôme, corriges au plus juste, puis vérifies en lançant les tests.",
-  verify: "Mode Vérifier : tu lances les tests et les commandes et lis le code ; tu ne modifies aucun fichier.",
+  verify: "Mode Vérifier : tu lances les tests du projet et lis le code ; tu ne modifies aucun fichier et ne lances pas d'autre commande.",
 };
 
 /**

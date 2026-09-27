@@ -44,7 +44,7 @@ export interface ProcessCommandRunnerOptions {
   maxOutputBytes?: number;
   /** Grace period between SIGTERM and SIGKILL. */
   killGraceMs?: number;
-  /** How long startBackground waits for first output. */
+  /** Longest wait of startBackground for a first output (it returns earlier once output arrived). */
   backgroundSettleMs?: number;
   platform?: NodeJS.Platform;
 }
@@ -74,12 +74,14 @@ interface Running {
 }
 
 const ISOLATION: IsolationLevel = "L0";
+/** Quiet time after the first output of a background process before startBackground returns. */
+const BACKGROUND_QUIET_MS = 150;
 
 export function createProcessCommandRunner(options: ProcessCommandRunnerOptions): CommandRunner {
   const platform = options.platform ?? process.platform;
   const maxOutput = options.maxOutputBytes ?? TOOL_LIMITS.commandOutputMaxBytes;
   const killGraceMs = options.killGraceMs ?? 2_000;
-  const settleMs = options.backgroundSettleMs ?? 1_500;
+  const settleMs = options.backgroundSettleMs ?? 5_000;
   const background = new Map<string, { info: BackgroundProcess; running: Running }>();
 
   async function launch(spec: CommandSpec): Promise<Running> {
@@ -194,8 +196,14 @@ export function createProcessCommandRunner(options: ProcessCommandRunnerOptions)
       const output = new OutputTail(maxOutput);
       let initial = "";
       let settled = false;
+      // Returns once the process printed something and paused briefly, exited, or `settleMs` passed.
+      let firstOutput: () => void = () => undefined;
+      const printed = new Promise<void>((resolve) => {
+        firstOutput = resolve;
+      }).then(() => new Promise((resolve) => setTimeout(resolve, BACKGROUND_QUIET_MS)));
       attachOutput(running, output, (stream, chunk) => {
         if (!settled) initial += chunk;
+        firstOutput();
         onOutput?.(stream, chunk);
       });
       const info: BackgroundProcess = {
@@ -218,7 +226,15 @@ export function createProcessCommandRunner(options: ProcessCommandRunnerOptions)
           info.state = "exited";
         },
       );
-      await Promise.race([running.exited.catch(() => undefined), new Promise((resolve) => setTimeout(resolve, settleMs))]);
+      let settleTimer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        running.exited.catch(() => undefined),
+        printed,
+        new Promise((resolve) => {
+          settleTimer = setTimeout(resolve, settleMs);
+        }),
+      ]);
+      clearTimeout(settleTimer);
       settled = true;
       return { process: { ...info }, initialOutput: initial.slice(-8_000), isolationLevel: ISOLATION };
     },

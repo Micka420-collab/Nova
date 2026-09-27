@@ -165,10 +165,10 @@ describe("review", () => {
       revertHunks: async () => ({ status: "reverted" as const }),
     });
     const decisions = [{ path: "src/a.ts", hunkIndex: null, decision: "reverted" as const }];
-    expect(await applyReview({ workspaceId: "w", model, decisions, fs: fs(C) })).toEqual({ applied: decisions, conflicts: [] });
+    expect(await applyReview({ workspaceId: "w", missionId: "m", model, decisions, fs: fs(C) })).toEqual({ applied: decisions, conflicts: [] });
     expect(restored).toEqual(["cp2", "cp1"]);
     restored.length = 0;
-    expect(await applyReview({ workspaceId: "w", model, decisions, fs: fs("f".repeat(64)) })).toEqual({ applied: [], conflicts: [{ path: "src/a.ts", hunkIndex: null }] });
+    expect(await applyReview({ workspaceId: "w", missionId: "m", model, decisions, fs: fs("f".repeat(64)) })).toEqual({ applied: [], conflicts: [{ path: "src/a.ts", hunkIndex: null }] });
     expect(restored).toEqual([]);
   });
 
@@ -176,6 +176,7 @@ describe("review", () => {
     const calls: unknown[] = [];
     const result = await applyReview({
       workspaceId: "w",
+      missionId: "m",
       model,
       decisions: [
         { path: "src/a.ts", hunkIndex: 0, decision: "kept" },
@@ -192,7 +193,7 @@ describe("review", () => {
         },
       },
     });
-    expect(calls).toEqual([{ workspaceId: "w", path: "src/a.ts", baseHash: A, expectedCurrentHash: C, hunkIndexes: [2] }]);
+    expect(calls).toEqual([{ workspaceId: "w", missionId: "m", path: "src/a.ts", baseHash: A, expectedCurrentHash: C, hunkIndexes: [2] }]);
     expect(result.applied).toHaveLength(2);
   });
 });
