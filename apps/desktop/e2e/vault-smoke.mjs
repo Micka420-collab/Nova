@@ -39,8 +39,12 @@ for (let waited = 0; waited < 30_000 && vault === null; waited += 250) {
   await new Promise((resolve) => setTimeout(resolve, 250));
   vault = detectedVault();
 }
+// A vault call blocked on an OS prompt can ignore SIGTERM: escalate so the check always ends.
+const exited = new Promise((resolve) => child.once("exit", resolve));
 child.kill();
-await new Promise((resolve) => child.once("exit", resolve));
+const forced = setTimeout(() => child.kill("SIGKILL"), 5_000);
+await exited;
+clearTimeout(forced);
 
 if (vault === null) {
   console.error("[vault-smoke] FAILED: no 'vault detected' log line within 30 s");
