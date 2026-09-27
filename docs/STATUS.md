@@ -38,7 +38,7 @@ Environnement commun, sauf mention contraire : Linux x64, Ubuntu 26.04, Node 24.
 | 2026-09-27 | `pnpm exec electron-builder --config electron-builder.yml --linux dir` (dans `apps/desktop`) | Linux x64 | Dossier construit ; fuses relus sur le binaire et conformes à `electron-builder.yml` | Voie principale |
 | 2026-09-27 | Build empaqueté Linux lancé avec `NOVA_OPENROUTER_BASE_URL`, `NOVA_USER_DATA_DIR`, `ELECTRON_RENDERER_URL` | Linux x64, dossier empaqueté | Les trois variables ignorées | Voie principale |
 | 2026-09-27 | Catalogue OpenRouter en direct, puis vérification d'une clé invalide | Linux x64, réseau réel | 458 modèles reçus ; HTTP 401 traduit en `invalid_key` | Voie principale |
-| en attente | CI GitHub Actions (`.github/workflows/ci.yml`) : identifiant du run | ubuntu, windows, macos | à consigner après le premier run | |
+| 2026-09-27 | CI GitHub Actions (`.github/workflows/ci.yml`), run 36320963259 (commit `98762932`) | ubuntu, windows, macos | 4 jobs verts : lint/types/unitaires ; sur chaque OS E2E 13/13, `vault-smoke` et `electron-builder --dir` | CI |
 | en attente | Scénario 1 manuel avec un vrai compte OpenRouter (réponse en continu réelle) | | à faire : demande une clé avec crédit | |
 
 ## Non vérifié
@@ -69,8 +69,8 @@ Aucune plateforme n'est déclarée prise en charge tant que sa ligne n'indique p
 | Plateforme | Construit | Testé E2E | Signé | Installable |
 | --- | --- | --- | --- | --- |
 | Linux x64 — référence (Ubuntu 26.04) | Oui — 2026-09-27, `electron-builder --linux dir` | Oui — 2026-09-27, Playwright 13/13 (coffre faible ou session) et `vault-smoke` `os` et `weak` | Non (aucun certificat, Q3) | Non vérifié (AppImage non testée) |
-| Windows x64 (CI `windows-latest`) | CI en attente | CI en attente | Non (aucun certificat, Q3) | Non vérifié |
-| macOS (CI `macos-latest`, architecture à consigner) | CI en attente | CI en attente | Non (aucun certificat, Q3) | Non vérifié |
+| Windows x64 (CI `windows-latest`) | Oui — run 36320963259 (commit `98762932`), `win-unpacked` | Oui — E2E 13/13 ; coffre `os`/`dpapi` détecté hors Playwright | Non (aucun certificat, Q3) | Non vérifié (installeur NSIS non testé) |
+| macOS arm64 (CI `macos-latest`) | Oui — run 36320963259 (commit `98762932`), `mac-arm64` | Oui — E2E 13/13 (trousseau factice de Playwright) ; coffre `os`/`keychain` détecté hors Playwright avec un trousseau de test déverrouillé | Non (aucun certificat, Q3) | Non vérifié (DMG non testé) |
 
 Format attendu d'une cellule remplie : « Oui — 2026-mm-jj, commande ou run CI » ou « Non — raison ».
 
