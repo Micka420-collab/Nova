@@ -19,18 +19,60 @@ electronFuses:
   enableEmbeddedAsarIntegrityValidation: true
   onlyLoadAppFromAsar: true
   grantFileProtocolExtraPrivileges: false
+artifactName: "NOVA-${version}-${os}-${arch}.${ext}"
 linux:
   target:
     - AppImage
-    - dir
+    - deb
   category: Development
   icon: build/icon.png
+  syncDesktopName: true
+  synopsis: Atelier personnel d'IA avec le compagnon Nomi
+  description: "NOVA : discute avec les modèles d'OpenRouter, garde tes conversations en local et suis ton travail avec le compagnon Nomi."
+deb:
+  maintainer: Micka Delcato <132650965+Micka420-collab@users.noreply.github.com>
 win:
   target:
-    - nsis
+    - target: nsis
+      arch: [x64]
   icon: build/icon.png
+# Guided installer (not one-click): branded sidebar/header, French, choice of folder.
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: NOVA
+  uninstallDisplayName: NOVA
+  runAfterFinish: true
+  installerSidebar: build/installerSidebar.bmp
+  uninstallerSidebar: build/uninstallerSidebar.bmp
+  installerHeader: build/installerHeader.bmp
+  language: "1036"
+  installerLanguages: [fr_FR]
+  multiLanguageInstaller: false
 mac:
   target:
-    - dmg
+    - target: dmg
+      arch: [arm64, x64]
   category: public.app-category.developer-tools
   icon: build/icon.png
+  # No Apple certificate yet: ad-hoc signature so Apple Silicon can run the app (first open: Ctrl-click > Ouvrir).
+  identity: "-"
+  hardenedRuntime: false
+  gatekeeperAssess: false
+dmg:
+  title: "NOVA ${version}"
+  background: build/dmg-background.png
+  iconSize: 100
+  window:
+    width: 660
+    height: 420
+  contents:
+    - x: 180
+      y: 230
+    - x: 480
+      y: 230
+      type: link
+      path: /Applications

@@ -84,11 +84,22 @@ jobs:
         if: runner.os != 'Linux'
         working-directory: apps/desktop
         run: pnpm exec playwright test
-      - name: Package (unpacked, unsigned)
+      - name: Installers (unsigned)
         working-directory: apps/desktop
-        run: pnpm exec electron-builder --config electron-builder.yml --dir --publish never
+        run: pnpm exec electron-builder --config electron-builder.yml --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Installers artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: installers-${{ matrix.os }}
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.deb
+          if-no-files-found: error
+          retention-days: 7
       - name: E2E artifacts
         if: always()
         uses: actions/upload-artifact@v7
