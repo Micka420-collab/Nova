@@ -277,9 +277,22 @@ describe("evaluate — always ask (S6, W5)", () => {
     expect(decision.explanation).toContain("ne pourra pas être annulée");
   });
 
-  it("asks before touching .git internals", () => {
-    const decision = evaluate(request("write", "build", { path: ".git/config" }), context({ profile: "autonomous" }));
-    expect(decision).toMatchObject({ decision: "ask", reason: "always_ask", ruleId: "builtin:git-internals" });
+  it("never lets the agent touch .git internals (C8 default), and asks when a custom matcher lets them through", () => {
+    const denied = evaluate(request("write", "build", { path: ".git/config" }), context({ profile: "autonomous" }));
+    expect(denied).toMatchObject({ decision: "deny", reason: "excluded_path" });
+    const asked = evaluate(
+      request("write", "build", { path: ".git/config" }),
+      context({ profile: "autonomous", isExcludedPath: () => false }),
+    );
+    expect(asked).toMatchObject({ decision: "ask", reason: "always_ask", ruleId: "builtin:git-internals" });
+  });
+
+  it("uses the canonical C8 list: templates and public keys stay readable", () => {
+    const read = (path: string) => evaluate(request("read", "build", { path }), context({ profile: "autonomous" })).decision;
+    expect(read(".env.example")).toBe("allow");
+    expect(read("keys/id_ed25519.pub")).toBe("allow");
+    expect(read("config/.env.local")).toBe("deny");
+    expect(read("infra/prod.tfstate")).toBe("deny");
   });
 
   it("asks for outbound calls after untrusted content, unless the contract names the host", () => {

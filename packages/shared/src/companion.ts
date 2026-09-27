@@ -65,6 +65,47 @@ export interface CompanionState {
   signals: CompanionSignal[];
 }
 
+export type CompanionNoticeKind =
+  | "approval"
+  | "mission_succeeded"
+  | "mission_failed"
+  | "mission_suspended"
+  | "watch_done"
+  | "chat_failed";
+
+export type CompanionNoticeDelivery = "bubble" | "system" | "held";
+
+export interface CompanionNoticeInput {
+  kind: CompanionNoticeKind;
+  entityType: "mission" | "approval" | "terminal" | "conversation";
+  entityId: string;
+  /** Coalescing group: the mission id when there is one, else the entity id. */
+  groupKey: string;
+  /** Title and fact only: never conversation content (NOMI.md §10). */
+  text: string;
+}
+
+/** P13: every fact Nomi notified (or held in quiet mode) can be read back in the app. */
+export interface CompanionNotice extends CompanionNoticeInput {
+  id: string;
+  createdAt: number;
+  delivered: CompanionNoticeDelivery;
+  readAt: number | null;
+}
+
+/** P5: report on this terminal session's next exit (main resolves its workspace and command). */
+export const CompanionWatchRequestSchema = z.object({ sessionId: EntityIdSchema });
+export type CompanionWatchRequest = z.infer<typeof CompanionWatchRequestSchema>;
+export interface CompanionWatchResult {
+  /** `none`: no running session with this id. */
+  status: "started" | "already" | "none";
+  command: string[] | null;
+}
+
+/** Quiet mode (P13): system notifications held until `until` (epoch ms); null = off. */
+export const CompanionQuietRequestSchema = z.object({ until: z.int().min(0).nullable() });
+export type CompanionQuietRequest = z.infer<typeof CompanionQuietRequestSchema>;
+
 export const CompanionStateRequestSchema = z.object({ workspaceId: EntityIdSchema.nullable() });
 export type CompanionStateRequest = z.infer<typeof CompanionStateRequestSchema>;
 

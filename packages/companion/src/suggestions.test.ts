@@ -3,7 +3,7 @@ import type { CompanionSignal, CompanionSignalKind } from "@nova/shared";
 import { EMPTY_COMPANION_FACTS, reduceCompanionFacts, type CompanionFactsState } from "./facts";
 import { formatClock } from "./format";
 import { signalsFromMissionEvent } from "./signals";
-import { rankSuggestions, suggestionForSignal } from "./suggestions";
+import { chatFactSuggestions, rankSuggestions, suggestionForSignal, type ChatFacts } from "./suggestions";
 import { MISSION_ID, MissionLog, approval, commandDisplay, testsDisplay } from "./test-events";
 
 let counter = 0;
@@ -104,5 +104,40 @@ describe("P6 suggestion rules", () => {
     later.add("approval.resolved", { approval: { ...approval("appr-2"), status: "approved", scope: "once" } });
     later.tool("call-10", "run_tests").finished("call-10", testsDisplay(4, 0, 0));
     expect(rankSuggestions(asSignals, factsOf(later), new Set())).toEqual([]);
+  });
+});
+
+describe("P6 rows from live chat facts (J1)", () => {
+  const none: ChatFacts = { keyAbsent: false, lastFailure: null };
+  const failure = (code: "timeout" | "truncated" | "invalid_key", retryable: boolean) => ({ conversationId: "c-1", at: 42, code, retryable });
+
+  it.each<[string, ChatFacts, string[], string[][]]>([
+    ["nothing to say", none, [], []],
+    ["connection not read yet: silence, not a guess", { ...none, keyAbsent: null }, [], []],
+    ["no key → add one", { ...none, keyAbsent: true }, ["Ajoute une clé OpenRouter pour commencer."], [["open_provider_settings"]]],
+    [
+      "retryable failure → its conversation, where « Réessayer » is",
+      { ...none, lastFailure: failure("timeout", true) },
+      ["La dernière réponse a échoué (délai dépassé)."],
+      [["open_conversation"]],
+    ],
+    [
+      "truncated answer → its conversation or another model",
+      { ...none, lastFailure: failure("truncated", false) },
+      ["Réponse coupée à sa longueur maximale."],
+      [["open_conversation", "choose_model"]],
+    ],
+    ["a failure that retrying cannot fix proposes nothing", { ...none, lastFailure: failure("invalid_key", false) }, [], []],
+  ])("%s", (_name, facts, texts, actions) => {
+    const out = chatFactSuggestions(facts);
+    expect(out.map((item) => item.text)).toEqual(texts);
+    expect(out.map((item) => item.actions.map((entry) => entry.action.type))).toEqual(actions);
+    for (const item of out) expect(item.actions.length).toBeLessThanOrEqual(2);
+  });
+
+  it("each fact has its own identity: a new failure is a new fact", () => {
+    const first = chatFactSuggestions({ ...none, lastFailure: failure("timeout", true) })[0];
+    const next = chatFactSuggestions({ ...none, lastFailure: { ...failure("timeout", true), at: 43 } })[0];
+    expect(first?.factId).not.toBe(next?.factId);
   });
 });

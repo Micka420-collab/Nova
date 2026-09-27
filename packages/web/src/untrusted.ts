@@ -35,7 +35,7 @@ export function wrapUntrustedPage(page: UntrustedPageInput, nonce: string = rand
 
 /** Model-facing text of a web search: citations are listed with their URL; snippets are untrusted. */
 export function wrapUntrustedSearch(
-  result: Pick<WebSearchResult, "query" | "citations"> & { answer: string | null },
+  result: Pick<WebSearchResult, "query" | "citations" | "answer">,
   searchedAt: number,
   nonce: string = randomBytes(8).toString("hex"),
 ): string {

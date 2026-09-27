@@ -37,6 +37,8 @@ export interface WebCitation {
 
 export interface WebSearchResult {
   query: string;
+  /** Synthesized answer text of the search call (untrusted); null when none was returned. */
+  answer: string | null;
   /** Only URLs actually returned as `url_citation` annotations: no invented citation. */
   citations: WebCitation[];
   engine: string;

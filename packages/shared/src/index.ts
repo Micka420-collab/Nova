@@ -9,6 +9,7 @@ export * from "./paths";
 export * from "./permissions";
 export * from "./ports";
 export * from "./redact";
+export * from "./sensitive";
 export * from "./terminal";
 export * from "./tools";
 export * from "./web";

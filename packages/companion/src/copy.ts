@@ -55,8 +55,11 @@ export const NOMI_COPY = {
         ? `${mission(title)} est terminée : ${plural(files, "fichier modifié", "fichiers modifiés")} attendent ta décision.`
         : `${mission(title)} est terminée.`,
     missionWaiting: (title: string | null, reason: string) => `${mission(title)} est en pause : ${reason}.`,
-    chatFailed: (reason: string) => `La dernière réponse a échoué (${reason}). Réessayer ?`,
+    chatFailed: (reason: string) => `La dernière réponse a échoué (${reason}).`,
     chatTruncated: "Réponse coupée à sa longueur maximale.",
+    addKey: "Ajouter une clé",
+    otherModel: "Autre modèle",
+    openConversation: "Voir la conversation",
     look: "Regarde",
     later: "Plus tard",
     muteKind: "Ignore ce type de signal",

@@ -14,6 +14,7 @@ import {
   type CheckpointFile,
   type CheckpointReason,
   type ContentHash,
+  type MergeProposal,
   type RelativePath,
   type RestoreAllResult,
   type RestoreFileResult,
@@ -55,17 +56,7 @@ export interface PendingSnapshot {
   discard(): void;
 }
 
-export type MergeProposal =
-  | { status: "clean"; path: RelativePath; currentHash: ContentHash | null; merged: string }
-  | {
-      status: "conflicting";
-      path: RelativePath;
-      currentHash: ContentHash | null;
-      /** Text the agent wrote (common base), the user's current text, the checkpoint's text. */
-      base: string | null;
-      current: string | null;
-      target: string | null;
-    };
+export type { MergeProposal };
 
 export interface RetentionPolicy {
   /** Checkpoints older than this are deleted (proposed: 30 days). */

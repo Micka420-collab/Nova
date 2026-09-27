@@ -10,46 +10,13 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import ignore, { type Ignore } from "ignore";
-import type { RelativePath } from "@nova/shared";
+import { isSensitivePath, SENSITIVE_PATH_PATTERNS, type RelativePath } from "@nova/shared";
 
 /** Folders never walked nor watched, and excluded for the agent. */
 export const ALWAYS_IGNORED_DIRS = [".git", "node_modules"] as const;
 
-/**
- * C8 defaults: files that commonly hold secrets. gitignore syntax; `!` re-includes templates that
- * are meant to be committed (`.env.example`).
- */
-export const SENSITIVE_DEFAULT_PATTERNS: readonly string[] = [
-  ".git/",
-  "node_modules/",
-  ".env",
-  ".env.*",
-  "!.env.example",
-  "!.env.sample",
-  "!.env.template",
-  "*.pem",
-  "*.key",
-  "*.p12",
-  "*.pfx",
-  "*.jks",
-  "*.keystore",
-  "id_rsa*",
-  "id_dsa*",
-  "id_ecdsa*",
-  "id_ed25519*",
-  "!*.pub",
-  ".ssh/",
-  ".aws/",
-  ".gnupg/",
-  ".netrc",
-  ".npmrc",
-  ".pypirc",
-  ".git-credentials",
-  "credentials.json",
-  "service-account*.json",
-  "*.tfstate",
-  "*.tfstate.*",
-];
+/** C8 defaults, gitignore syntax: the canonical list lives in @nova/shared (./sensitive). */
+export const SENSITIVE_DEFAULT_PATTERNS: readonly string[] = SENSITIVE_PATH_PATTERNS;
 
 export interface IgnoreMatcher {
   /** Loads the `.gitignore` of `dir` and of its ancestors (idempotent, cached). */
@@ -80,15 +47,12 @@ export function createIgnoreMatcher(root: string): IgnoreMatcher {
   // dir → rules of that dir's .gitignore (null = none). Paths are tested relative to their dir.
   let gitignores = new Map<RelativePath, Ignore | null>();
   let novaignore: Ignore | null = null;
-  let excluded: Ignore = ignore().add(SENSITIVE_DEFAULT_PATTERNS);
   let rootLoaded = false;
 
   const loadRoot = async (): Promise<void> => {
     if (rootLoaded) return;
     const text = await readRules(join(root, ".novaignore"));
     novaignore = text === null ? null : ignore().add(text);
-    excluded = ignore().add(SENSITIVE_DEFAULT_PATTERNS);
-    if (text !== null) excluded.add(text);
     rootLoaded = true;
   };
 
@@ -128,8 +92,9 @@ export function createIgnoreMatcher(root: string): IgnoreMatcher {
 
     isExcluded(path) {
       if (path === "") return false;
-      // Directory patterns (`.ssh/`) must also match the folder itself and everything below it.
-      return excluded.ignores(path) || excluded.ignores(`${path}/`);
+      if (isSensitivePath(path)) return true;
+      // `.novaignore` adds exclusions; folder patterns must also match the folder itself.
+      return novaignore !== null && (novaignore.ignores(path) || novaignore.ignores(`${path}/`));
     },
   };
 }

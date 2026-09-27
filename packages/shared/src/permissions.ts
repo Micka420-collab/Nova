@@ -3,7 +3,7 @@
 // grants anything. Precedence: deny > mission contract > remembered approval > profile > default ask.
 import { z } from "zod";
 import type { RelativePath } from "./paths";
-import type { OperationClass, ToolName } from "./tools";
+import { OPERATION_CLASSES, type OperationClass, type ToolName } from "./tools";
 import type { WorkMode } from "./missions";
 
 export type PermissionDecisionKind = "allow" | "ask" | "deny";
@@ -36,6 +36,8 @@ export interface PermissionDecision {
   ruleId: string | null;
   /** Whether an `ask` may be answered "for this mission / always for this project" (false for S6). */
   rememberable: boolean;
+  /** French explanation of the decision (approval card, audit log). Never contains file content. */
+  explanation: string;
 }
 
 export interface PermissionRequest {
@@ -97,6 +99,36 @@ export interface PermissionRule {
   expiresAt: number | null;
 }
 
+/**
+ * Pushed on `approvals.onEvent` for every approval, inside a mission or not (the mission's own
+ * event log carries the same payloads as `approval.requested` / `approval.resolved`).
+ */
+export type ApprovalEvent =
+  | { type: "approval.requested"; approval: Approval }
+  | { type: "approval.resolved"; approval: Approval };
+
+export type AuditActor = "user" | "agent" | "system";
+
+/** One row of the append-only audit log (S5). Targets are paths, hosts or redacted commands; never content. */
+export interface AuditEntry {
+  seq: number;
+  at: number;
+  workspaceId: string | null;
+  missionId: string | null;
+  toolCallId: string | null;
+  actor: AuditActor;
+  /** Dotted action: `permission.decision`, `approval.decided`, `tool.executed`, `permissions.rules_revoked`… */
+  action: string;
+  decision: PermissionDecisionKind | null;
+  ruleId: string | null;
+  target: string | null;
+  /** Sizes, kinds, codes and costs only. */
+  dataSummary: Record<string, string | number | boolean | null> | null;
+  /** USD; null = none or unknown. */
+  costUsd: number | null;
+  outcome: string | null;
+}
+
 export interface PermissionProfileState {
   workspaceId: string;
   profile: PermissionProfile;
@@ -125,7 +157,36 @@ export const PermissionsSetProfileRequestSchema = z.object({
   workspaceId: z.uuid(),
   profile: z.enum(PERMISSION_PROFILES),
 });
+export const AuditListRequestSchema = z.object({
+  workspaceId: z.uuid().nullable(),
+  missionId: z.uuid().nullable(),
+  actor: z.enum(["user", "agent", "system"]).nullable(),
+  /** Exact action, or a prefix ending with "." (`tool.`). */
+  action: z
+    .string()
+    .regex(/^[a-z_]+(\.[a-z_]+)*\.?$/)
+    .max(64)
+    .nullable(),
+  decision: z.enum(["allow", "ask", "deny"]).nullable(),
+  /** `dataSummary.operation` ("tout ce qui est parti sur Internet" = network). */
+  operation: z.enum(OPERATION_CLASSES).nullable(),
+  /** Inclusive lower / exclusive upper bound on `at` (epoch ms). */
+  since: z.int().min(0).nullable(),
+  until: z.int().min(0).nullable(),
+  /** Page backwards: rows with seq < beforeSeq. */
+  beforeSeq: z.int().min(1).nullable(),
+  limit: z.int().min(1).max(500),
+});
+export const PermissionRulesRequestSchema = z.object({ workspaceId: z.uuid() });
+export const PermissionRevokeRequestSchema = z.object({
+  workspaceId: z.uuid(),
+  /** One remembered rule; null = every rule the user remembered for this project ("Tout révoquer"). */
+  ruleId: z.uuid().nullable(),
+});
 export type ApprovalsListRequest = z.infer<typeof ApprovalsListRequestSchema>;
+export type AuditListRequest = z.infer<typeof AuditListRequestSchema>;
+export type PermissionRulesRequest = z.infer<typeof PermissionRulesRequestSchema>;
+export type PermissionRevokeRequest = z.infer<typeof PermissionRevokeRequestSchema>;
 export type ApprovalDecideRequest = z.infer<typeof ApprovalDecideRequestSchema>;
 export type PermissionsProfileRequest = z.infer<typeof PermissionsProfileRequestSchema>;
 export type PermissionsSetProfileRequest = z.infer<typeof PermissionsSetProfileRequestSchema>;

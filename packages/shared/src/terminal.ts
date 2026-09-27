@@ -44,6 +44,12 @@ export const TerminalCreateRequestSchema = z.object({
 export const TerminalSessionRequestSchema = z.object({ sessionId: EntityIdSchema });
 export const TerminalResizeRequestSchema = z.object({ sessionId: EntityIdSchema, cols, rows });
 export const TerminalListRequestSchema = z.object({ workspaceId: EntityIdSchema.nullable() });
+/** Pushed on `terminal.onEvent`: sessions created (agent ones included), updated or exited. */
+export type TerminalEvent =
+  | { type: "session.created"; session: TerminalSession }
+  | { type: "session.updated"; session: TerminalSession }
+  | { type: "session.exited"; session: TerminalSession };
+
 export type TerminalCreateRequest = z.infer<typeof TerminalCreateRequestSchema>;
 export type TerminalSessionRequest = z.infer<typeof TerminalSessionRequestSchema>;
 export type TerminalResizeRequest = z.infer<typeof TerminalResizeRequestSchema>;

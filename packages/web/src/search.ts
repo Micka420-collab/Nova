@@ -64,8 +64,6 @@ export function pickWebSearchModel(models: readonly ModelInfo[]): ModelInfo | nu
 
 /** Search result plus the engine's short synthesis and the call's usage (for `usage_records`). */
 export interface WebSearchOutcome extends WebSearchResult {
-  /** Short synthesis written by the search model (untrusted); null when absent. */
-  answer: string | null;
   modelId: string;
   servedModel: string | null;
   servedProvider: string | null;

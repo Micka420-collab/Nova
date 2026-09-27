@@ -1,35 +1,17 @@
-// Sensitive files the model never reads or writes (C8, UX 7.1): secrets, keys, credentials.
-// The list is conservative on purpose: `.env.example` is excluded too (it matches `.env*`); the user
-// can still open such files in the editor, only agent tools are refused.
+// Sensitive files the model never reads or writes (C8, UX 7.1): the canonical list and matcher
+// live in @nova/shared (`isSensitivePath`, also used by files, search and the web guard). The user
+// can still open such files in the editor; only agent tools are refused.
+import { isSensitivePath, SENSITIVE_PATH_PATTERNS } from "@nova/shared";
 import { matchesGlob } from "./glob";
 
-export const DEFAULT_EXCLUDED_PATTERNS: readonly string[] = [
-  ".env",
-  ".env.*",
-  "*.pem",
-  "*.key",
-  "*.p12",
-  "*.pfx",
-  "*.jks",
-  "*.keystore",
-  "id_rsa*",
-  "id_dsa*",
-  "id_ecdsa*",
-  "id_ed25519*",
-  ".ssh",
-  ".gnupg",
-  "**/.aws/credentials",
-  ".npmrc",
-  ".pypirc",
-  ".netrc",
-  ".git-credentials",
-];
+/** The canonical C8 defaults (gitignore syntax), for display and tests. */
+export const DEFAULT_EXCLUDED_PATTERNS: readonly string[] = SENSITIVE_PATH_PATTERNS;
 
 /**
  * Matcher for `EvaluationContext.isExcludedPath`. `extraPatterns` come from `.novaignore` (read by
  * the workspace lane); they can only add exclusions, never remove the defaults.
  */
 export function createExcludedPathMatcher(extraPatterns: readonly string[] = []): (path: string) => boolean {
-  const patterns = [...DEFAULT_EXCLUDED_PATTERNS, ...extraPatterns.filter((pattern) => pattern.trim() !== "")];
-  return (path) => path !== "" && patterns.some((pattern) => matchesGlob(path, pattern));
+  const extra = extraPatterns.map((pattern) => pattern.trim()).filter((pattern) => pattern !== "" && !pattern.startsWith("#") && !pattern.startsWith("!"));
+  return (path) => path !== "" && (isSensitivePath(path) || extra.some((pattern) => matchesGlob(path, pattern)));
 }

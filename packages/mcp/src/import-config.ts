@@ -7,28 +7,15 @@
 // Nothing is saved here: the result is a list of drafts the manager shows before adding.
 // TODO(D12): Claude Desktop (`claude_desktop_config.json`) and Cursor (`.cursor/mcp.json`) use a
 // similar `mcpServers` object, but their exact fields were not verified: not supported yet.
-import { McpServerInputSchema, type McpConfigValueInput, type McpServerInput } from "@nova/shared";
+import {
+  McpServerInputSchema,
+  type McpConfigValueInput,
+  type McpImportDraft,
+  type McpImportWarning,
+  type McpServerInput,
+} from "@nova/shared";
 
-export type McpImportWarning =
-  /** SSE or WebSocket: not supported by NOVA. */
-  | "unsupported_transport"
-  /** Entry is not a recognizable server definition. */
-  | "invalid_entry"
-  /** A `${VAR}` reference: the value must be provided by the user (listed in `needsValue`). */
-  | "variable_reference"
-  /** A credential written in clear in the file: it will be moved to the vault. */
-  | "secret_in_file"
-  /** A stdio server runs a program on this machine: review the command before adding. */
-  | "runs_local_command";
-
-export interface McpImportDraft {
-  name: string;
-  /** Ready to be sent to `mcp.add` after review; null when the entry cannot be imported. */
-  input: McpServerInput | null;
-  /** env/header names (or `command`, `args[i]`, `url`) whose value the user must provide. */
-  needsValue: string[];
-  warnings: McpImportWarning[];
-}
+export type { McpImportDraft, McpImportWarning };
 
 const VARIABLE = /\$\{[A-Za-z_][A-Za-z0-9_]*(:-[^}]*)?\}/;
 const CREDENTIAL_NAME = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|COOKIE|SESSION)/i;

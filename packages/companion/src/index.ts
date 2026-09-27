@@ -87,7 +87,17 @@ export {
   type SignalDraft,
   type TerminalExit,
 } from "./signals";
-export { MAX_SUGGESTIONS, SUGGESTION_PRIORITY, rankSuggestions, suggestionForSignal, type SuggestionDraft } from "./suggestions";
+export {
+  MAX_SUGGESTIONS,
+  SUGGESTION_PRIORITY,
+  chatFactSuggestions,
+  rankSuggestions,
+  suggestionForSignal,
+  type ChatFacts,
+  type FactAction,
+  type FactSuggestion,
+  type SuggestionDraft,
+} from "./suggestions";
 export { parseTestCounts, summarizeProcessExit, type ProcessExitFact, type TestCounts, type WatchReport } from "./watch";
 
 /** Proposed default (N2): one new suggestion pushed per 10 minutes at most (approvals excepted). */

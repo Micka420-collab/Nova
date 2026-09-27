@@ -103,7 +103,7 @@ export function approval(id: string, argv: string[] | null = ["pnpm", "install"]
         ? { tool: "run_command" as const, operation: "execute" as const, argv }
         : { tool: "edit_file" as const, operation: "write" as const, path: "db/schema.ts" }),
     },
-    decision: { decision: "ask", reason: "profile_asks", ruleId: null, rememberable: true },
+    decision: { decision: "ask", reason: "profile_asks", ruleId: null, rememberable: true, explanation: "Règle de test." },
     toolCallId: null,
     status: "pending",
     scope: null,

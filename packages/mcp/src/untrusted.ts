@@ -2,17 +2,9 @@
 // changes a permission decision: it only lets the UI warn the user (M1, W5 scenario 7). The
 // heuristic is announced as such; a clean result proves nothing.
 
-export type UntrustedTextFlag =
-  /** Tries to override previous/system instructions or the user's intent. */
-  | "override_instructions"
-  /** Orders the model to do something (call a tool first, always, never tell…). */
-  | "imperative"
-  /** Asks to hide something from the user. */
-  | "concealment"
-  /** Mentions secrets, credentials or sensitive files. */
-  | "sensitive_target"
-  /** Hidden markup or invisible characters meant for the model, not the user. */
-  | "hidden_markup";
+import type { UntrustedTextFlag } from "@nova/shared";
+
+export type { UntrustedTextFlag };
 
 const RULES: readonly { flag: UntrustedTextFlag; pattern: RegExp }[] = [
   {

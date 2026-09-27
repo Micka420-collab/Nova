@@ -58,3 +58,41 @@ export {
   type WorkspaceRecord,
   type WorkspaceRepo,
 } from "./workspaces";
+export { createArtifactRepo, type ArtifactKindValue, type ArtifactRecord, type ArtifactRepo, type NewArtifact } from "./artifacts";
+export { createCheckpointRepo, type CheckpointRepo, type NewCheckpoint } from "./checkpoints";
+export {
+  createEditorStateRepo,
+  EDITOR_STATE_MAX_CHARS,
+  type EditorStateRecord,
+  type EditorStateRepo,
+} from "./editor-state";
+export {
+  createMcpRepo,
+  type McpCachedTool,
+  type McpRepo,
+  type McpServerPatch,
+  type McpToolPermissionRecord,
+  type NewMcpServer,
+} from "./mcp";
+export {
+  createSuggestionRepo,
+  type NewSuggestion,
+  type SuggestionRecord,
+  type SuggestionRepo,
+  type SuggestionStatusValue,
+} from "./suggestions";
+export {
+  createWebCacheRepo,
+  createWebSearchUsageRepo,
+  type WebCacheRecord,
+  type WebCacheRepo,
+  type WebSearchUsageInput,
+  type WebSearchUsageRepo,
+} from "./web-cache";
+export {
+  createWebPolicyRepo,
+  WEB_DEFAULT_RULE_PATTERN,
+  WEB_FALLBACK_DEFAULT_ACTION,
+  type WebPolicyRepo,
+  type WebPolicyScopeWrite,
+} from "./web-policy";

@@ -14,10 +14,22 @@ import type {
   UsageSummary,
 } from "./domain";
 
-import type { CompanionActRequest, CompanionActResult, CompanionEvent, CompanionState, CompanionStateRequest } from "./companion";
+import type {
+  CompanionActRequest,
+  CompanionActResult,
+  CompanionEvent,
+  CompanionNotice,
+  CompanionQuietRequest,
+  CompanionState,
+  CompanionStateRequest,
+  CompanionWatchRequest,
+  CompanionWatchResult,
+} from "./companion";
 import type { GitDiff, GitDiffRequest, GitStatus } from "./git";
 import { EntityIdSchema, ModelIdSchema } from "./ids";
 import type {
+  McpImportDraft,
+  McpImportProjectRequest,
   McpListRequest,
   McpServerIdRequest,
   McpServerInput,
@@ -31,12 +43,14 @@ import type {
 import type {
   Mission,
   MissionDetail,
+  MissionDiff,
   MissionEvent,
   MissionGetRequest,
   MissionIdRequest,
   MissionPage,
   MissionPlanRequest,
   MissionPlanResult,
+  MissionResumeRequest,
   MissionStartRequest,
   MissionsListRequest,
   ReviewDecideRequest,
@@ -45,24 +59,40 @@ import type {
 import type {
   Approval,
   ApprovalDecideRequest,
+  ApprovalEvent,
   ApprovalsListRequest,
+  AuditEntry,
+  AuditListRequest,
   PermissionProfileState,
+  PermissionRevokeRequest,
+  PermissionRule,
+  PermissionRulesRequest,
   PermissionsProfileRequest,
   PermissionsSetProfileRequest,
 } from "./permissions";
 import type {
   TerminalCreateRequest,
+  TerminalEvent,
   TerminalListRequest,
   TerminalResizeRequest,
   TerminalSession,
   TerminalSessionRequest,
 } from "./terminal";
 import type { WebPolicy, WebPolicyGetRequest, WebPolicySetRequest } from "./web";
+import {
+  RelativeEntryPathSchema,
+  RelativePathSchema,
+} from "./paths";
 import type {
   Checkpoint,
+  CheckpointApplyMergeRequest,
+  CheckpointCreateRequest,
+  CheckpointMergeRequest,
   CheckpointRestoreAllRequest,
   CheckpointRestoreFileRequest,
   CheckpointsListRequest,
+  EditorSessionSnapshot,
+  EditorStateSetRequest,
   FileContent,
   FileEntry,
   FileSearchQuery,
@@ -75,6 +105,7 @@ import type {
   FilesMoveRequest,
   FilesReadRequest,
   FilesTrashRequest,
+  MergeProposal,
   RestoreAllResult,
   RestoreFileResult,
   SearchQuery,
@@ -124,10 +155,24 @@ export const RenameConversationRequestSchema = z.object({
   title: z.string().trim().min(1).max(120),
 });
 
+/** C6: what a message or a mission goal points at. Files are read in main (C8 exclusions, secret scan). */
+export const ContextMentionSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("file"), path: RelativeEntryPathSchema }),
+  z.object({ kind: z.literal("folder"), path: RelativePathSchema }),
+  z.object({ kind: z.literal("url"), url: z.url({ protocol: /^https?$/ }).max(2_000) }),
+]);
+export type ContextMention = z.infer<typeof ContextMentionSchema>;
+
 export const ChatSendRequestSchema = z.object({
   conversationId: entityId.nullable(),
   content: z.string().trim().min(1).max(100_000),
   modelId,
+  /** Workspace the mentions are resolved in (null/absent: no workspace, mentions refused). */
+  workspaceId: entityId.nullable().optional(),
+  /** C6 mentions attached to this message only (sent once, never stored with the message). */
+  attachments: z.array(ContextMentionSchema).max(20).optional(),
+  /** W1: the "Web" button of Discuter; never automatic. Domain policy of the workspace applies. */
+  webSearch: z.boolean().optional(),
 });
 
 export const ChatStopRequestSchema = z.object({ streamId: entityId });
@@ -312,6 +357,11 @@ export interface NovaApi {
     close(req: WorkspaceIdRequest): Promise<void>;
     /** D10: answer to "read AGENTS.md / CLAUDE.md / .cursorrules of this project?". */
     setInstructionConsent(req: WorkspaceConsentRequest): Promise<Workspace>;
+    /** Reopens a recent workspace by id (no picker). */
+    reopen(req: WorkspaceIdRequest): Promise<Workspace>;
+    /** Pr3: the editor layout saved for this workspace (paths only); null when none. */
+    getEditorState(req: WorkspaceIdRequest): Promise<EditorSessionSnapshot | null>;
+    setEditorState(req: EditorStateSetRequest): Promise<void>;
   };
   files: {
     /** One directory level (lazy tree), directories first then files, by name. */
@@ -335,26 +385,40 @@ export interface NovaApi {
     attach(req: TerminalSessionRequest): Promise<TerminalSession>;
     resize(req: TerminalResizeRequest): Promise<void>;
     kill(req: TerminalSessionRequest): Promise<void>;
+    /** "Prendre la main": an agent session becomes the user's (input accepted from then on). */
+    takeOver(req: TerminalSessionRequest): Promise<TerminalSession>;
+    onEvent(listener: (event: TerminalEvent) => void): () => void;
   };
   missions: {
     plan(req: MissionPlanRequest): Promise<MissionPlanResult>;
     start(req: MissionStartRequest): Promise<Mission>;
     pause(req: MissionIdRequest): Promise<Mission>;
-    resume(req: MissionIdRequest): Promise<Mission>;
+    resume(req: MissionResumeRequest): Promise<Mission>;
     /** Idempotent; kills running processes; ends in `cancelled` with one terminal event. */
     stop(req: MissionIdRequest): Promise<Mission>;
     list(req: MissionsListRequest): Promise<MissionPage>;
     get(req: MissionGetRequest): Promise<MissionDetail>;
     review(req: ReviewDecideRequest): Promise<ReviewResult>;
+    /** A11: the mission's own diff (before its first write → disk now), hunks as `review` indexes them. */
+    diff(req: MissionIdRequest): Promise<MissionDiff>;
     onEvent(listener: (event: MissionEvent) => void): () => void;
   };
   approvals: {
     list(req: ApprovalsListRequest): Promise<Approval[]>;
     decide(req: ApprovalDecideRequest): Promise<Approval>;
+    onEvent(listener: (event: ApprovalEvent) => void): () => void;
   };
   permissions: {
     getProfile(req: PermissionsProfileRequest): Promise<PermissionProfileState>;
     setProfile(req: PermissionsSetProfileRequest): Promise<PermissionProfileState>;
+    /** Rules remembered for this project ("pour ce projet / cette mission"), newest first. */
+    listRules(req: PermissionRulesRequest): Promise<PermissionRule[]>;
+    /** Revokes one remembered rule, or all of the user's (`ruleId` null). Returns the count. */
+    revokeRules(req: PermissionRevokeRequest): Promise<number>;
+  };
+  audit: {
+    /** S5: the audit log, newest first (filters combine). */
+    list(req: AuditListRequest): Promise<AuditEntry[]>;
   };
   git: {
     status(req: WorkspaceIdRequest): Promise<GitStatus>;
@@ -368,6 +432,10 @@ export interface NovaApi {
     test(req: McpServerIdRequest): Promise<McpTestResult>;
     tools(req: McpToolsRequest): Promise<McpToolInfo[]>;
     setToolPermission(req: McpSetToolPermissionRequest): Promise<McpToolInfo>;
+    /** Redacted stderr tail of a stdio server (live, or from its last run). */
+    logs(req: McpServerIdRequest): Promise<string>;
+    /** M3: drafts from the workspace's `.mcp.json` (nothing saved; review, then `add`). */
+    importProject(req: McpImportProjectRequest): Promise<McpImportDraft[]>;
   };
   web: {
     getPolicy(req: WebPolicyGetRequest): Promise<WebPolicy>;
@@ -376,12 +444,23 @@ export interface NovaApi {
   companion: {
     state(req: CompanionStateRequest): Promise<CompanionState>;
     act(req: CompanionActRequest): Promise<CompanionActResult>;
+    /** P5: Nomi reports this terminal session's next exit. */
+    watch(req: CompanionWatchRequest): Promise<CompanionWatchResult>;
+    /** P13 quiet mode: system notifications are held until `until`. */
+    setQuiet(req: CompanionQuietRequest): Promise<void>;
+    /** Notices of this session, newest first (the ones held in quiet mode included). */
+    notices(): Promise<CompanionNotice[]>;
     onEvent(listener: (event: CompanionEvent) => void): () => void;
   };
   checkpoints: {
     list(req: CheckpointsListRequest): Promise<Checkpoint[]>;
     restoreFile(req: CheckpointRestoreFileRequest): Promise<RestoreFileResult>;
     restoreAll(req: CheckpointRestoreAllRequest): Promise<RestoreAllResult>;
+    /** A user restore point (project replace) that `files.write` can fill with `checkpointId`. */
+    create(req: CheckpointCreateRequest): Promise<Checkpoint>;
+    /** After a restore `conflict`: undo the agent's change on top of the user's version. */
+    proposeMerge(req: CheckpointMergeRequest): Promise<MergeProposal>;
+    applyMerge(req: CheckpointApplyMergeRequest): Promise<RestoreFileResult>;
   };
 }
 
@@ -442,6 +521,9 @@ export function createNovaClient(bridge: NovaBridge): NovaApi {
       facts: (req) => unwrap(bridge.workspace.facts(req)),
       close: (req) => unwrap(bridge.workspace.close(req)),
       setInstructionConsent: (req) => unwrap(bridge.workspace.setInstructionConsent(req)),
+      reopen: (req) => unwrap(bridge.workspace.reopen(req)),
+      getEditorState: (req) => unwrap(bridge.workspace.getEditorState(req)),
+      setEditorState: (req) => unwrap(bridge.workspace.setEditorState(req)),
     },
     files: {
       list: (req) => unwrap(bridge.files.list(req)),
@@ -462,6 +544,8 @@ export function createNovaClient(bridge: NovaBridge): NovaApi {
       attach: (req) => unwrap(bridge.terminal.attach(req)),
       resize: (req) => unwrap(bridge.terminal.resize(req)),
       kill: (req) => unwrap(bridge.terminal.kill(req)),
+      takeOver: (req) => unwrap(bridge.terminal.takeOver(req)),
+      onEvent: (listener) => bridge.terminal.onEvent(listener),
     },
     missions: {
       plan: (req) => unwrap(bridge.missions.plan(req)),
@@ -472,15 +556,22 @@ export function createNovaClient(bridge: NovaBridge): NovaApi {
       list: (req) => unwrap(bridge.missions.list(req)),
       get: (req) => unwrap(bridge.missions.get(req)),
       review: (req) => unwrap(bridge.missions.review(req)),
+      diff: (req) => unwrap(bridge.missions.diff(req)),
       onEvent: (listener) => bridge.missions.onEvent(listener),
     },
     approvals: {
       list: (req) => unwrap(bridge.approvals.list(req)),
       decide: (req) => unwrap(bridge.approvals.decide(req)),
+      onEvent: (listener) => bridge.approvals.onEvent(listener),
     },
     permissions: {
       getProfile: (req) => unwrap(bridge.permissions.getProfile(req)),
       setProfile: (req) => unwrap(bridge.permissions.setProfile(req)),
+      listRules: (req) => unwrap(bridge.permissions.listRules(req)),
+      revokeRules: (req) => unwrap(bridge.permissions.revokeRules(req)),
+    },
+    audit: {
+      list: (req) => unwrap(bridge.audit.list(req)),
     },
     git: {
       status: (req) => unwrap(bridge.git.status(req)),
@@ -494,6 +585,8 @@ export function createNovaClient(bridge: NovaBridge): NovaApi {
       test: (req) => unwrap(bridge.mcp.test(req)),
       tools: (req) => unwrap(bridge.mcp.tools(req)),
       setToolPermission: (req) => unwrap(bridge.mcp.setToolPermission(req)),
+      logs: (req) => unwrap(bridge.mcp.logs(req)),
+      importProject: (req) => unwrap(bridge.mcp.importProject(req)),
     },
     web: {
       getPolicy: (req) => unwrap(bridge.web.getPolicy(req)),
@@ -502,12 +595,18 @@ export function createNovaClient(bridge: NovaBridge): NovaApi {
     companion: {
       state: (req) => unwrap(bridge.companion.state(req)),
       act: (req) => unwrap(bridge.companion.act(req)),
+      watch: (req) => unwrap(bridge.companion.watch(req)),
+      setQuiet: (req) => unwrap(bridge.companion.setQuiet(req)),
+      notices: () => unwrap(bridge.companion.notices()),
       onEvent: (listener) => bridge.companion.onEvent(listener),
     },
     checkpoints: {
       list: (req) => unwrap(bridge.checkpoints.list(req)),
       restoreFile: (req) => unwrap(bridge.checkpoints.restoreFile(req)),
       restoreAll: (req) => unwrap(bridge.checkpoints.restoreAll(req)),
+      create: (req) => unwrap(bridge.checkpoints.create(req)),
+      proposeMerge: (req) => unwrap(bridge.checkpoints.proposeMerge(req)),
+      applyMerge: (req) => unwrap(bridge.checkpoints.applyMerge(req)),
     },
   };
 }

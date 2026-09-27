@@ -1,6 +1,6 @@
 // P6 deterministic suggestion rules (NOMI.md §3): each suggestion is justified by ONE recorded
 // signal (its id travels with it), at most three are ranked, in the table's order. No model call.
-import type { CompanionAction, CompanionSignal, CompanionSignalKind } from "@nova/shared";
+import type { CompanionAction, CompanionSignal, CompanionSignalKind, ProviderErrorCode } from "@nova/shared";
 import { NOMI_COPY } from "./copy";
 import type { CompanionFactsState, MissionFacts } from "./facts";
 import { shortCommand } from "./format";
@@ -141,4 +141,64 @@ export function rankSuggestions(
       a.draft.signalId.localeCompare(b.draft.signalId),
   );
   return drafts.slice(0, max).map(({ draft }) => draft);
+}
+
+/**
+ * P6 rows backed by live chat facts of the renderer (J1): no key, the last answer failed in a way
+ * that can be retried, an answer cut at its maximum length. They are not recorded signals (the
+ * `signals` kinds are atelier facts), so each carries the identity of its fact instead (`factId`),
+ * and they rank after every recorded signal. At most two actions, as any bubble.
+ */
+export interface ChatFacts {
+  /** `connection.state === "absent"`; null while the connection has not been read. */
+  keyAbsent: boolean | null;
+  /** Last failed answer, only when its conversation is not the one on screen (it shows its own error). */
+  lastFailure: { conversationId: string; at: number; code: ProviderErrorCode; retryable: boolean } | null;
+}
+
+export type FactAction =
+  | { type: "open_provider_settings" }
+  /** Opens the conversation, where the failed answer shows its « Réessayer » button. */
+  | { type: "open_conversation"; conversationId: string }
+  | { type: "choose_model"; conversationId: string };
+
+export interface FactSuggestion {
+  /** Identity of the fact (dismissing it hides this fact only, not the next one). */
+  factId: string;
+  text: string;
+  actions: { label: string; action: FactAction }[];
+}
+
+export function chatFactSuggestions(facts: ChatFacts): FactSuggestion[] {
+  const copy = NOMI_COPY.suggestion;
+  const out: FactSuggestion[] = [];
+  if (facts.keyAbsent === true) {
+    out.push({
+      factId: "connection:absent",
+      text: copy.connectionAbsent,
+      actions: [{ label: copy.addKey, action: { type: "open_provider_settings" } }],
+    });
+  }
+  const failure = facts.lastFailure;
+  if (failure) {
+    const factId = `chat:${failure.conversationId}:${failure.at}`;
+    const { conversationId } = failure;
+    if (failure.code === "truncated") {
+      out.push({
+        factId,
+        text: copy.chatTruncated,
+        actions: [
+          { label: copy.openConversation, action: { type: "open_conversation", conversationId } },
+          { label: copy.otherModel, action: { type: "choose_model", conversationId } },
+        ],
+      });
+    } else if (failure.retryable) {
+      out.push({
+        factId,
+        text: copy.chatFailed(NOMI_COPY.chatFailure[failure.code]),
+        actions: [{ label: copy.openConversation, action: { type: "open_conversation", conversationId } }],
+      });
+    }
+  }
+  return out.slice(0, MAX_SUGGESTIONS);
 }

@@ -75,6 +75,44 @@ export interface McpToolInfo {
   annotations: McpToolAnnotations;
   /** Effective permission for the requested workspace (tool rule, else default from hints). */
   permission: McpToolPermission;
+  /** Heuristic warnings about the (untrusted) description; shown, never used to decide. */
+  descriptionFlags: UntrustedTextFlag[];
+  /** Default NOVA proposes from the annotations (read-only → allow, otherwise ask). */
+  proposedPermission: McpToolPermission;
+}
+
+export type UntrustedTextFlag =
+  /** Tries to override previous/system instructions or the user's intent. */
+  | "override_instructions"
+  /** Orders the model to do something (call a tool first, always, never tell…). */
+  | "imperative"
+  /** Asks to hide something from the user. */
+  | "concealment"
+  /** Mentions secrets, credentials or sensitive files. */
+  | "sensitive_target"
+  /** Hidden markup or invisible characters meant for the model, not the user. */
+  | "hidden_markup";
+
+export type McpImportWarning =
+  /** SSE or WebSocket: not supported by NOVA. */
+  | "unsupported_transport"
+  /** Entry is not a recognizable server definition. */
+  | "invalid_entry"
+  /** A `${VAR}` reference: the value must be provided by the user (listed in `needsValue`). */
+  | "variable_reference"
+  /** A credential written in clear in the file: it will be moved to the vault. */
+  | "secret_in_file"
+  /** A stdio server runs a program on this machine: review the command before adding. */
+  | "runs_local_command";
+
+/** One server of an imported `.mcp.json`, to review before `mcp.add` (nothing is saved by the import). */
+export interface McpImportDraft {
+  name: string;
+  /** Ready to be sent to `mcp.add` after review; null when the entry cannot be imported. */
+  input: McpServerInput | null;
+  /** env/header names (or `command`, `args[i]`, `url`) whose value the user must provide. */
+  needsValue: string[];
+  warnings: McpImportWarning[];
 }
 
 export interface McpTestResult {
@@ -154,3 +192,7 @@ export const McpSetToolPermissionRequestSchema = z.object({
   permission: z.enum(["allow", "ask", "deny"]),
 });
 export type McpSetToolPermissionRequest = z.infer<typeof McpSetToolPermissionRequestSchema>;
+
+/** M3: reads a project `.mcp.json` from the workspace (never expands variables) into drafts. */
+export const McpImportProjectRequestSchema = z.object({ workspaceId: EntityIdSchema });
+export type McpImportProjectRequest = z.infer<typeof McpImportProjectRequestSchema>;

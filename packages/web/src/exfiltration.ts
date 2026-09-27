@@ -1,7 +1,8 @@
 // Anti-exfiltration guard (W5 §4) for OUTGOING URLs and bodies (fetch_page URLs, webhooks, remote
 // MCP calls). It is a heuristic, announced as such: it catches secrets with known shapes, secrets
 // the caller knows literally, and large verbatim chunks of workspace content — not every leak.
-import { redactSecrets } from "@nova/shared";
+// Secret shapes are the canonical C8 list of @nova/shared (the same one the file scan uses).
+import { redactSecrets, scanForSecrets } from "@nova/shared";
 
 export type ExfiltrationFindingKind = "secret" | "known_secret" | "workspace_content";
 
@@ -26,18 +27,6 @@ export interface OutgoingRequest {
   /** Workspace texts that entered the context (file reads…), to detect verbatim copies. */
   workspaceTexts?: readonly string[];
 }
-
-// Shapes beyond redactSecrets (which covers sk-… keys and Bearer tokens).
-const SECRET_SHAPES: readonly { name: string; pattern: RegExp }[] = [
-  { name: "clé AWS", pattern: /\b(AKIA|ASIA)[0-9A-Z]{16}\b/ },
-  { name: "jeton GitHub", pattern: /\b(gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{40,})\b/ },
-  { name: "jeton Slack", pattern: /\bxox[abposr]-[A-Za-z0-9-]{10,}/ },
-  { name: "clé Google", pattern: /\bAIza[0-9A-Za-z_-]{35}\b/ },
-  { name: "clé Stripe", pattern: /\b[rs]k_(live|test)_[A-Za-z0-9]{16,}/ },
-  { name: "clé privée", pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/ },
-  { name: "jeton JWT", pattern: /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/ },
-  { name: "mot de passe dans une URL de connexion", pattern: /\b[a-z][a-z0-9+.-]*:\/\/[^\s:/@]+:[^\s/@]{3,}@/i },
-];
 
 /** Workspace lines shorter than this are too common (`}`, `import x from "y";`) to prove a copy. */
 const MIN_LINE_CHARS = 24;
@@ -114,9 +103,11 @@ export function inspectOutgoing(request: OutgoingRequest): OutgoingInspection {
   const candidates = [raw, decoded, ...base64Decodings(decoded)];
   const findings: ExfiltrationFinding[] = [];
 
-  if (candidates.some((text) => redactSecrets(text) !== text)) findings.push({ kind: "secret", detail: "clé d'API" });
-  for (const { name, pattern } of SECRET_SHAPES) {
-    if (candidates.some((text) => pattern.test(text))) findings.push({ kind: "secret", detail: name });
+  const shapes = new Set(candidates.flatMap((text) => scanForSecrets(text, 10).map((finding) => finding.label)));
+  for (const label of shapes) findings.push({ kind: "secret", detail: label });
+  // Generic shapes redactSecrets also masks (any `sk-…` key, bearer tokens) that no C8 shape named.
+  if (shapes.size === 0 && candidates.some((text) => redactSecrets(text) !== text)) {
+    findings.push({ kind: "secret", detail: "clé d'API" });
   }
   const known = (request.knownSecrets ?? []).filter((secret) => secret.length >= 8);
   if (known.some((secret) => candidates.some((text) => text.includes(secret)))) {

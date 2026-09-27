@@ -263,6 +263,13 @@ export type MissionStartRequest = z.infer<typeof MissionStartRequestSchema>;
 export const MissionIdRequestSchema = z.object({ missionId: entityId });
 export type MissionIdRequest = z.infer<typeof MissionIdRequestSchema>;
 
+/** Resume; `budgetUsd` raises the mission budget first (never lowers it) to continue after a budget stop. */
+export const MissionResumeRequestSchema = z.object({
+  missionId: entityId,
+  budgetUsd: z.number().min(0).max(1_000).optional(),
+});
+export type MissionResumeRequest = z.infer<typeof MissionResumeRequestSchema>;
+
 export const MissionsListRequestSchema = z.object({
   workspaceId: entityId.nullable(),
   limit: z.int().min(1).max(200),
@@ -290,6 +297,27 @@ export const ReviewDecideRequestSchema = z.object({
     .max(5_000),
 });
 export type ReviewDecideRequest = z.infer<typeof ReviewDecideRequestSchema>;
+
+/**
+ * A11: the mission's own change per file = content before its first write → content on disk now,
+ * as a unified patch whose hunk order is the `hunkIndex` of `missions.review` (the same diff main
+ * reverts). `patch` null: see `missing`.
+ */
+export interface MissionDiffFile {
+  path: RelativePath;
+  change: "created" | "modified" | "deleted";
+  /** Content before the mission (null = did not exist). */
+  beforeHash: string | null;
+  /** Content on disk now (null = absent). */
+  currentHash: string | null;
+  patch: string | null;
+  missing: "binary" | "too_large" | "unreadable" | "no_change" | null;
+}
+
+export interface MissionDiff {
+  missionId: string;
+  files: MissionDiffFile[];
+}
 
 export interface ReviewResult {
   applied: ReviewDecision[];

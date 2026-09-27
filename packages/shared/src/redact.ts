@@ -1,22 +1,24 @@
 // Secret redaction applied to anything that may reach logs, error details, exports or the UI.
+import { SECRET_PATTERNS } from "./sensitive";
 
-const SECRET_PATTERNS: RegExp[] = [
+// Generic shapes (any `sk-…` key, any bearer token) plus the canonical C8 shapes (./sensitive).
+const GENERIC_PATTERNS: RegExp[] = [
+  // Whole PEM private key blocks (the C8 pattern only marks their header).
+  /-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----|$)/g,
   // OpenRouter keys (sk-or-v1-…) and generic sk- style API keys.
   /\bsk-[A-Za-z0-9_-]{8,}/g,
-  // Authorization headers and bearer tokens.
-  /\b(Bearer)\s+[A-Za-z0-9._~+/=-]{8,}/gi,
 ];
+// Authorization headers and bearer tokens: the scheme word is kept.
+const BEARER = /\b(Bearer)\s+[A-Za-z0-9._~+/=-]{8,}/gi;
 
 const REDACTED = "[secret masqué]";
 
 /** Replace every known secret shape in `text`. */
 export function redactSecrets(text: string): string {
   let out = text;
-  for (const pattern of SECRET_PATTERNS) {
-    out = out.replace(pattern, (match, bearer?: string) =>
-      typeof bearer === "string" && /^bearer$/i.test(bearer) ? `${bearer} ${REDACTED}` : REDACTED,
-    );
-  }
+  for (const pattern of GENERIC_PATTERNS) out = out.replace(pattern, REDACTED);
+  out = out.replace(BEARER, (_match, bearer: string) => `${bearer} ${REDACTED}`);
+  for (const { regex } of SECRET_PATTERNS) out = out.replace(regex, REDACTED);
   return out;
 }
 

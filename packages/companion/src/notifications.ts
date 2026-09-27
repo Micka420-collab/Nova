@@ -4,32 +4,13 @@
 // everything except approvals. Every fact is also a notice (read back in the app): nothing lives
 // only in a system notification. Never: inactivity reminders, pushed briefs, sounds.
 
-export type NoticeKind =
-  | "approval"
-  | "mission_succeeded"
-  | "mission_failed"
-  | "mission_suspended"
-  | "watch_done"
-  | "chat_failed";
+import type { CompanionNotice, CompanionNoticeDelivery, CompanionNoticeInput, CompanionNoticeKind } from "@nova/shared";
 
-export type NoticeDelivery = "bubble" | "system" | "held";
-
-export interface NoticeInput {
-  kind: NoticeKind;
-  entityType: "mission" | "approval" | "terminal" | "conversation";
-  entityId: string;
-  /** Coalescing group: the mission id when there is one, else the entity id. */
-  groupKey: string;
-  /** Title and fact only: never conversation content (NOMI.md §10). */
-  text: string;
-}
-
-export interface CompanionNotice extends NoticeInput {
-  id: string;
-  createdAt: number;
-  delivered: NoticeDelivery;
-  readAt: number | null;
-}
+// The notice shapes are part of the IPC contract (`companion.notices`): defined in @nova/shared.
+export type NoticeKind = CompanionNoticeKind;
+export type NoticeDelivery = CompanionNoticeDelivery;
+export type NoticeInput = CompanionNoticeInput;
+export type { CompanionNotice };
 
 export interface SystemNotification {
   groupKey: string;

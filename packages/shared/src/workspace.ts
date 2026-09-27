@@ -117,6 +117,11 @@ export const FileWriteRequestSchema = z.object({
   path: RelativeEntryPathSchema,
   content: z.string().max(FILE_EDIT_MAX_BYTES),
   expectedHash: ContentHashSchema.nullable(),
+  /**
+   * Restore point of a multi-file user change (project replace, E4) created with
+   * `checkpoints.create`: the previous content is stored in it before the write. Absent = plain save.
+   */
+  checkpointId: entityId.nullable().optional(),
 });
 
 export type FileWriteResult =
@@ -237,7 +242,27 @@ export const CheckpointRestoreFileRequestSchema = z.object({
   path: RelativeEntryPathSchema,
 });
 export const CheckpointRestoreAllRequestSchema = z.object({ checkpointId: entityId });
+/** A user restore point (project replace, manual); agent checkpoints are created by main only. */
+export const CheckpointCreateRequestSchema = z.object({
+  workspaceId: entityId,
+  label: z.string().trim().min(1).max(200),
+  reason: z.enum(["user_replace", "manual"]),
+});
+export const CheckpointMergeRequestSchema = z.object({
+  checkpointId: entityId,
+  path: RelativeEntryPathSchema,
+});
+export const CheckpointApplyMergeRequestSchema = z.object({
+  checkpointId: entityId,
+  path: RelativeEntryPathSchema,
+  merged: z.string().max(FILE_EDIT_MAX_BYTES),
+  /** Hash the proposal was computed against; the write is refused (`conflict`) if the file changed since. */
+  expectedHash: ContentHashSchema.nullable(),
+});
 export type CheckpointsListRequest = z.infer<typeof CheckpointsListRequestSchema>;
+export type CheckpointCreateRequest = z.infer<typeof CheckpointCreateRequestSchema>;
+export type CheckpointMergeRequest = z.infer<typeof CheckpointMergeRequestSchema>;
+export type CheckpointApplyMergeRequest = z.infer<typeof CheckpointApplyMergeRequestSchema>;
 export type CheckpointRestoreFileRequest = z.infer<typeof CheckpointRestoreFileRequestSchema>;
 export type CheckpointRestoreAllRequest = z.infer<typeof CheckpointRestoreAllRequestSchema>;
 
@@ -249,8 +274,42 @@ export type RestoreFileResult =
   | { status: "restored"; path: RelativePath; checkpointId: string }
   | { status: "conflict"; path: RelativePath; currentHash: ContentHash | null; expectedHash: ContentHash | null };
 
+/**
+ * Restore met a file the user changed since: the agent's change is undone ON TOP of the user's
+ * version (three-way). `clean` = ready to apply; `conflicting` = the three texts, to merge by hand.
+ */
+export type MergeProposal =
+  | { status: "clean"; path: RelativePath; currentHash: ContentHash | null; merged: string }
+  | {
+      status: "conflicting";
+      path: RelativePath;
+      currentHash: ContentHash | null;
+      /** Text the agent wrote (common base), the user's current text, the checkpoint's text. */
+      base: string | null;
+      current: string | null;
+      target: string | null;
+    };
+
 export interface RestoreAllResult {
   /** Checkpoint taken before restoring, so the restore itself can be undone. */
   safetyCheckpointId: string | null;
   results: RestoreFileResult[];
 }
+
+// ---------------------------------------------------------------------------
+// Editor session (Pr3): tabs, pinned tabs, active tab and scroll per workspace (paths only).
+
+export const EditorSessionSnapshotSchema = z.object({
+  version: z.literal(1),
+  tabs: z.array(z.object({ path: RelativeEntryPathSchema, pinned: z.boolean() })).max(200),
+  activePath: RelativeEntryPathSchema.nullable(),
+  /** Scroll offsets in CSS pixels, by path. */
+  scroll: z.record(z.string().max(4_096), z.number().min(0).max(1e9)),
+});
+export type EditorSessionSnapshot = z.infer<typeof EditorSessionSnapshotSchema>;
+
+export const EditorStateSetRequestSchema = z.object({
+  workspaceId: entityId,
+  state: EditorSessionSnapshotSchema,
+});
+export type EditorStateSetRequest = z.infer<typeof EditorStateSetRequestSchema>;
