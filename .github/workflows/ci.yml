@@ -66,14 +66,14 @@ jobs:
         run: |
           dbus-run-session -- bash e2e/run-with-keyring.sh xvfb-run -a node e2e/vault-smoke.mjs --expect os
           xvfb-run -a node e2e/vault-smoke.mjs --expect weak
-      - name: E2E
-        if: runner.os != 'Linux'
-        working-directory: apps/desktop
-        run: pnpm test:e2e
       - name: Vault level (real app outside Playwright)
         if: runner.os != 'Linux'
         working-directory: apps/desktop
-        run: node e2e/vault-smoke.mjs --expect os
+        run: pnpm exec electron-vite build && node e2e/vault-smoke.mjs --expect os
+      - name: E2E
+        if: runner.os != 'Linux'
+        working-directory: apps/desktop
+        run: pnpm exec playwright test
       - name: Package (unpacked, unsigned)
         working-directory: apps/desktop
         run: pnpm exec electron-builder --config electron-builder.yml --dir --publish never

@@ -39,6 +39,7 @@ export async function launchNova(options: {
     args: [appDir, ...sandboxArgs, ...(options.extraArgs ?? [])],
     cwd: appDir,
     env,
+    timeout: 45_000,
   });
   const page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");
