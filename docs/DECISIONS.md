@@ -287,7 +287,7 @@ Format : contexte → décision → alternatives considérées → conséquences
 - Quatre `utilityProcess` (`pty-host`, `fs-worker`, `agent-runtime`, `mcp-host`), construits par electron-vite à côté du main (`out/main/workers/<nom>.js`), lancés **à la première utilisation** par `WorkerPool` (`apps/desktop/src/main/workers.ts`) : requête/réponse typée (`apps/desktop/src/workers/protocol.ts`), file d'attente jusqu'à `ready`, délais, **redémarrage** après plantage avec backoff (3 fois par minute, puis état `failed` jusqu'à un nouveau `start`), requêtes en cours rejetées en `unavailable`.
 - **Environnement épuré** (`scrubEnv`) : liste blanche de noms (PATH, HOME, locale, TMP, affichage, variables système Windows, `LD_LIBRARY_PATH`), refus de tout nom évoquant un secret (`KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `AUTH`…) et de `NOVA_*`, `ELECTRON_*`, `NODE_OPTIONS` ; aucune clé n'atteint un worker (la génération passera par un proxy fournisseur dans le main).
 - Données à haut débit (terminal, puis LSP) : `MessageChannelMain` ; un port au worker, l'autre à la fenêtre par `webContents.postMessage("nova:port:transfer", { kind, id }, [port])` ; le preload le relaie par `window.postMessage({ type: "nova:port", kind, id }, "*", [port])` (motif documenté d'Electron : `contextBridge` ne transporte pas de ports) ; la page le récupère par `createNovaPortRegistry` (`packages/shared/src/ports.ts`), qui met en attente les ports arrivés avant la réponse IPC qui annonce leur identifiant.
-- Groupes IPC de J2-A non encore câblés : chaque appel répond `unavailable` (jamais de faux succès), après validation zod.
+- Tous les groupes IPC de J2-A sont servis par leur service réel (câblage dans `apps/desktop/src/main/index.ts`, intégration J2-A) ; le module de réponses `unavailable` de la phase 0 a été supprimé. `WorkerPool.instance(nom)` permet de s'abonner aux événements d'un worker sans le démarrer.
 
 **Vérification.** Tests unitaires (`workers.test.ts` : file d'attente, plantage, abandon, arrêt, environnement) ; E2E (`atelier-foundations.spec.ts` : quatre workers répondent, pty et ripgrep dans les workers, port relayé main → preload → page avec aller-retour).
 
@@ -318,6 +318,30 @@ Format : contexte → décision → alternatives considérées → conséquences
 **Décision.** Budget par défaut d'une mission : **0,50 $** ; plafond quotidien : **5 $** (`DEFAULT_MISSION_BUDGET_USD`, `DEFAULT_DAILY_BUDGET_USD` dans `packages/shared/src/missions.ts`), affichés dès le premier contrat et modifiables. Réservation avant chaque appel payant (`cost_reservations`) ; au plafond, la mission passe en `suspended` (raison `budget` ou `daily_budget`) avec « Augmenter / Arrêter ». Un coût inconnu n'est jamais compté comme nul : le total dépensé est alors une borne basse (`MissionBudget.unknownCostCalls`).
 
 ---
+
+## ADR-019 — Une seule définition des fichiers et secrets sensibles (C8)
+
+- **Date** : 2026-09-27 · **Statut** : acceptée ; implémentée (intégration J2-A).
+
+**Décision.** `packages/shared/src/sensitive.ts` est la **seule** source de vérité de C8 : `SENSITIVE_PATH_PATTERNS` (syntaxe gitignore, modèles `.env.example`/`.sample`/`.template` et clés publiques `*.pub` ré-autorisés, `.git/` et `node_modules/` exclus), `isSensitivePath` (évaluateur sans dépendance), `SECRET_PATTERNS` et `scanForSecrets`. Tous les consommateurs l'utilisent : le moteur de permissions (`createExcludedPathMatcher`), l'API fichiers de l'agent, la recherche et la surveillance (`createIgnoreMatcher().isExcluded`), le garde anti-exfiltration web (`inspectOutgoing`), le contexte joint aux messages et `redactSecrets` (qui masque désormais aussi les formes C8 : AWS, GitHub, JWT, chaînes de connexion, Slack, Google, Stripe, blocs PEM entiers). `.novaignore` ne peut qu'ajouter des exclusions. La liste est visible dans Réglages › Permissions.
+
+**Pourquoi.** Trois listes divergentes existaient (moteur, espace de travail, web) : `.env.example` refusé ici et permis là, `.git/` et `*.tfstate` oubliés par l'une. Une écriture de l'agent dans `.git/` est maintenant refusée (C8) avant même la règle « demander pour les internes de Git », conservée en défense en profondeur.
+
+## ADR-020 — Mentions et « Web » en mode Discuter, pour un seul message (C6, W1)
+
+- **Date** : 2026-09-27 · **Statut** : acceptée ; implémentée (intégration J2-A).
+
+**Décision.** `chat.send` accepte `workspaceId`, `attachments` (fichier, dossier, URL mentionnés par `@`) et `webSearch`. Le main résout le contexte **pour ce message uniquement** (`services/chat-context.ts`, `ChatRunnerDeps.prepareTurn`) : fichiers lus par l'API fichiers de l'agent (confinement, exclusions C8) puis analysés : un secret **bloque** l'envoi ; un `@mot` qui n'est pas un fichier est signalé « introuvable », pas fatal ; une URL passe par le service web (SSRF, politique de domaines ; la mention approuve son propre hôte une fois, une règle `deny` l'emporte). Le contexte est envoyé comme message système juste avant la question et **n'est jamais stocké** avec le message (aucun contenu de projet en base). « Web » devient le plugin OpenRouter avec les filtres de domaines de la politique ; les sources réellement citées (`url_citation`) sont ajoutées à la réponse enregistrée, jamais inventées.
+
+**Limites.** Une relance (« Relancer ») repart sans les pièces jointes du message d'origine ; l'inspecteur de contexte reste une estimation côté renderer (pas de `chat.previewContext`).
+
+## ADR-021 — `turndown` regroupé depuis sa version CommonJS
+
+- **Date** : 2026-09-27 · **Statut** : acceptée.
+
+**Décision.** Dans le bundle du main, `turndown` est aliasé vers sa version CommonJS (`electron.vite.config.ts`). Sa version ES appelle un `require("@mixmark-io/domino")` nu que Rollup laisse à l'exécution, où la disposition stricte de pnpm (et l'application empaquetée) ne le résout pas : le main plantait au chargement. Avec la version CommonJS, domino est regroupé. Aucune dépendance ajoutée.
+
+**Autres choix d'intégration.** `@nova/missions` n'a pas besoin de déclarer `zod` : il n'importe que le `z` réexporté par `@nova/tools` (aucun `import "zod"` direct), donc aucun `pnpm add`. Le catalogue MCP recommandé est importé tel quel par le renderer (`@nova/mcp/catalog`, sans le SDK) plutôt que servi par une IPC.
 
 ## Dépendances et justification
 

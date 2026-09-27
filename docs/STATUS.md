@@ -4,7 +4,7 @@ Page de reprise : ce qui marche, ce qui a réellement été testé, ce qui ne l'
 
 ## État au 2026-09-27
 
-- **Jalons en cours** : J0 (fondations) et J1 (vraie conversation). Voir [`ROADMAP.md`](ROADMAP.md).
+- **Jalons en cours** : J0 (fondations) et J1 (vraie conversation) ; J2-A (« l'atelier s'ouvre ») intégré sur la branche `feat/j2a-atelier`. Voir [`ROADMAP.md`](ROADMAP.md).
 - **Verdict** : non prêt pour la production. La tranche verticale du jalon 1 fonctionne sur Linux x64 contre un faux serveur OpenRouter ; elle n'a pas encore été parcourue avec une vraie clé, ni sur Windows et macOS.
 - **Code** : commits sur `main` : `b48b9e4` (monorepo et contrat partagé), `a08ad93` (tranche verticale : application desktop, adaptateur OpenRouter, store SQLite, runtime, interface, CI, E2E), `996fd02` (logo : le concept de ruban du propriétaire redessiné en un seul tracé plein, icônes régénérées). Puis un commit de correctifs issus d'une revue adversariale (6 axes, 42 signalements, 40 confirmés par deux contre-vérificateurs, tous corrigés avec test de non-régression).
 
@@ -19,6 +19,13 @@ Sur Linux x64, application construite, contre le faux serveur OpenRouter local (
 - isolation du renderer : pas d'accès Node, pont fixe, CSP, navigation et fenêtres refusées, liens externes filtrés ;
 - niveau de coffre détecté : `os` (backend `gnome_libsecret`) avec un trousseau, `weak` (backend `basic_text`) sans trousseau ;
 - message resté « en cours » lors d'un plantage marqué « interrompu » au redémarrage, sans relance.
+
+J2-A, sur Linux x64, application construite, contre le faux serveur OpenRouter (`e2e/atelier-wiring.spec.ts`) :
+
+- les 13 groupes de l'atelier (`workspace`, `files`, `search`, `terminal`, `missions`, `approvals`, `permissions`, `audit`, `git`, `mcp`, `web`, `companion`, `checkpoints`) répondent depuis leur service réel ; plus aucune réponse `unavailable` de phase 0 ;
+- ouverture d'un dossier depuis l'accueil, arbre affiché ; lecture, recherche ripgrep (`.env` jamais cherché), faits du projet, disposition de l'éditeur conservée, terminal node-pty créé, listé et fermé ;
+- une mission complète dans le worker `agent-runtime` : plan, contrat, lecture, demande d'approbation (« une fois »), modification avec point de reprise, réussite, coût réel, `missions.diff`, relecture qui annule le bloc, journal d'audit (décisions, approbation, exécutions) ;
+- un message de conversation joint `@src/cart.ts` pour ce seul tour ; `@.env` est refusé.
 
 Avec le vrai service OpenRouter : seuls la lecture du catalogue (458 modèles) et le traitement d'une clé refusée (HTTP 401 → `invalid_key`) ont été exercés.
 
@@ -43,6 +50,10 @@ Environnement commun, sauf mention contraire : Linux x64, Ubuntu 26.04, Node 24.
 | 2026-09-27 | J2-A phase 0 — `nova --nova-selftest=workers` sur le build `out/` puis sur `release/linux-unpacked/nova` (`electron-builder --dir`, fuses actifs) | Linux x64, Xvfb | `ok: true` : 4 workers (`pty-host`, `fs-worker`, `agent-runtime`, `mcp-host`) répondent au ping ; pty `nova-pty-ok` dans le pty-host ; `ripgrep 15.0.0` lancé par le fs-worker depuis `app.asar.unpacked` | Voie J2-A |
 | 2026-09-27 | J2-A phase 0 — `pnpm lint`, `pnpm typecheck`, `pnpm test` | Linux x64 | Lint et types sans erreur ; 42 fichiers, 578 tests réussis, 2 ignorés (migrations v1→v5, contrat partagé, workers, nonce CSP) | Voie J2-A |
 | 2026-09-27 | J2-A phase 0 — `electron-vite build && xvfb-run -a npx playwright test` | Linux x64, Xvfb | 16/16 réussis : les 13 existants + `atelier-foundations.spec.ts` 3 (workers et natifs, nonce de style, relais de port) | Voie J2-A |
+| 2026-09-27 | Intégration J2-A — `npx tsc -p tsconfig.json --noEmit` | Linux x64 | 0 erreur | Intégration J2-A |
+| 2026-09-27 | Intégration J2-A — `npx oxlint --deny-warnings apps packages scripts` | Linux x64 | 0 erreur, 0 avertissement | Intégration J2-A |
+| 2026-09-27 | Intégration J2-A — `npx vitest run` | Linux x64, Vitest 5.0.2 | 129 fichiers réussis (1 ignoré), 1 630 tests réussis, 2 ignorés (suite OpenRouter en direct, test Windows) | Intégration J2-A |
+| 2026-09-27 | Intégration J2-A — `cd apps/desktop && npx electron-vite build` puis `xvfb-run -a npx playwright test` | Linux x64, Electron 44.4.5, Xvfb | Build OK ; 19/19 réussis : les 16 existants + `atelier-wiring.spec.ts` 3 (groupes servis, mission de bout en bout, mentions en Discuter) | Intégration J2-A |
 | en attente | Scénario 1 manuel avec un vrai compte OpenRouter (réponse en continu réelle) | | à faire : demande une clé avec crédit | |
 
 ## Non vérifié
@@ -54,7 +65,15 @@ Environnement commun, sauf mention contraire : Linux x64, Ubuntu 26.04, Node 24.
 - **Signature des installeurs** : aucune (question Q3).
 - **Effacement sur disque** : `PRAGMA secure_delete` et le point de contrôle WAL après suppression sont en place et testés au niveau du store (absence des octets dans les fichiers) ; les limites physiques (SSD, instantanés) restent hors de portée — voir [`SECURITY.md`](SECURITY.md#effacement-des-données).
 - Paquet : depuis ADR-012, `node_modules` contient uniquement `node-pty` et `@vscode/ripgrep` (+ binaire de la plateforme), désarchivés ; vérifié sous Linux (`release/linux-unpacked`), **pas encore sous Windows et macOS** (prébuilds de `node-pty`, `spawn-helper` sous macOS) : rejouer `--nova-selftest=workers` sur les paquets de la CI.
-- J2-A : les groupes IPC `workspace`, `files`, `search`, `terminal`, `missions`, `approvals`, `permissions`, `git`, `mcp`, `web`, `companion`, `checkpoints` existent au contrat mais répondent `unavailable` (phase 0) ; xterm.js n'est pas encore vérifié contre la CSP à nonce.
+- J2-A, vérifié seulement contre le faux serveur : appels d'outils et recherche web avec le vrai OpenRouter ; serveurs MCP réels (seul un serveur de test du SDK a été exercé) ; xterm.js sans WebGL perd les couleurs « truecolor » sous la CSP à nonce (bandeau « mode dégradé ») ; isolation L0 seulement (bubblewrap détecté, jamais présenté comme actif).
+- J2-A, non fait (aucun groupe masqué : tous les groupes sont servis ; ce qui manque n'a pas de bouton) :
+  - mémoriser une commande précise (`PermissionRule.argvPrefix`, demande une migration) ; journal des notifications de Nomi persistant (table `companion_notices`, migration) ;
+  - outils de suivi des processus en arrière-plan (`process_list` / `process_stop`) ; événement « modèle de secours utilisé » (Mo2) ;
+  - inspecteur de contexte exact (`chat.previewContext`) et mentions transmises au plan de mission (`MissionPlanRequest.mentions`) ; « Relancer » repart sans les pièces jointes ;
+  - recherche projet en flux (MessagePort), lecture paginée des fichiers de 5 à 50 Mo et aperçu hexadécimal ; `truncated` sur `files.list` ;
+  - relancer directement une réponse échouée depuis la bulle de Nomi (elle ouvre la conversation) ; commandes de Nomi une à une dans la palette (la palette ouvre le menu de Nomi, Ctrl+Maj+N) ;
+  - vue scindée du terminal, blocs OSC 133 ; editorconfig, minimap ; profils Vim/Emacs ; panneaux Ctrl+1…9 ;
+  - jetons de l'atelier encore dans `packages/ui/src/styles/agent.css` (à déplacer dans `tokens.css` avec tests de contraste) ; contraste de `--nv-match-bg` en sombre (3,72:1) à corriger dans VISUAL.md.
 - Avis de licence (OFL, ISC) présents dans le paquet.
 - Mesures de référence : taille de l'installeur, mémoire au repos, CPU du compagnon au repos (ADR-001).
 
