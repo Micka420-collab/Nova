@@ -146,6 +146,9 @@ test("(b) /compact in Discuter proposes a summary; once applied it replaces the 
   await home.fill("Explique le panier");
   await home.press("Enter");
   await expect(page.getByText(/Réponse simulée n°1/)).toBeVisible();
+  // The answer is complete (its usage line is shown) before the next command: while it streams,
+  // Enter does not send, and « /compact » would stay in the composer.
+  await expect(page.getByText(/envoyés : 42 jetons/)).toBeVisible();
   // The conversation continues in the chat composer.
   const composer = page.getByRole("textbox", { name: "Message" }).last();
   await composer.fill("/compact garder les noms de fichiers");

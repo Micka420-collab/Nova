@@ -29,13 +29,39 @@ const CHAIN_FIX: MissionScript = {
   },
 };
 
+// Reads the cart, tries the excluded `.env` (refused by the built-in rule, the program catches the
+// Error and goes on), then reads the formatter: the refusal is one call among the others.
+const DENIED_PROGRAM = [
+  "const cart = await nova.read_file({ path: 'src/cart.js' });",
+  "let refused = 'no';",
+  "try {",
+  "  await nova.read_file({ path: '.env' });",
+  "} catch (error) {",
+  "  refused = String(error.message).slice(0, 200);",
+  "}",
+  "const format = await nova.read_file({ path: 'src/format.js' });",
+  "console.log('refus :', refused);",
+  "return { cart: cart.length > 0, format: format.length > 0 };",
+].join("\n");
+
+const CHAIN_DENIED: MissionScript = {
+  plan: {
+    summary: "Je lis le panier, la configuration et le formatage en un programme.",
+    tasks: [{ title: "Tout lire", acceptance: { kind: "manual", detail: "Les fichiers sont lus." } }],
+  },
+  step({ results }) {
+    if (!results.some((result) => result.name === "run_chain")) return { kind: "tools", calls: [{ name: "run_chain", args: { program: DENIED_PROGRAM } }] };
+    return { kind: "answer", text: "Le fichier .env est refusé ; les deux autres sont lus." };
+  },
+};
+
 let mock: MockOpenRouter;
 let userDataDir: string;
 let project: string;
 let nova: LaunchedNova | null = null;
 
 test.beforeEach(async () => {
-  mock = await startMockOpenRouter({ scripts: { chain: CHAIN_FIX } });
+  mock = await startMockOpenRouter({ scripts: { chain: CHAIN_FIX, "chain-denied": CHAIN_DENIED } });
   userDataDir = makeUserDataDir();
   project = makeUserDataDir();
   writeShopProject(project);
@@ -107,4 +133,62 @@ test("« Chaîne »: one program, three gated calls under its card, approval in 
     .flatMap((request) => ((request.body as { messages?: { role: string; content: string | null }[] } | null)?.messages ?? []))
     .find((message) => message.role === "tool" && (message.content ?? "").includes("The program finished after 3 tool calls"));
   expect(chainResult).toBeDefined();
+});
+
+test("« Chaîne »: a call refused by the permissions throws in the program, which goes on; the secret never leaves", async () => {
+  test.setTimeout(120_000);
+  nova = await launchOnFolder({ userDataDir, mock, folder: project });
+  const { page } = nova;
+  const workspaceId = await currentWorkspaceId(page);
+  await page.getByRole("button", { name: "Confier une mission à Nomi" }).click();
+  await planFromAgent(page, "Comprendre", "Lis le panier et sa configuration [script:chain-denied]");
+  await page.getByRole("switch", { name: "Mode « Chaîne »" }).click();
+  await page.getByRole("button", { name: "Lancer la mission" }).click();
+
+  // No approval: reads are allowed, the `.env` read is refused by a built-in rule before any effect.
+  const agent = page.getByRole("region", { name: "Panneau Agent" });
+  await expect(agent.locator(".nova-endcard")).toBeVisible({ timeout: 60_000 });
+  await expect(agent.getByRole("button", { name: "Autoriser une fois" })).toHaveCount(0);
+  await agent.getByRole("button", { name: /^Enchaîner/ }).click();
+  await expect(agent.getByText("Programme terminé · 3 appels d’outil", { exact: false })).toBeVisible();
+  const nested = agent.getByRole("list", { name: "3 appels de ce programme" });
+  await expect(nested).toBeVisible();
+  await expect(nested.getByText("Permission : fichier exclu (sensible)")).toBeVisible();
+  await shot(page, "j2b-chain-04-denied");
+
+  const mission = await latestMission(page, workspaceId);
+  const events = await missionEvents(page, mission.id);
+  const requested = events.flatMap((event) =>
+    event.type === "tool.requested" ? [(event as unknown as { call: { id: string; name: string; parentCallId?: string | null; arguments?: unknown } }).call] : [],
+  );
+  const parent = requested.find((call) => call.name === "run_chain");
+  const children = requested.filter((call) => call.parentCallId === parent?.id);
+  expect(children.map((call) => call.name)).toEqual(["read_file", "read_file", "read_file"]);
+  // The permission decision of each child: two allowed, the `.env` one denied (excluded path).
+  const decisions = events
+    .filter((event) => event.type === "tool.permission")
+    .map((event) => event as unknown as { callId: string; decision: { decision: string; reason: string } })
+    .filter((event) => children.some((call) => call.id === event.callId))
+    .map((event) => [event.decision.decision, event.decision.reason]);
+  expect(decisions).toEqual([
+    ["allow", expect.any(String)],
+    ["deny", "excluded_path"],
+    ["allow", expect.any(String)],
+  ]);
+  expect(events.find((event) => event.type === "chain.finished")).toMatchObject({ summary: { state: "succeeded", toolCalls: 3 } });
+
+  // Audited: the `.env` read is recorded as denied, the two others as succeeded.
+  const audit = await auditOf(page, mission.id);
+  const reads = audit.filter((row) => row.action === "tool.executed" && row.tool === "read_file").map((row) => [row.target, row.outcome]);
+  expect(reads).toEqual([
+    ["src/cart.js", "succeeded"],
+    [".env", "denied"],
+    ["src/format.js", "succeeded"],
+  ]);
+  expect(audit.some((row) => row.action === "permission.decision" && row.decision === "deny" && row.target === ".env")).toBe(true);
+
+  // The program saw the refusal as an Error; the secret's value never reached the provider.
+  const sent = mock.requests.map((request) => JSON.stringify(request.body ?? "")).join("\n");
+  expect(sent).toContain("refus :");
+  expect(sent).not.toContain("never-read-e2e");
 });

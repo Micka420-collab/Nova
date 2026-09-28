@@ -54,8 +54,9 @@ export function writeShopProject(root: string, options: { git?: boolean } = {}):
   }
 }
 
+/** Finite animations (dialog/toast entrances, switch thumbs) are finished first: the capture shows the settled state. */
 export async function shot(page: Page, name: string): Promise<void> {
-  await page.screenshot({ path: join(artifactsDir, "screens", `${name}.png`) });
+  await page.screenshot({ path: join(artifactsDir, "screens", `${name}.png`), animations: "disabled" });
 }
 
 /** Key (session) + default model through the bridge, then the UI reloads on that state. */

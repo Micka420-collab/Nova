@@ -54,13 +54,39 @@ const WRITER: MissionScript = {
   },
 };
 
+/** Asks for two read-only children: the first fits the parent's budget, the second does not. */
+const SHARED_BUDGET: MissionScript = {
+  plan: { summary: "Je confie deux lectures.", tasks: [{ title: "Déléguer", acceptance: { kind: "manual", detail: "" } }] },
+  step({ results }) {
+    if (!results.some((result) => result.name === "start_submission")) {
+      return {
+        kind: "tools",
+        calls: [
+          { name: "start_submission", args: { title: "Lire le formatage", goal: "Explique src/format.js [script:costly-reader]", mode: "understand", budgetUsd: 0.08 } },
+          { name: "start_submission", args: { title: "Lire le panier", goal: "Explique src/cart.js [script:costly-reader]", mode: "understand", budgetUsd: 0.15 } },
+        ],
+      };
+    }
+    return { kind: "answer", text: "Une sous-mission lancée ; la seconde ne tenait pas dans le budget." };
+  },
+};
+
+/** A reader whose two steps cost 0,01 $ each: its real cost is charged to the parent when it ends. */
+const COSTLY_READER: MissionScript = {
+  plan: READER.plan,
+  step({ results }) {
+    if (!results.some((result) => result.name === "read_file")) return { kind: "tools", calls: [{ name: "read_file", args: { path: "src/format.js" } }], costUsd: 0.01 };
+    return { kind: "answer", text: "euros() ajoute « EUR » au montant.", costUsd: 0.01 };
+  },
+};
+
 let mock: MockOpenRouter;
 let userDataDir: string;
 let project: string;
 let nova: LaunchedNova | null = null;
 
 test.beforeEach(async () => {
-  mock = await startMockOpenRouter({ scripts: { delegate: DELEGATE, "sub-reader": READER, "sub-writer": WRITER } });
+  mock = await startMockOpenRouter({ scripts: { delegate: DELEGATE, "sub-reader": READER, "sub-writer": WRITER, "shared-budget": SHARED_BUDGET, "costly-reader": COSTLY_READER } });
   userDataDir = makeUserDataDir();
   project = makeUserDataDir();
   writeShopProject(project);
@@ -126,4 +152,69 @@ test("sub-missions: a tree of two children, the writer integrated after its test
     .filter((event) => event.type === "submission.updated")
     .map((event) => (event as unknown as { link: { integration: string | null } }).link.integration);
   expect(integrations).toEqual(expect.arrayContaining(["not_needed", "pending", "testing", "integrated"]));
+});
+
+test("sub-missions share the parent's budget: reserved before they start, refused past it, released when the child ends", async () => {
+  test.setTimeout(150_000);
+  nova = await launchOnFolder({ userDataDir, mock, folder: project });
+  const { page } = nova;
+  const workspaceId = await currentWorkspaceId(page);
+  await page.evaluate(async (id) => {
+    const saved = await window.novaBridge.permissions.setProfile({ workspaceId: id, profile: "autonomous" });
+    if (!saved.ok) throw new Error(saved.error.message);
+  }, workspaceId);
+
+  await page.getByRole("button", { name: "Confier une mission à Nomi" }).click();
+  await planFromAgent(page, "Construire", "Répartis la lecture du panier [script:shared-budget]");
+  await page.getByRole("textbox", { name: "Budget maximal ($)" }).fill("0,2");
+  await page.getByRole("switch", { name: "Sous-missions" }).click();
+  await page.getByRole("button", { name: "Lancer la mission" }).click();
+
+  // One child in the tree, with its reservation; the second start was refused by the budget.
+  const tree = page.getByRole("region", { name: "Sous-missions de cette mission" });
+  await expect(tree).toBeVisible({ timeout: 60_000 });
+  await expect(tree.getByText("Lire le formatage")).toBeVisible();
+  await expect(tree.getByText(/budget réservé 0,08/)).toBeVisible();
+  await expect(tree.getByText("Lire le panier")).toHaveCount(0);
+  // Settled when the child ends.
+  await expect(tree.getByText("mission réussie")).toBeVisible({ timeout: 60_000 });
+
+  const parentId = await page.evaluate(async (id) => {
+    const list = await window.novaBridge.missions.list({ workspaceId: id, limit: 10 });
+    if (!list.ok) throw new Error(list.error.message);
+    return list.value.items.find((item) => item.title.startsWith("Répartis"))?.id ?? "";
+  }, workspaceId);
+  const agent = page.getByRole("region", { name: "Panneau Agent" });
+  // The refused start says why, in French, without blaming a file.
+  // A failed call's card opens by itself; open it only if it is still folded.
+  const refused = agent.getByRole("button", { name: /^Déléguer/ }).nth(1);
+  if ((await refused.getAttribute("aria-expanded")) === "false") await refused.click();
+  await expect(agent.getByText(/Refusé dans l'état actuel/)).toBeVisible();
+  await expect(agent.getByText(/not enough budget left for this sub-mission/)).toBeVisible();
+  await shot(page, "j2b-submissions-04-shared-budget");
+
+  const events = await missionEvents(page, parentId);
+  expect(events.filter((event) => event.type === "submission.started")).toHaveLength(1);
+  const failed = events.filter((event) => event.type === "tool.finished" && (event as { state?: string }).state === "failed") as unknown as {
+    display: { kind: string; code?: string; message?: string };
+  }[];
+  expect(failed.map((event) => [event.display.code, /not enough budget/.test(event.display.message ?? "")])).toEqual([["conflict", true]]);
+
+  // The child's own budget is its reservation; once it ended, its real cost is on the parent.
+  const budgets = await page.evaluate(async (parent) => {
+    const node = await window.novaBridge.submissions.tree({ missionId: parent });
+    if (!node.ok) throw new Error(node.error.message);
+    const childId = node.value.children[0]?.mission.id ?? "";
+    const child = await window.novaBridge.missions.get({ missionId: childId, afterSeq: 0 });
+    const own = await window.novaBridge.missions.get({ missionId: parent, afterSeq: 0 });
+    if (!child.ok || !own.ok) throw new Error("mission detail");
+    return { child: child.value.budget, parent: own.value.budget, links: node.value.children.length };
+  }, parentId);
+  expect(budgets.links).toBe(1);
+  expect(budgets.child.budgetUsd).toBeCloseTo(0.08, 6);
+  expect(budgets.child.spentUsd).toBeGreaterThanOrEqual(0.02);
+  expect(budgets.parent.budgetUsd).toBeCloseTo(0.2, 6);
+  // The child's reservation is released once it ended (its real cost is committed on the parent's
+  // ledger; MissionBudget.spentUsd only sums the parent's own calls, so it is not asserted here).
+  expect(budgets.parent.reservedUsd).toBe(0);
 });

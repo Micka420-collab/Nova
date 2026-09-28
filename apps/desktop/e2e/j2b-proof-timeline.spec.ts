@@ -34,13 +34,28 @@ const PROOF: MissionScript = {
   },
 };
 
+/**
+ * Red tests, two claims (round 0); in round 1 a costly re-run (still red, 0,05 $) then two claims
+ * again: the round spent more than the continuation cap, so NOVA stops instead of a round 2.
+ */
+const OVER_CAP: MissionScript = {
+  plan: PROOF.plan,
+  step({ results, nudges }) {
+    const tests = results.filter((result) => result.name === "run_tests").length;
+    const inRound = nudges.some((nudge) => nudge.startsWith("Continuation round"));
+    if (tests === 0) return tools({ name: "run_tests", args: {} });
+    if (inRound && tests === 1) return { kind: "tools", calls: [{ name: "run_tests", args: {} }], costUsd: 0.05 };
+    return { kind: "answer", text: "Fini, le panier est bon." };
+  },
+};
+
 let mock: MockOpenRouter;
 let userDataDir: string;
 let project: string;
 let nova: LaunchedNova | null = null;
 
 test.beforeEach(async () => {
-  mock = await startMockOpenRouter({ scripts: { proof: PROOF } });
+  mock = await startMockOpenRouter({ scripts: { proof: PROOF, "over-cap": OVER_CAP } });
   userDataDir = makeUserDataDir();
   project = makeUserDataDir();
   writeShopProject(project);
@@ -78,11 +93,13 @@ test("« Jusqu'à preuve »: red at round 0, green at round 1, proven; search fi
   const approveOnce = agent.getByRole("button", { name: "Autoriser une fois" });
   await expect(approveOnce).toBeVisible({ timeout: 60_000 });
   await expect(agent.getByText(/Jusqu’à preuve · Tour 1 sur 2/)).toBeVisible();
+  await agent.getByText(/Jusqu’à preuve · Tour 1 sur 2/).scrollIntoViewIfNeeded();
   await shot(page, "j2b-proof-02-round");
   await approveOnce.click();
 
   await expect(agent.locator(".nova-endcard")).toBeVisible({ timeout: 60_000 });
   await expect(agent.getByText(/Preuve obtenue · 1 tour/)).toBeVisible();
+  await agent.getByText(/Preuve obtenue · 1 tour/).scrollIntoViewIfNeeded();
   await shot(page, "j2b-proof-03-proven");
   expect(readFileSync(join(project, "src/cart.js"), "utf8")).toBe(CART_FIXED);
 
@@ -128,4 +145,37 @@ test("« Jusqu'à preuve »: red at round 0, green at round 1, proven; search fi
   expect(childEvents.find((event) => event.type === "mission.forked")).toMatchObject({ fromMissionId: original.id });
   expect(childEvents.some((event) => event.type === "tool.requested")).toBe(false);
   expect((await missionEvents(page, original.id)).length).toBe(before);
+});
+
+test("« Jusqu'à preuve »: a round that spends past the continuation cap stops the rounds, visibly", async () => {
+  test.setTimeout(120_000);
+  nova = await launchOnFolder({ userDataDir, mock, folder: project });
+  const { page } = nova;
+  const workspaceId = await currentWorkspaceId(page);
+  await page.getByRole("button", { name: "Confier une mission à Nomi" }).click();
+  await planFromAgent(page, "Corriger", "Corrige le total du panier [script:over-cap]");
+  await page.getByRole("switch", { name: "Jusqu’à preuve" }).click();
+  await page.getByRole("textbox", { name: /Tours au maximum/ }).fill("3");
+  await page.getByRole("textbox", { name: /Plafond pour la poursuite/ }).fill("0,01");
+  await page.getByRole("button", { name: "Lancer la mission" }).click();
+
+  const agent = page.getByRole("region", { name: "Panneau Agent" });
+  await expect(agent.locator(".nova-endcard")).toBeVisible({ timeout: 60_000 });
+  await expect(agent.getByText(/Plafond de poursuite atteint · 1 tour/)).toBeVisible();
+  await agent.getByText(/Plafond de poursuite atteint · 1 tour/).scrollIntoViewIfNeeded();
+  await shot(page, "j2b-proof-05-budget-stop");
+
+  const mission = await page.evaluate(async (id) => {
+    const list = await window.novaBridge.missions.list({ workspaceId: id, limit: 1 });
+    if (!list.ok || !list.value.items[0]) throw new Error("no mission");
+    return list.value.items[0];
+  }, workspaceId);
+  // Not proven: the mission fails on its criterion, it does not claim success.
+  expect(mission.state).toBe("failed");
+  const events = await missionEvents(page, mission.id);
+  const flow = events.filter((event) => event.type.startsWith("continuation.") || TERMINAL_EVENTS.includes(event.type)).map((event) => event.type);
+  expect(flow).toEqual(["continuation.round", "continuation.stopped", "mission.failed"]);
+  expect(events.find((event) => event.type === "continuation.stopped")).toMatchObject({ reason: "budget", rounds: 1 });
+  // Exactly two runs of the tests: no round 2 was started after the cap.
+  expect(events.filter((event) => event.type === "tool.requested")).toHaveLength(2);
 });
