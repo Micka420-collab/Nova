@@ -60,8 +60,11 @@ export interface EngineDecision extends PermissionDecision {
 }
 
 const ISOLATION_RANK: Record<IsolationLevel, number> = { L0: 0, L1: 1, L2: 2 };
-/** Operations whose effect leaves the machine or the restorable workspace (W5). */
-const OUTBOUND: ReadonlySet<OperationClass> = new Set(["network", "external"]);
+/**
+ * Operations whose effect can leave the machine or the restorable workspace (W5): commits, and
+ * commands, which run with network access (`curl -d @.env …`) unless they are routine.
+ */
+const OUTBOUND: ReadonlySet<OperationClass> = new Set(["network", "external", "git_mutation", "execute"]);
 
 function hostMatches(pattern: string, host: string): boolean {
   if (pattern.startsWith("*.")) {
@@ -118,6 +121,14 @@ function isGitInternals(path: string | undefined): boolean {
   return path !== undefined && (path === ".git" || path.startsWith(".git/"));
 }
 
+/** Detected test/build commands: routine, allowed by mode `tests` rows, Assisté and taint (W5). */
+function isRoutineCommand(request: PermissionRequest, context: EvaluationContext): boolean {
+  return (
+    request.tool === "run_tests" ||
+    (request.argv !== undefined && isKnownCommand(request.argv, context.knownCommands ?? []))
+  );
+}
+
 interface Facts {
   request: PermissionRequest;
   context: EvaluationContext;
@@ -172,12 +183,8 @@ function modeDecision(facts: Facts): EngineDecision | null {
         (contract.allowedOperations.includes("network") || (request.tool === "web_search" && contract.webSearch));
       return allowed ? null : forbid();
     }
-    case "tests": {
-      const routine =
-        request.tool === "run_tests" ||
-        (request.argv !== undefined && isKnownCommand(request.argv, context.knownCommands ?? []));
-      return routine ? null : forbid();
-    }
+    case "tests":
+      return isRoutineCommand(request, context) ? null : forbid();
   }
 }
 
@@ -205,8 +212,13 @@ function alwaysAsk(facts: Facts): EngineDecision | null {
   if ((operation === "write" || operation === "delete") && isGitInternals(request.path)) {
     return decide(facts, "ask", "always_ask", "builtin:git-internals");
   }
-  // W5: after untrusted content, only hosts the contract names explicitly stay automatic.
-  if (request.tainted === true && OUTBOUND.has(operation) && !contractHostAllows(context.contract, request.host)) {
+  // W5: after untrusted content, only hosts the contract names and routine commands stay automatic.
+  if (
+    request.tainted === true &&
+    OUTBOUND.has(operation) &&
+    !contractHostAllows(context.contract, request.host) &&
+    !(operation === "execute" && isRoutineCommand(request, context))
+  ) {
     return decide(facts, "ask", "tainted_context", "builtin:tainted-context");
   }
   return null;
@@ -248,12 +260,7 @@ function profileDefaults(facts: Facts, profile: Exclude<PermissionProfile, "cust
   }
   if (profile === "autonomous") return allow();
   // Assisté.
-  if (operation === "execute") {
-    const routine =
-      request.tool === "run_tests" ||
-      (request.argv !== undefined && isKnownCommand(request.argv, context.knownCommands ?? []));
-    return routine ? allow() : ask(false);
-  }
+  if (operation === "execute") return isRoutineCommand(request, context) ? allow() : ask(false);
   if (operation === "delete") return ask(false);
   return ask();
 }

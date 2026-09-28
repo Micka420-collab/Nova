@@ -71,7 +71,7 @@ export function explainDecision(facts: ExplanationFacts): string {
       if (facts.operation === "external") return "Cette action ne pourra pas être annulée par NOVA : confirmation demandée à chaque fois.";
       return `Action sensible${target(facts)} : confirmation demandée à chaque fois.`;
     case "tainted_context":
-      return "Du contenu non fiable (page, fichier ou outil externe) a été lu : les accès vers l'extérieur demandent ta confirmation.";
+      return "Du contenu non fiable (page, fichier ou outil externe) a été lu : les commandes, les commits et les accès vers l'extérieur demandent ta confirmation.";
     case "remembered_approval":
       return `Déjà autorisé par toi : ${action}${target(facts)}.`;
     case "profile_allows":
