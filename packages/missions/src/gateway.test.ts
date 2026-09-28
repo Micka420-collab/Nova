@@ -150,6 +150,55 @@ describe("tool gateway", () => {
     expect(types.indexOf("approval.requested")).toBeLessThan(types.indexOf("tool.started"));
   });
 
+  describe("owner asks and remembering (S6)", () => {
+    const askingWeb = (): { web: WebApi; fetched: string[] } => {
+      const fetched: string[] = [];
+      return {
+        fetched,
+        web: {
+          decide: (url) => ({ action: "ask", host: new URL(url).hostname }),
+          async fetchPage(input) {
+            fetched.push(input.url);
+            const page = { url: input.url, finalUrl: input.url, title: null, markdown: "ok", fetchedAt: 0, truncated: false, fromCache: false };
+            return { page, content: "ok" };
+          },
+          webSearch: () => Promise.reject(new Error("unused")),
+        },
+      };
+    };
+    const recording = (asked: PermissionDecision[]): ApprovalGate => ({
+      async request(input) {
+        asked.push(input.decision);
+        return { id: randomUUID(), request: input.request, decision: input.decision, toolCallId: input.toolCallId, status: "approved", scope: "once", createdAt: 0, decidedAt: 1 };
+      },
+    });
+    const REMEMBERED: PermissionDecision = { decision: "allow", reason: "remembered_approval", ruleId: "rule-1", rememberable: false, explanation: "Déjà autorisé." };
+
+    it("does not ask again for a host the user approved « pour ce projet » under an asking domain policy", async () => {
+      const { web, fetched } = askingWeb();
+      const asked: PermissionDecision[] = [];
+      const h = setup({ deps: { web }, approvals: recording(asked), decide: () => REMEMBERED });
+      expect(await h.call("fetch_page", { url: "https://docs.foo.dev/x" }).result).toMatchObject({ ok: true });
+      expect(asked).toEqual([]);
+      expect(fetched).toEqual(["https://docs.foo.dev/x"]);
+    });
+
+    it("still asks the domain policy's question when no remembered rule covers the host, and offers remembering", async () => {
+      const { web } = askingWeb();
+      const asked: PermissionDecision[] = [];
+      const h = setup({ deps: { web }, approvals: recording(asked) });
+      expect(await h.call("fetch_page", { url: "https://docs.foo.dev/x" }).result).toMatchObject({ ok: true });
+      expect(asked).toMatchObject([{ decision: "ask", reason: "domain_policy", rememberable: true }]);
+    });
+
+    it("never offers remembering when an MCP tool set to ask also asks, even if the engine's ask is rememberable", async () => {
+      const asked: PermissionDecision[] = [];
+      const h = setup({ mode: "understand", mcp: [offer("lookup", "read", "ask")], approvals: recording(asked), decide: () => ASK });
+      expect(await h.call("mcp__srv__lookup", { q: "x" }).result).toMatchObject({ ok: true });
+      expect(asked).toMatchObject([{ decision: "ask", rememberable: false }]);
+    });
+  });
+
   it("stops forwarding live output once the call has finished", async () => {
     let late: ((stream: "stdout" | "stderr", chunk: string) => void) | undefined;
     const runner = fakeTestRunner();

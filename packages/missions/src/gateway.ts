@@ -112,10 +112,17 @@ const OWNER_EXPLANATIONS: Record<OwnerPolicy["reason"], Record<OwnerPolicy["deci
   },
 };
 
-/** deny > ask > allow; among equals the first one (its rule is the one shown). */
+/**
+ * deny > ask > allow; among equals the first one (its rule is the one shown). An `ask` is
+ * rememberable only when every `ask` is: remembering answers the engine's question, never an owner
+ * rule that asks on each call (S6), so offering it would promise what the next call breaks.
+ */
 export function strictestDecision(decisions: readonly PermissionDecision[]): PermissionDecision {
   let result: PermissionDecision | null = null;
   for (const decision of decisions) if (!result || RANK[decision.decision] > RANK[result.decision]) result = decision;
+  if (result?.decision === "ask" && result.rememberable && decisions.some((decision) => decision.decision === "ask" && !decision.rememberable)) {
+    return { ...result, rememberable: false };
+  }
   return (
     result ?? {
       decision: "ask",
@@ -299,7 +306,12 @@ export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
           const decisions: PermissionDecision[] = [];
           for (const fact of facts) decisions.push(await deps.permissions.evaluate(permissionRequest(fact), { toolCallId: request.id }));
           const owner = await ownerDecision(executor, parsed.args, { workspaceId: context.workspaceId, missionHosts });
-          if (owner) {
+          // The domain policy's question was already answered: the user approved this host "for this
+          // mission / project", which the engine applies as a remembered rule for that host. Asking
+          // again on every call would ignore the answer the card promised to remember.
+          const hostRemembered = decisions.every((decision) => decision.decision === "allow" && decision.reason === "remembered_approval");
+          const answered = owner?.decision.decision === "ask" && owner.decision.reason === "domain_policy" && hostRemembered;
+          if (owner && !answered) {
             ownerDetail = owner.detail;
             decisions.push(owner.decision);
           }
