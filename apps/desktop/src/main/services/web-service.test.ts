@@ -132,6 +132,10 @@ describe("fetchPage", () => {
     await expect(web.fetchPage({ url, context, approvedHosts: ["ask.test"], signal: signal() })).resolves.toMatchObject({
       page: { fromCache: false },
     });
+    // The approval carries the URL's own spelling (trailing dot): it still answers the ask.
+    await expect(
+      web.fetchPage({ url: `http://ask.test.:${port}/dot`, context, approvedHosts: ["ask.test."], signal: signal() }),
+    ).resolves.toMatchObject({ page: { fromCache: false } });
     await expect(web.fetchPage({ url: `http://blocked.test:${port}/`, context, signal: signal() })).rejects.toMatchObject({
       code: "policy_denied",
     });
@@ -139,7 +143,7 @@ describe("fetchPage", () => {
     await expect(
       web.fetchPage({ url, context: { workspaceId, missionHosts: ["docs.test"] }, approvedHosts: ["ask.test"], signal: signal() }),
     ).rejects.toMatchObject({ code: "policy_denied" });
-    expect(hits).toHaveLength(1);
+    expect(hits).toHaveLength(2);
   });
 
   it("blocks URLs carrying secrets before any connection", async () => {

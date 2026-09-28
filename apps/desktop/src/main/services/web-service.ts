@@ -26,6 +26,7 @@ import {
   DEFAULT_SEARCH_MAX_RESULTS,
   evaluateWebPolicy,
   inspectOutgoing,
+  normalizeHost,
   orderPolicyRules,
   planPolicyScope,
   searchDomainFilters,
@@ -189,7 +190,9 @@ export class WebService {
   async fetchPage(input: FetchPageInput): Promise<WebPageToolOutput> {
     this.guardOutgoing(input.url, null, input.workspaceTexts);
     const policy = this.deps.policies.getPolicy(input.context.workspaceId);
-    const approved = new Set((input.approvedHosts ?? []).map((host) => host.toLowerCase()));
+    // Same spelling as the policy's decision.host (trailing dot, IPv6 brackets): an approval of
+    // `docs.example.com.` or `[::1]` must match what authorize() compares.
+    const approved = new Set((input.approvedHosts ?? []).map(normalizeHost));
     try {
       const page = await this.fetcher.fetchPage({
         url: input.url,
