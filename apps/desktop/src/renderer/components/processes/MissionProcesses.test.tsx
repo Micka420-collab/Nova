@@ -66,6 +66,18 @@ describe("MissionProcesses", () => {
     expect(screen.queryByRole("button", { name: /^Arrêter/ })).toBeNull();
   });
 
+  it("colors only a known failure: an end with an unknown code, or handed over, is neutral", async () => {
+    setup(async () => [
+      proc("p1", { state: "exited", exitCode: null, endedAt: 3 }),
+      proc("p2", { argv: ["node", "worker.js"], state: "exited", exitCode: 2, endedAt: 3 }),
+      proc("p3", { argv: ["node", "api.js"], state: "handed_over", endedAt: 3 }),
+    ]);
+    const pill = async (text: string) => (await screen.findByText(text)).className;
+    expect(await pill("Terminé · code inconnu")).toContain("nv-tone--neutral");
+    expect(await pill("Échec · code 2")).toContain("nv-tone--danger");
+    expect(await pill("Repris par toi")).toContain("nv-tone--neutral");
+  });
+
   it("shows the latest output on demand, says when it was cut, and shows a failed stop in the row", async () => {
     const { api } = setup(async () => [proc("p1")], {
       stop: vi.fn<ProcessesApi["stop"]>(async () => {

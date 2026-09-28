@@ -34,7 +34,8 @@ function statusOf(process: MissionProcess): { label: string; tone: "neutral" | "
   if (process.state === "running") return { label: copy.running, tone: "jade" };
   if (process.state === "stopped") return { label: copy.stopped, tone: "neutral" };
   if (process.state === "handed_over") return { label: copy.handedOver, tone: "neutral" };
-  return { label: copy.exited(process.exitCode), tone: process.exitCode === 0 ? "neutral" : "danger" };
+  // Only a known non-zero code is a failure: an unobserved end (code null) is unknown, not red.
+  return { label: copy.exited(process.exitCode), tone: process.exitCode !== null && process.exitCode !== 0 ? "danger" : "neutral" };
 }
 
 function commandOf(process: MissionProcess): string {
