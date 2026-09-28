@@ -32,7 +32,9 @@ function describe(process: MissionProcess): string {
       ? "running"
       : process.state === "stopped"
         ? "stopped"
-        : `exited (code ${process.exitCode === null ? "unknown" : String(process.exitCode)}${process.signal ? `, ${process.signal}` : ""})`;
+        : process.state === "handed_over"
+          ? "handed over: the user took over its terminal, it is theirs now"
+          : `exited (code ${process.exitCode === null ? "unknown" : String(process.exitCode)}${process.signal ? `, ${process.signal}` : ""})`;
   const pid = process.pid === null ? "" : ` pid ${String(process.pid)}`;
   return `${process.id} [${state}${pid}] ${process.argv.join(" ")} (cwd "${process.cwd || "."}", ${String(process.outputChars)} characters of output)`;
 }
@@ -43,6 +45,14 @@ function display(action: "list" | "output" | "stop", processes: MissionProcess[]
 
 function notFound(id: string): ToolFailure {
   return new ToolFailure("not_found", `no background process ${id} in this mission; call process_list to see this mission's processes`);
+}
+
+/** The user took the process over (« Prendre la main »): its output and its end are theirs. */
+function handedOver(id: string): ToolFailure {
+  return new ToolFailure(
+    "conflict",
+    `the user took over process ${id} in the terminal: it is no longer this mission's, so it cannot be read or stopped from here; ask the user if you need its state`,
+  );
 }
 
 interface ProcessSpec<S extends z.ZodType> {
@@ -103,9 +113,10 @@ export function createProcessExecutors(deps: ToolDeps): ToolExecutor[] {
       .strict(),
     facts: () => [{}],
     async run(processes, args, context, started) {
+      const process = processes.list(context.missionId).find((item) => item.id === args.processId);
+      if (process?.state === "handed_over") throw handedOver(args.processId);
       const result = processes.output(context.missionId, args.processId, args.maxChars);
       if (!result) throw notFound(args.processId);
-      const process = processes.list(context.missionId).find((item) => item.id === args.processId);
       const header = `${process ? describe(process) : args.processId}\n${result.truncated ? `[last ${result.text.length} of ${result.totalChars} characters]` : `[${result.totalChars} characters]`}`;
       return makeResult({
         callId: context.callId,
@@ -129,12 +140,15 @@ export function createProcessExecutors(deps: ToolDeps): ToolExecutor[] {
       if (!scope) return [{}];
       const target = api.list(scope.missionId).find((item) => item.id === args.processId);
       if (!target) throw notFound(args.processId);
+      if (target.state === "handed_over") throw handedOver(args.processId);
       return [{ argv: target.argv }];
     },
     async run(processes, args, context, started) {
       const wasRunning = processes.list(context.missionId).some((item) => item.id === args.processId && item.state === "running");
       const ended = await processes.stop(context.missionId, args.processId);
       if (!ended) throw notFound(args.processId);
+      // Taken over while this call waited for its approval: left running, it is the user's.
+      if (ended.state === "handed_over") throw handedOver(args.processId);
       const code = ended.exitCode === null ? "unknown" : String(ended.exitCode);
       return makeResult({
         callId: context.callId,

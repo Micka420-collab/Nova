@@ -2,7 +2,7 @@ import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
-import type { ProcessEvent, TerminalSession } from "@nova/shared";
+import type { ProcessEvent, TerminalEvent, TerminalSession } from "@nova/shared";
 import { createToolRegistry, type ToolDeps, type ToolExecutionContext } from "@nova/tools";
 import { createProcessesService, type ProcessesServiceDeps } from "./processes-service";
 import type { AgentProcessWatch } from "./terminal-service";
@@ -112,6 +112,7 @@ describe("processes service", { timeout: 30_000 }, () => {
       openMirror: vi.fn<Terminal["openMirror"]>(async () => ({ id: "mirror-session" }) as TerminalSession),
       writeMirror: vi.fn<Terminal["writeMirror"]>(async (_id, data) => (mirrorData.push(data), true)),
       closeMirror: vi.fn<Terminal["closeMirror"]>(async () => undefined),
+      onEvent: vi.fn<Terminal["onEvent"]>(() => () => undefined),
     } satisfies Terminal;
     const { service, journal } = setup(terminal);
     const started = await service.runner.startBackground(spec(["node", "server.js"]));
@@ -133,6 +134,52 @@ describe("processes service", { timeout: 30_000 }, () => {
     // Mission end (controller → commands.stopAll): the mirror closes with the last exit code.
     await service.runner.stopAll(MISSION);
     expect(terminal.closeMirror).toHaveBeenCalledWith("mirror-session", 0);
+  });
+});
+
+describe("« Prendre la main » on a mission's background process", () => {
+  it("hands the process over: journaled for the mission, unreadable and unstoppable by it, spared by its end", async () => {
+    const watches: AgentProcessWatch[] = [];
+    let onTerminalEvent: (event: TerminalEvent) => void = () => undefined;
+    const session = { id: "8f9a0b1c-3333-4444-8555-666677778888", owner: "agent" } as TerminalSession;
+    type Terminal = NonNullable<ProcessesServiceDeps["terminal"]>;
+    const terminal = {
+      startAgentProcess: vi.fn<Terminal["startAgentProcess"]>(async (_request, watch) => {
+        watches.push(watch);
+        watch.onData("ready\r\n");
+        return { session, pid: 321 };
+      }),
+      stopSession: vi.fn<Terminal["stopSession"]>(async () => watches[0]?.onExit(null, "SIGHUP")),
+      openMirror: vi.fn<Terminal["openMirror"]>(async () => ({ id: "mirror-session" }) as TerminalSession),
+      writeMirror: vi.fn<Terminal["writeMirror"]>(async () => true),
+      closeMirror: vi.fn<Terminal["closeMirror"]>(async () => undefined),
+      onEvent: vi.fn<Terminal["onEvent"]>((listener) => ((onTerminalEvent = listener), () => undefined)),
+    } satisfies Terminal;
+    const { service, journal } = setup(terminal);
+    const deps: ToolDeps = { files: {} as ToolDeps["files"], facts: async () => null, commands: service.runner, git: null, web: null, mcp: null, processes: service.tools };
+    const registry = createToolRegistry({ deps });
+    const call = async (name: string, args: unknown) => {
+      const parsed = registry.parseArguments(name as "process_list", JSON.stringify(args));
+      if (!parsed.ok) throw new Error(parsed.error);
+      return registry.get(name)?.execute(parsed.args, context());
+    };
+    const started = await service.runner.startBackground(spec(["node", "server.js"]));
+
+    onTerminalEvent({ type: "session.updated", session: { ...session, owner: "user" } });
+    expect(journal).toEqual([{ type: "process.ended", missionId: MISSION, process: expect.objectContaining({ id: started.process.id, state: "handed_over" }) }]);
+    watches[0]?.onData("password typed by the user\r\n");
+    expect((await call("process_list", {}))?.content).toContain("handed over");
+    for (const name of ["process_output", "process_stop"]) {
+      const refused = await call(name, { processId: started.process.id });
+      expect(refused).toMatchObject({ ok: false, display: { code: "conflict" } });
+      expect(refused?.content).toContain("took over");
+    }
+    // The mission ends (controller → commands.stopAll): the user's session keeps running.
+    await service.runner.stopAll(MISSION);
+    expect(terminal.stopSession).not.toHaveBeenCalled();
+    expect((await service.api.output({ processId: started.process.id, maxChars: 1_000 })).text).toBe("ready\n");
+    await service.stopEverything();
+    expect(terminal.stopSession).toHaveBeenCalledWith(session.id);
   });
 });
 

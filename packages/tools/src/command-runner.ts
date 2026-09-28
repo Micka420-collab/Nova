@@ -260,6 +260,8 @@ function redactedTail(text: string, maxChars: number): string {
 interface Running {
   child: ChildProcess;
   exited: Promise<{ code: number | null; signal: string | null }>;
+  /** The mission that launched it: `stopAll(missionId)` also ends its foreground runs. */
+  missionId: string;
 }
 
 interface Tracked {
@@ -317,6 +319,13 @@ export interface ProcessCommandRunner extends CommandRunner {
   /** Redacted plain-text tail (≤ maxChars, capped at PROCESS_LIMITS.outputTailMaxChars); null = unknown id. */
   output(processId: string, maxChars: number): ProcessOutput | null;
   onProcessEvent(listener: (event: ProcessEvent) => void): () => void;
+  /**
+   * « Prendre la main »: the user took over the agent session of a running background process. It
+   * leaves the mission (state `handed_over`): no longer counted, listed as running, read, stopped
+   * by `stopAll(missionId)` or fed with output; only `stopEverything` (quit) still ends it.
+   * Returns its record, or null when no running process has that session.
+   */
+  handOver(sessionId: string): MissionProcess | null;
 }
 
 function commandLine(argv: readonly string[]): string {
@@ -339,6 +348,12 @@ export function createProcessCommandRunner(options: ProcessCommandRunnerOptions)
   const listeners = new Set<(event: ProcessEvent) => void>();
   /** Every live child (foreground and background), for stopEverything. */
   const live = new Set<Running>();
+  /**
+   * Background starts past the cap check but not tracked yet, per mission. Counted by
+   * `runningCount`: concurrent calls (a « Chaîne » program's Promise.all) would otherwise all pass
+   * the check before the first one is tracked.
+   */
+  const starting = new Map<string, number>();
   let stopped = false;
 
   const snapshot = (entry: Tracked): MissionProcess => ({ ...entry.record, argv: [...entry.record.argv] });
@@ -383,7 +398,11 @@ export function createProcessCommandRunner(options: ProcessCommandRunnerOptions)
         resolveEnded = resolve;
       }),
       markEnded(exit) {
-        if (entry.record.state !== "running") return;
+        if (entry.record.state !== "running") {
+          // A handed-over session's real end is the user's: `ended` only lets waiters go.
+          resolveEnded();
+          return;
+        }
         entry.record.state = entry.stopRequested ? "stopped" : "exited";
         entry.record.exitCode = exit.exitCode;
         entry.record.signal = exit.signal;
@@ -399,12 +418,14 @@ export function createProcessCommandRunner(options: ProcessCommandRunnerOptions)
   }
 
   function pushOutput(entry: Tracked, chunk: string): void {
+    // Taken over: what the user types and the program echoes is theirs, never the mission's.
+    if (entry.record.state === "handed_over") return;
     entry.ring.push(chunk);
     entry.record.outputChars = entry.ring.total;
   }
 
   function runningCount(missionId: string): number {
-    let count = 0;
+    let count = starting.get(missionId) ?? 0;
     for (const entry of tracked.values()) if (entry.record.missionId === missionId && entry.record.state === "running") count += 1;
     return count;
   }
@@ -443,7 +464,7 @@ export function createProcessCommandRunner(options: ProcessCommandRunnerOptions)
       child.once("spawn", () => resolve());
       exited.catch(reject);
     });
-    const running = { child, exited };
+    const running = { child, exited, missionId: spec.missionId };
     live.add(running);
     void exited.catch(() => undefined).finally(() => live.delete(running));
     // Launched while stopEverything was already running: it would not see this child.
@@ -693,6 +714,13 @@ export function createProcessCommandRunner(options: ProcessCommandRunnerOptions)
           `this mission already runs ${PROCESS_LIMITS.maxRunningPerMission} background processes: stop one before starting another`,
         );
       }
+      // The slot is held from the check until the process is tracked (or its start failed).
+      starting.set(spec.missionId, (starting.get(spec.missionId) ?? 0) + 1);
+      const releaseSlot = (): void => {
+        const left = (starting.get(spec.missionId) ?? 1) - 1;
+        if (left > 0) starting.set(spec.missionId, left);
+        else starting.delete(spec.missionId);
+      };
       let initial = "";
       let settled = false;
       // Returns once the process printed something and paused briefly, exited, or `settleMs` passed.
@@ -710,9 +738,13 @@ export function createProcessCommandRunner(options: ProcessCommandRunnerOptions)
         initial += chunk;
         onOutput?.("stdout", chunk);
       };
-      const hosted = host ? await startHosted(host, spec, entry, onChunk) : false;
-      if (!hosted) await startChild(spec, entry, onChunk);
-      tracked.set(entry.record.id, entry);
+      try {
+        const hosted = host ? await startHosted(host, spec, entry, onChunk) : false;
+        if (!hosted) await startChild(spec, entry, onChunk);
+        tracked.set(entry.record.id, entry);
+      } finally {
+        releaseSlot();
+      }
       emit({ type: "process.started", process: snapshot(entry) });
       // Ended before being tracked (instant exit): report its end now that its start was reported.
       if (entry.record.state !== "running") emit({ type: "process.ended", process: snapshot(entry) });
@@ -742,7 +774,7 @@ export function createProcessCommandRunner(options: ProcessCommandRunnerOptions)
 
     list(missionId) {
       return [...tracked.values()]
-        .filter((entry) => entry.record.missionId === missionId && entry.record.state !== "stopped")
+        .filter((entry) => entry.record.missionId === missionId && (entry.record.state === "running" || entry.record.state === "exited"))
         .map((entry) => ({
           id: entry.record.id,
           missionId: entry.record.missionId,
@@ -761,8 +793,10 @@ export function createProcessCommandRunner(options: ProcessCommandRunnerOptions)
     },
 
     async stopAll(missionId) {
+      // A handed-over session is the user's: stopTracked leaves it (only stopEverything ends it).
       const entries = [...tracked.values()].filter((entry) => entry.record.missionId === missionId);
-      await Promise.all(entries.map((entry) => stopTracked(entry)));
+      const foreground = [...live].filter((running) => running.missionId === missionId);
+      await Promise.all([...entries.map((entry) => stopTracked(entry)), ...foreground.map((running) => killTree(running))]);
       await closeMirror(missionId);
     },
 
@@ -770,9 +804,21 @@ export function createProcessCommandRunner(options: ProcessCommandRunnerOptions)
       stopped = true;
       await Promise.all([
         ...[...live].map((running) => killTree(running)),
-        ...[...tracked.values()].map((entry) => stopTracked(entry)),
+        ...[...tracked.values()].map((entry) => (entry.record.state === "handed_over" ? entry.kill() : stopTracked(entry))),
         ...[...mirrors.keys()].map((missionId) => closeMirror(missionId)),
       ]);
+    },
+
+    handOver(sessionId) {
+      const entry = [...tracked.values()].find((item) => item.record.terminalSessionId === sessionId && item.record.state === "running");
+      if (!entry) return null;
+      entry.record.state = "handed_over";
+      entry.record.endedAt = now();
+      entry.markEnded({ exitCode: null, signal: null });
+      // The mission's view of it ends here: journaled (process.ended) so the mission is told.
+      emit({ type: "process.ended", process: snapshot(entry) });
+      pruneEnded();
+      return snapshot(entry);
     },
 
     processes(filter) {

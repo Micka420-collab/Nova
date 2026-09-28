@@ -11,6 +11,7 @@ export const processesCopy = {
     running: "en cours",
     exited: (code: number | null) => (code === null ? "terminé (code inconnu)" : `terminé (code ${code})`),
     stoppedState: "arrêté",
+    handedOver: "repris par toi dans le terminal",
     noOutput: "Aucune sortie pour l’instant.",
   },
   panel: {
@@ -21,6 +22,7 @@ export const processesCopy = {
     running: "En cours",
     exited: (code: number | null) => (code === null ? "Terminé · code inconnu" : code === 0 ? "Terminé · code 0" : `Échec · code ${code}`),
     stopped: "Arrêté",
+    handedOver: "Repris par toi",
     cwd: (cwd: string) => `dossier : ${cwd === "" ? "racine du projet" : cwd}`,
     pid: (pid: number | null) => (pid === null ? "PID inconnu" : `PID ${pid}`),
     stop: "Arrêter",

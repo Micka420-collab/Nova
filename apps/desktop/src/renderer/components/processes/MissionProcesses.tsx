@@ -33,6 +33,7 @@ function codeOf(error: unknown): NovaIpcError["code"] | null {
 function statusOf(process: MissionProcess): { label: string; tone: "neutral" | "jade" | "danger" } {
   if (process.state === "running") return { label: copy.running, tone: "jade" };
   if (process.state === "stopped") return { label: copy.stopped, tone: "neutral" };
+  if (process.state === "handed_over") return { label: copy.handedOver, tone: "neutral" };
   return { label: copy.exited(process.exitCode), tone: process.exitCode === 0 ? "neutral" : "danger" };
 }
 

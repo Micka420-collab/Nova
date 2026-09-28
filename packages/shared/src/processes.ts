@@ -7,7 +7,8 @@ import { z } from "zod";
 import { EntityIdSchema } from "./ids";
 import type { RelativePath } from "./paths";
 
-export type MissionProcessState = "running" | "exited" | "stopped";
+/** `handed_over`: the user took over its agent session (« Prendre la main »); it is no longer the mission's. */
+export type MissionProcessState = "running" | "exited" | "stopped" | "handed_over";
 
 export interface MissionProcess {
   /** Command-runner process id (uuid). */

@@ -1,12 +1,12 @@
 // L1 — card body of process_list / process_output / process_stop results. Owned by L1.
-import type { ToolDisplay } from "@nova/shared";
+import type { MissionProcessState, ToolDisplay } from "@nova/shared";
 import { processesCopy } from "../../../copy/fr-processes";
 
 const copy = processesCopy.display;
 
 export function ProcessDisplay({ display }: { display: Extract<ToolDisplay, { kind: "process" }> }) {
-  const stateLabel = (state: string, exitCode: number | null) =>
-    state === "running" ? copy.running : state === "stopped" ? copy.stoppedState : copy.exited(exitCode);
+  const stateLabel = (state: MissionProcessState, exitCode: number | null) =>
+    state === "running" ? copy.running : state === "stopped" ? copy.stoppedState : state === "handed_over" ? copy.handedOver : copy.exited(exitCode);
   return (
     <>
       <p className="nova-tool__fact">

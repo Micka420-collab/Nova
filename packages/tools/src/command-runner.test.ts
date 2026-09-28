@@ -282,6 +282,61 @@ describe("mission processes (J2-B L1)", { timeout: 30_000 }, () => {
     expect(mirrors).toHaveLength(2);
   });
 
+  it("holds the cap against concurrent starts (a « Chaîne » program's Promise.all)", async () => {
+    const { host, started } = fakeHost();
+    const own = createProcessCommandRunner({ resolveCwd: async () => root, terminal: host, backgroundSettleMs: 1 });
+    const burst = await Promise.allSettled(Array.from({ length: PROCESS_LIMITS.maxRunningPerMission + 4 }, () => own.startBackground(spec(sleeper))));
+    expect(burst.filter((result) => result.status === "fulfilled")).toHaveLength(PROCESS_LIMITS.maxRunningPerMission);
+    expect(burst.filter((result) => result.status === "rejected").map((result) => (result as PromiseRejectedResult).reason)).toEqual(
+      Array.from({ length: 4 }, () => expect.objectContaining({ code: "too_large" })),
+    );
+    expect(started).toHaveLength(PROCESS_LIMITS.maxRunningPerMission);
+    // A start that fails gives its slot back.
+    const fresh = createProcessCommandRunner({ resolveCwd: async () => root, terminal: host, backgroundSettleMs: 1 });
+    await expect(fresh.startBackground(spec(["nova-no-such-program-xyz"]))).rejects.toMatchObject({ code: "not_found" });
+    for (let index = 0; index < PROCESS_LIMITS.maxRunningPerMission; index += 1) await fresh.startBackground(spec(sleeper));
+  });
+
+  it("stopAll(mission) also ends that mission's foreground run, and only that mission's", async () => {
+    const own = createProcessCommandRunner({ resolveCwd: async () => root, killGraceMs: 200 });
+    const pidOf = (text: string): number => Number(/pid=(\d+)/.exec(text)?.[1] ?? -1);
+    const script = "console.log('pid=' + process.pid); setInterval(() => {}, 1000)";
+    let mine = "";
+    let theirs = "";
+    const run = own.run(spec([node, "-e", script], { timeoutMs: 60_000 }), new AbortController().signal, (_stream, text) => (mine += text));
+    const other = own.run({ ...spec([node, "-e", script], { timeoutMs: 60_000 }), missionId: "other" }, new AbortController().signal, (_stream, text) => (theirs += text));
+    await expect.poll(() => pidOf(mine) > 0 && pidOf(theirs) > 0, { timeout: 10_000 }).toBe(true);
+    await own.stopAll("m");
+    await run;
+    expect(alive(pidOf(mine))).toBe(false);
+    expect(alive(pidOf(theirs))).toBe(true);
+    await own.stopEverything();
+    await other;
+    expect(alive(pidOf(theirs))).toBe(false);
+  });
+
+  it("hands a taken-over session to the user: out of the mission's count, output and stopAll; ended at quit", async () => {
+    const { host, started, stopped } = fakeHost();
+    const own = createProcessCommandRunner({ resolveCwd: async () => root, terminal: host, backgroundSettleMs: 1 });
+    const events: ProcessEvent[] = [];
+    own.onProcessEvent((event) => events.push(event));
+    const result = await own.startBackground(spec(sleeper));
+    started[0]?.handlers.onData("server ready\r\n");
+    expect(own.handOver("session-unknown")).toBeNull();
+    expect(own.handOver("session-1")).toMatchObject({ id: result.process.id, state: "handed_over", exitCode: null });
+    expect(events.at(-1)).toMatchObject({ type: "process.ended", process: { state: "handed_over" } });
+    // What the user types and the program echoes never reaches the mission.
+    started[0]?.handlers.onData("user typed: hunter2\r\n");
+    expect(own.output(result.process.id, 1_000)?.text).toBe("server ready\n");
+    expect(own.list("m")).toEqual([]);
+    await own.stopAll("m");
+    expect(stopped).toEqual([]);
+    // Its slot is free: the mission may start as many processes again.
+    for (let index = 0; index < PROCESS_LIMITS.maxRunningPerMission; index += 1) await own.startBackground(spec(sleeper));
+    await own.stopEverything();
+    expect(stopped).toContain("session-1");
+  });
+
   it("reopens the mirror when the user closed its session", async () => {
     const gone = fakeHost({ mirrorGone: true });
     const own = createProcessCommandRunner({ resolveCwd: async () => root, terminal: gone.host });

@@ -8,7 +8,9 @@
 //   calling mission: another mission's process is `null` (the tool answers `not_found`).
 // - `api`: the `processes.*` IPC group (the user sees and stops the processes of every mission).
 // - `process.ended` is journaled on the mission (accepted after its terminal event), and every
-//   ProcessEvent is pushed to the renderer through `onEvent`.
+//   ProcessEvent is pushed to the renderer through `onEvent`;
+// - « Prendre la main » (a session updated to owner `user`) hands the process over: it ends for the
+//   mission (`handed_over`, journaled), and the mission's end no longer kills the user's session.
 import type { MissionProcess, ProcessEvent } from "@nova/shared";
 import type { MissionEventInput } from "@nova/missions";
 import { createProcessCommandRunner, type ProcessApi, type ProcessCommandRunner, type ProcessCommandRunnerOptions } from "@nova/tools";
@@ -28,7 +30,7 @@ export interface ProcessesServiceDeps {
   /** Absolute cwd for a workspace-relative path, or null when it escapes the root (S2). */
   resolveCwd(workspaceId: string, cwd: string): Promise<string | null>;
   /** The terminal service (pty-host); null = no agent terminal (plain child processes). */
-  terminal: Pick<TerminalService, "startAgentProcess" | "stopSession" | "openMirror" | "writeMirror" | "closeMirror"> | null;
+  terminal: Pick<TerminalService, "startAgentProcess" | "stopSession" | "openMirror" | "writeMirror" | "closeMirror" | "onEvent"> | null;
   /** The missions journal (`missions.controller.journal`). */
   journal: { append(event: Extract<MissionEventInput, { type: "process.ended" }>): unknown };
   /** Title of the mirror session of a mission's commands (French UI copy, chosen by the wiring). */
@@ -100,6 +102,10 @@ export function createProcessesService(deps: ProcessesServiceDeps): ProcessesSer
   runner.onProcessEvent((event) => {
     if (event.type === "process.ended") deps.journal.append({ type: "process.ended", missionId: event.process.missionId, process: event.process });
     for (const listener of listeners) listener(event);
+  });
+  // « Prendre la main » hands an agent session to the user: its process leaves the mission.
+  deps.terminal?.onEvent((event) => {
+    if (event.type === "session.updated" && event.session.owner === "user") runner.handOver(event.session.id);
   });
 
   /** The process when it belongs to `missionId`; null otherwise (unknown and foreign look the same). */
