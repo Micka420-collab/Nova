@@ -719,8 +719,10 @@ export function createAtelierStore(client: AtelierClient, options: AtelierStoreO
 const SESSION_SAVE_DELAY_MS = 500;
 
 /**
- * Wires the atelier to main: file events feed the tree and the open tabs, and the editor session
- * is saved (debounced) when tabs change. Returns the unsubscribe function.
+ * Wires the atelier to main: file events feed the tree and the open tabs, the editor session is
+ * saved (debounced) when tabs change, and a quit, window close or reload with unsaved edits (any
+ * workspace) is held by `beforeunload` so main asks the user (will-prevent-unload). Returns the
+ * unsubscribe function.
  */
 export function startAtelierSync(
   store: StoreApi<AtelierState>,
@@ -747,9 +749,17 @@ export function startAtelierSync(
         }, SESSION_SAVE_DELAY_MS);
       })
     : () => undefined;
+  const guardUnload = (event: BeforeUnloadEvent): void => {
+    if (!store.getState().editor.hasUnsaved()) return;
+    event.preventDefault();
+    // Chromium still requires a return value to hold the unload.
+    event.returnValue = "";
+  };
+  window.addEventListener("beforeunload", guardUnload);
   return () => {
     unsubscribeFiles();
     unsubscribeStore();
+    window.removeEventListener("beforeunload", guardUnload);
     if (timer) clearTimeout(timer);
   };
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { FileWriteRequest } from "@nova/shared";
 import { createFakeAtelierClient, sha256, WORKSPACE_ID } from "../components/files/test-client";
-import { createAtelierStore, memorySessionStore, TextDoc, type AtelierStore, type EditorSessionStore } from "./editor-slice";
+import { createAtelierStore, memorySessionStore, startAtelierSync, TextDoc, type AtelierStore, type EditorSessionStore } from "./editor-slice";
 
 const OTHER_WORKSPACE = "7b2d4e61-0f3a-4c8b-9d5e-1a2b3c4d5e6f";
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -254,6 +254,23 @@ describe("editor slice: session per workspace (Pr3)", () => {
     await store.getState().explorer.bind(WORKSPACE_ID);
     await flush();
     expect(bufferText(store, "README.md")).toBe("pulled");
+  });
+
+  it("holds a quit, close or reload while any workspace has unsaved edits (main then asks)", async () => {
+    const { fake, store } = await setup({ "a.ts": "a" });
+    const stop = startAtelierSync(store, fake.client);
+    const unload = () => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    await editor(store).openFile("a.ts");
+    expect(unload()).toBe(false);
+    type(store, "a.ts", "unsaved");
+    await store.getState().explorer.bind(OTHER_WORKSPACE);
+    expect(unload()).toBe(true);
+    stop();
+    expect(unload()).toBe(false);
   });
 
   it("counts unsaved edits of parked workspaces too (quit guard)", async () => {

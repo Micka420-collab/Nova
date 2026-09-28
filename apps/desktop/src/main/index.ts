@@ -80,6 +80,12 @@ app.enableSandbox();
 registerAppScheme();
 
 let mainWindow: BrowserWindow | null = null;
+/** A quit waits for the window to close (its unsaved-edits guard may cancel it), then resumes. */
+let quitAfterClose = false;
+
+/** Buttons of the unsaved-edits question (index = returned choice). */
+const UNSAVED_CHOICES = ["Annuler", "Continuer sans enregistrer"] as const;
+const UNSAVED_CANCEL = 0;
 
 function createWindow(context: SecurityContext): BrowserWindow {
   const icon = join(app.getAppPath(), "build", "icon.png");
@@ -112,8 +118,25 @@ function createWindow(context: SecurityContext): BrowserWindow {
     // ready-to-show may never fire: an error page beats an invisible running app.
     if (!window.isDestroyed() && !window.isVisible()) window.show();
   });
+  // The renderer holds a quit, a close or a reload while a buffer has unsaved edits (beforeunload):
+  // ask here, where nothing can be lost silently. Cancel keeps the window and aborts the quit.
+  window.webContents.on("will-prevent-unload", (event) => {
+    const choice = dialog.showMessageBoxSync(window, {
+      type: "warning",
+      title: APP_NAME,
+      message: "Des fichiers ont des modifications non enregistrées.",
+      detail: "Si tu continues, elles seront perdues. Annule pour les enregistrer (Ctrl+S dans l'éditeur).",
+      buttons: [...UNSAVED_CHOICES],
+      defaultId: UNSAVED_CANCEL,
+      cancelId: UNSAVED_CANCEL,
+      noLink: true,
+    });
+    if (choice === UNSAVED_CANCEL) quitAfterClose = false;
+    else event.preventDefault();
+  });
   window.on("closed", () => {
     if (mainWindow === window) mainWindow = null;
+    if (quitAfterClose) app.quit();
   });
   const url = overrides.rendererDevUrl ?? APP_ENTRY_URL;
   window.loadURL(url).catch((error: unknown) => {
@@ -474,6 +497,14 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
   app.on("before-quit", (event) => {
     if (closed) return;
     event.preventDefault();
+    // The window closes first: its unsaved-edits question may cancel the quit, so nothing is shut
+    // down before the answer. Its `closed` handler quits again, then without a window.
+    const window = mainWindow;
+    if (!shutdown && window && !window.isDestroyed()) {
+      quitAfterClose = true;
+      window.close();
+      return;
+    }
     shutdown ??= (async () => {
       runner.stopAll();
       companion?.dispose();
