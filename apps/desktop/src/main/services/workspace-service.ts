@@ -8,7 +8,7 @@ import { WorkspaceError, canonicalRoot, detectWorkspaceFacts, type GitClient } f
 import type { IpcErrorCode } from "@nova/shared";
 import { ServiceError } from "../service-error";
 import type { WorkerNotify } from "../../workers/protocol";
-import type { FsMethod, FsMethods, FsOutcome } from "../../workers/fs/protocol";
+import { FS_NOTIFY, type FsMethod, type FsMethods, type FsOutcome } from "../../workers/fs/protocol";
 import type { AtelierApi } from "../api";
 
 // ---------------------------------------------------------------------------
@@ -46,6 +46,8 @@ export async function asService<T>(work: Promise<T>): Promise<T> {
 export interface FsWorkerPort {
   request<T = unknown>(method: string, params?: unknown): Promise<T>;
   onNotify(listener: (event: WorkerNotify) => void): () => void;
+  /** The worker died on its own; its restarted instance has no workspace nor watcher. */
+  onExit(listener: () => void): () => void;
 }
 
 export interface FsClient {
@@ -63,6 +65,23 @@ export function createFsClient(worker: FsWorkerPort, rootOf: (workspaceId: strin
   };
   const raw = <M extends FsMethod>(method: M, params: FsMethods[M]["params"]): Promise<FsOutcome<FsMethods[M]["result"]>> =>
     worker.request<FsOutcome<FsMethods[M]["result"]>>(method, params);
+  /** Registered workspaces, re-registered as soon as a crashed worker restarts. */
+  const opened = new Map<string, string>();
+  const listeners = new Set<(event: WorkerNotify) => void>();
+  const emit = (event: WorkerNotify): void => {
+    for (const listener of listeners) listener(event);
+  };
+  worker.onNotify(emit);
+  // Without this, the watchers stay gone until some later call happens to hit `not_open`: files
+  // written meanwhile never reach the tree or the open editors. Re-listing covers the gap.
+  worker.onExit(() => {
+    for (const [workspaceId, root] of opened) {
+      void client
+        .open(workspaceId, root)
+        .catch(() => undefined)
+        .finally(() => emit({ kind: "notify", method: FS_NOTIFY.filesEvent, params: { type: "overflow", workspaceId } }));
+    }
+  });
 
   const client: FsClient = {
     async call(method, params) {
@@ -75,11 +94,16 @@ export function createFsClient(worker: FsWorkerPort, rootOf: (workspaceId: strin
       }
       return unwrap(first);
     },
-    onNotify: (listener) => worker.onNotify(listener),
+    onNotify: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
     async open(workspaceId, root) {
       unwrap(await raw("workspace.open", { workspaceId, root }));
+      opened.set(workspaceId, root);
     },
     async close(workspaceId) {
+      opened.delete(workspaceId);
       unwrap(await raw("workspace.close", { workspaceId }));
     },
   };

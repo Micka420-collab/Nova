@@ -252,6 +252,7 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
     worker: {
       request: (method, params) => workers.get("fs-worker").request(method, params),
       onNotify: (listener) => workers.instance("fs-worker").onNotify(listener),
+      onExit: (listener) => workers.instance("fs-worker").onExit(listener),
     },
     pickFolder: async () => {
       const options = { properties: ["openDirectory" as const] };

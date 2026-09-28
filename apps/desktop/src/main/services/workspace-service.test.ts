@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FilesEvent, SearchMatch } from "@nova/shared";
 import { createCheckpointRepo, createEditorStateRepo, createWorkspaceRepo, type NovaStore, openNovaStore } from "@nova/storage";
 import { createGitClient, sha256 } from "@nova/workspace";
@@ -25,6 +25,7 @@ async function ripgrepPath(): Promise<string> {
 class InProcessWorker implements FsWorkerPort {
   handlers: FsHandlers;
   private readonly listeners = new Set<(event: WorkerNotify) => void>();
+  private readonly exitListeners = new Set<() => void>();
   constructor(private readonly rgPath: string) {
     this.handlers = this.spawn();
   }
@@ -41,6 +42,11 @@ class InProcessWorker implements FsWorkerPort {
   async restart(): Promise<void> {
     await this.handlers.dispose();
     this.handlers = this.spawn();
+    for (const listener of this.exitListeners) listener();
+  }
+  onExit(listener: () => void): () => void {
+    this.exitListeners.add(listener);
+    return () => this.exitListeners.delete(listener);
   }
   request<T>(method: string, params?: unknown): Promise<T> {
     const handler = (this.handlers as unknown as Record<string, (params: unknown) => Promise<unknown>>)[method];
@@ -194,6 +200,22 @@ describe("files service", () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     expect(events[0]).toMatchObject({ workspaceId: id });
+    stop();
+  });
+
+  it("re-registers and re-watches open workspaces as soon as the fs-worker restarts, and asks for a re-list", async () => {
+    const { id } = (await workspaces.api.open()) as { id: string };
+    const events: FilesEvent[] = [];
+    const stop = files.onEvent((event) => events.push(event));
+    await worker.restart();
+    await vi.waitFor(() => expect(events).toContainEqual({ type: "overflow", workspaceId: id }));
+    await new Promise((resolve) => setTimeout(resolve, 300)); // watcher initial scan
+    // No fs call in between: the watcher of the restarted worker reports the change by itself.
+    await put("after-crash.ts", "x");
+    await vi.waitFor(
+      () => expect(events.some((event) => event.type === "changes" && event.changes.some((change) => change.path === "after-crash.ts"))).toBe(true),
+      { timeout: 4_000 },
+    );
     stop();
   });
 });
