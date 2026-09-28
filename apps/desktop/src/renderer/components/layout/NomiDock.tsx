@@ -21,7 +21,7 @@ import { describeProviderError } from "../../lib/errors";
 import { REDUCED_MOTION_QUERY, useMediaQuery, useOnline } from "../../lib/hooks";
 import { useApp, useAppStore } from "../../state/context";
 import { OUTCOME_WINDOW_MS, deriveNomiState } from "../../state/nomi";
-import { NEW_CONVERSATION, companionPhase, selectedModelId, type AppData } from "../../state/store";
+import { companionPhase, selectedModelId, type AppData } from "../../state/store";
 import { createTerminalStore } from "../../state/terminal-slice";
 import { useCompanion, useCompanionStore } from "../companion/CompanionContext";
 import { NomiBubble } from "../companion/NomiBubble";
@@ -158,11 +158,7 @@ export function NomiDock() {
     companionStore
       ? {
           imageInput: imageInputOf(catalog?.models ?? [], nextModelId),
-          attachText: (_name, block) => {
-            const state = appStore.getState();
-            const current = state.drafts[state.activeId ?? NEW_CONVERSATION]?.text ?? "";
-            state.setDraft(state.activeId, current ? `${current}\n\n${block}` : block);
-          },
+          attachText: (_name, block) => appStore.getState().draftIntoChat(block),
           chooseModel: () => {
             const state = appStore.getState();
             state.openModelPicker(state.activeId ? "conversation" : "new");

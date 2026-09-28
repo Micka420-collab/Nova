@@ -238,6 +238,11 @@ export interface AppActions {
   openSettings(section?: SettingsSection): void;
   send(content: string, conversationId: string | null): Promise<void>;
   setDraft(conversationId: string | null, text: string): void;
+  /**
+   * Appends `block` to the current conversation's draft and shows that chat (discuss mode, no
+   * mission selected, agent panel open): a draft nobody can see is no outcome. Nothing is sent.
+   */
+  draftIntoChat(block: string): void;
   /** Sends `content` as the draft of `conversationId`: on failure the draft keeps its text and gets the error. */
   sendDraft(content: string, conversationId: string | null): Promise<boolean>;
   stop(conversationId: string): Promise<void>;
@@ -783,6 +788,15 @@ export function createAppStore(client: NovaApi): AppStore {
         const key = conversationId ?? NEW_CONVERSATION;
         if (text === "" && !get().drafts[key]?.error) dropDraft(key);
         else patchDraft(key, { text });
+      },
+
+      draftIntoChat(block) {
+        const { activeId, drafts } = get();
+        const current = drafts[activeId ?? NEW_CONVERSATION]?.text ?? "";
+        get().setDraft(activeId, current ? `${current}\n\n${block}` : block);
+        get().setWorkMode("discuss");
+        get().selectMission(null);
+        set((state) => ({ ui: { ...state.ui, route: "chat", agentOpen: true, contextOverlayOpen: false } }));
       },
 
       async sendDraft(content, conversationId) {

@@ -22,6 +22,22 @@ async function storeWithStream() {
 }
 
 describe("store", () => {
+  it("puts a terminal explanation in the chat draft and shows that chat, even with a mission selected", () => {
+    const store = createAppStore(createNovaClient(createFakeBridge({ connection: VALID_CONNECTION }).bridge));
+    store.setState((state) => ({
+      workMode: "fix",
+      missions: { ...state.missions, selectedId: "mission-1" },
+      ui: { ...state.ui, route: "home", agentOpen: false },
+    }));
+    store.getState().setDraft(null, "Avant");
+    store.getState().draftIntoChat("Explique cette erreur");
+    const state = store.getState();
+    expect(state.drafts["new"]?.text).toBe("Avant\n\nExplique cette erreur");
+    expect(state.workMode).toBe("discuss");
+    expect(state.missions.selectedId).toBeNull();
+    expect(state.ui).toMatchObject({ route: "chat", agentOpen: true });
+  });
+
   it("opens the narrow layout's overlay for every document or terminal request, and only there", () => {
     const store = createAppStore(createNovaClient(createFakeBridge({ connection: VALID_CONNECTION }).bridge));
     store.getState().openDoc({ kind: "diff", missionId: "m1" });

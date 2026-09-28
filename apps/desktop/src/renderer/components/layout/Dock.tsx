@@ -3,7 +3,6 @@ import { IconButton, Tabs, tabPanelProps, useToast } from "@nova/ui";
 import { fr } from "../../copy/fr";
 import { errorToast } from "../../lib/errors";
 import { useApp, useAppStore, useClient } from "../../state/context";
-import { NEW_CONVERSATION } from "../../state/store";
 import { CloseIcon } from "../icons";
 import { TerminalPanel, type TerminalExplainRequest } from "../terminal/TerminalPanel";
 import { useShellServices } from "./AtelierHost";
@@ -48,14 +47,7 @@ export function Dock() {
             client.app.openExternal({ url: uri }).catch((error: unknown) => toast.show(errorToast(error, copy.terminal)));
           }}
           // N3: the redacted output goes into the conversation draft; nothing is sent without the user.
-          onExplain={(request) => {
-            const state = appStore.getState();
-            const current = state.drafts[state.activeId ?? NEW_CONVERSATION]?.text ?? "";
-            const block = explainPrompt(request);
-            state.setDraft(state.activeId, current ? `${current}\n\n${block}` : block);
-            state.setWorkMode("discuss");
-            setUi({ route: "chat", agentOpen: true });
-          }}
+          onExplain={(request) => appStore.getState().draftIntoChat(explainPrompt(request))}
         />
       </div>
     </section>
