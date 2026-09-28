@@ -21,7 +21,7 @@ export const contextCopy = {
     tokensNoTotal: (used: string) => `≈ ${used} jetons`,
     unknown: "inconnu",
     unknownLength: "Taille du contexte de ce modèle inconnue : NOVA ne proposera pas de résumé automatiquement.",
-    due: "Le contexte approche de sa limite. Un résumé remplacerait l’historique ancien, après votre accord.",
+    due: "Le contexte approche de sa limite. Un résumé remplacerait l’historique ancien, après ton accord.",
     compact: "Résumer maintenant",
     compacting: "Résumé en cours…",
   },
@@ -42,8 +42,8 @@ export const contextCopy = {
     applyFailed: "Le résumé n’a pas pu être appliqué",
     dismissFailed: "Le résumé n’a pas pu être écarté",
     compactFailed: "Le résumé n’a pas pu être écrit",
-    expired: "Non appliqué : la mission s’est terminée avant votre décision.",
-    manual: "Demandé par vous",
+    expired: "Non appliqué : la mission s’est terminée avant ta décision.",
+    manual: "Demandé par toi",
     automatic: "Proposé par NOVA",
   },
   handoff: {
@@ -71,14 +71,14 @@ export const contextCopy = {
   },
   conversation: {
     heading: "Contexte de la conversation",
-    proposalReady: "Résumé prêt : relisez-le puis appliquez-le ou écartez-le.",
+    proposalReady: "Résumé prêt : relis-le puis applique-le ou écarte-le.",
   },
   command: {
     /** Palette entry and its hint (« /compact » in the composer does the same). */
     palette: "Résumer la conversation",
-    paletteHint: "Propose un résumé de l’historique, appliqué seulement après votre accord",
+    paletteHint: "Propose un résumé de l’historique, appliqué seulement après ton accord",
     tooLong: (max: number) => `Consigne trop longue : ${max} caractères au plus. Rien n’a été envoyé.`,
     needsConversation: "Rien à résumer : cette conversation n’a pas encore de message.",
-    needsModel: "Choisissez d’abord un modèle : c’est lui qui écrit le résumé.",
+    needsModel: "Choisis d’abord un modèle : c’est lui qui écrit le résumé.",
   },
 } as const;

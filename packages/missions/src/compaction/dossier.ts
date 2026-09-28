@@ -1,7 +1,7 @@
 // A15: the handoff dossier, built from what NOVA recorded (journal, tasks) — never from what a
 // model claims about itself. Each list is bounded and every string redacted: the dossier is
 // stored, journaled and shown. `renderHandoff` is the text the next model starts from.
-import { redactSecrets, type HandoffDossier, type MissionEvent, type MissionTask, type RelativePath } from "@nova/shared";
+import { redactSecrets, type AcceptanceKind, type HandoffDossier, type MissionEvent, type MissionTask, type RelativePath } from "@nova/shared";
 import type { ProxyMessage } from "../index";
 import { pruneText } from "./transcript";
 
@@ -19,6 +19,14 @@ export const DOSSIER_LIMITS = {
 } as const;
 
 const WRITE_OPERATIONS = new Set(["write", "delete"]);
+
+/** The dossier is shown as written (French UI): criteria read as words, not enum values. */
+const CRITERION_LABELS: Record<AcceptanceKind, string> = {
+  test_passes: "un test passe",
+  command_succeeds: "une commande réussit",
+  file_exists: "un fichier existe",
+  manual: "à confirmer par l'utilisateur",
+};
 
 function clip(text: string, max: number): string {
   const clean = redactSecrets(text).replace(/\s+/g, " ").trim();
@@ -54,7 +62,7 @@ export function buildHandoffDossier(input: DossierInput): DossierDraft {
   const done = input.tasks.filter((task) => task.state === "verified").map((task) => task.title);
   const remaining = input.tasks
     .filter((task) => task.state !== "verified" && task.state !== "skipped")
-    .map((task) => `${task.title} (critère : ${task.acceptance.kind}${task.acceptance.detail ? ` — ${task.acceptance.detail}` : ""})`);
+    .map((task) => `${task.title} (critère : ${CRITERION_LABELS[task.acceptance.kind]}${task.acceptance.detail ? ` — ${task.acceptance.detail}` : ""})`);
   const requested = new Map<string, { path: RelativePath | null; operation: string }>();
   const touched: RelativePath[] = [];
   const decisions: string[] = [];

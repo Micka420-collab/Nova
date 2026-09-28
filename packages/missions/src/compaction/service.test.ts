@@ -308,7 +308,7 @@ describe("handoff (A15)", () => {
     await h.core.runtimeHook.prepare({ missionId: MISSION, modelId: MODEL, messages: transcript(`sortie ${SECRET}`) });
     const dossier = h.core.handoff({ missionId: MISSION, toModelId: "acme/next" });
     expect(dossier).toMatchObject({ fromModelId: MODEL, toModelId: "acme/next", done: ["Lire le code"], filesTouched: ["src/cart.ts"] });
-    expect(dossier.remaining[0]).toContain("Tests verts");
+    expect(dossier.remaining).toEqual(["Tests verts (critère : un test passe — cart)"]);
     expect(JSON.stringify(dossier)).not.toContain(SECRET);
     const stored = h.summaries.rows.at(-1);
     expect(stored).toMatchObject({ kind: "handoff", reason: "model_switch", status: "applied", toModelId: "acme/next" });

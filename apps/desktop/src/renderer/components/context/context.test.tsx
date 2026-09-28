@@ -221,7 +221,7 @@ describe("ConversationContextPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Résumer maintenant" }));
     await screen.findByRole("article", { name: "Résumé proposé" });
     expect(compacts).toEqual(["vendor/a"]);
-    expect(screen.getByText("Demandé par vous")).toBeTruthy();
+    expect(screen.getByText("Demandé par toi")).toBeTruthy();
     // A proposal waits: no second summary is offered.
     expect(screen.queryByRole("button", { name: "Résumer maintenant" })).toBeNull();
   });
