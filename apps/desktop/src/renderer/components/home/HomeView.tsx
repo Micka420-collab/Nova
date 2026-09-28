@@ -4,6 +4,7 @@ import type { ProviderConnectionView, Workspace } from "@nova/shared";
 import { fr } from "../../copy/fr";
 import { formatRelative } from "../../lib/format";
 import { useNow } from "../../lib/hooks";
+import { useAtelier } from "../editor/atelier-context";
 import { useApp, useClient } from "../../state/context";
 import { selectedModelId } from "../../state/store";
 import { Composer } from "../chat/Composer";
@@ -67,7 +68,7 @@ function RecentFolders({ currentId }: { currentId: string | null }) {
 function FolderCard() {
   const workspace = useApp((state) => state.workspace.current);
   const facts = useApp((state) => state.workspace.facts);
-  const git = useApp((state) => state.workspace.git);
+  const git = useAtelier((state) => state.explorer.git);
   const loading = useApp((state) => state.workspace.status === "loading");
   const openWorkspace = useApp((state) => state.openWorkspace);
   const setUi = useApp((state) => state.setUi);
@@ -76,7 +77,9 @@ function FolderCard() {
   const open = () => {
     openWorkspace().catch((error: unknown) => toast.show(errorToast(error, fr.atelier.shell.folderOpenFailed)));
   };
-  const stack = facts ? [...facts.frameworks, ...facts.languages, facts.testRunner?.name ?? null].filter(Boolean).join(" · ") : "";
+  // A runner NOVA does not name ("other") is shown by the command it will run, never as "other".
+  const runner = facts?.testRunner ? (facts.testRunner.name === "other" ? facts.testRunner.command.join(" ") : facts.testRunner.name) : null;
+  const stack = facts ? [...facts.frameworks, ...facts.languages, runner].filter(Boolean).join(" · ") : "";
   return (
     <section className="nova-card nova-home__folder" aria-labelledby="home-open-folder">
       <div className="nova-card__header">

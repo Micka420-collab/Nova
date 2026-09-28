@@ -494,16 +494,15 @@ export function missionFacts(view: MissionView): MissionFacts {
 
 /** Proofs attached to a file: diff proofs of that path, and test/command proofs of tasks that wrote it. */
 export function proofsForFile(view: MissionView, path: string): Proof[] {
-  const taskIds = new Set(
-    view.items.flatMap((item) =>
-      item.kind === "tool" && item.display?.kind === "file_change" && item.display.path === path && item.taskId
-        ? [item.taskId]
-        : [],
-    ),
+  // A4 (same rule as acceptance): only a test or command run AFTER the file's last change says
+  // anything about it. Proofs carry no task link, so their place in the journal decides.
+  const lastChange = view.items.findLastIndex(
+    (item) => item.kind === "tool" && item.display?.kind === "file_change" && item.display.path === path,
   );
-  return view.proofs.filter(
-    (proof) => (proof.kind === "test" || proof.kind === "command") && proof.taskId !== null && taskIds.has(proof.taskId),
-  );
+  if (lastChange === -1) return [];
+  return view.items
+    .slice(lastChange + 1)
+    .flatMap((item) => (item.kind === "notice" && item.notice.type === "proof" && (item.notice.proof.kind === "test" || item.notice.proof.kind === "command") ? [item.notice.proof] : []));
 }
 
 /** Index (0-based) of the task in progress, else of the first task not done; null without tasks. */
@@ -543,6 +542,8 @@ export function groupTimeline(items: readonly TimelineItem[]): TimelineEntry[] {
     run = [];
   };
   for (const item of items) {
+    // A model turn that only called tools has no text: no empty « Nomi » bubble between the cards.
+    if (item.kind === "message" && item.complete && item.text.trim() === "") continue;
     const sameRun =
       item.kind === "tool" &&
       item.state !== "failed" &&

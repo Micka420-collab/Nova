@@ -85,6 +85,8 @@ export function AgentApproval({ approval }: { approval: Approval }) {
   };
 
   const irreversible = isIrreversible(approval);
+  // Same rule as the card's « Pour cette mission » button: never announce a shortcut it lacks.
+  const shortcuts = approval.decision.rememberable && !irreversible ? copy.shortcuts : copy.shortcutsOnce;
   const target = approvalTargetText(approval);
   const notices: string[] = [];
   if (irreversible) notices.push(copy.irreversible);
@@ -111,7 +113,7 @@ export function AgentApproval({ approval }: { approval: Approval }) {
         rememberable={approval.decision.rememberable}
         status={approval.status}
         decidedLabel={pending ? undefined : decidedLabel(approval)}
-        labels={{ approveOnce: copy.approveOnce, approveMission: copy.approveMission, deny: copy.deny, shortcuts: copy.shortcuts }}
+        labels={{ approveOnce: copy.approveOnce, approveMission: copy.approveMission, deny: copy.deny, shortcuts }}
         busy={busy}
         onApproveOnce={() => decide("approve", "once")}
         onApproveMission={() => decide("approve", "mission")}

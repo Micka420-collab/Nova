@@ -243,8 +243,9 @@ export function ChatView({ contextToggle }: { contextToggle: { open: boolean; to
           <h1 className="nova-chat__title">{title}</h1>
         )}
         <div className="nova-chat__tools">
+          {/* The label is its own box: text-overflow does not apply to a flex container's text. */}
           <Button size="sm" variant="secondary" onClick={() => openModelPicker("conversation")}>
-            {modelId ? fr.chat.modelButton(model?.name ?? modelId) : fr.chat.chooseModel}
+            <span className="nova-chat__model-label">{modelId ? fr.chat.modelButton(model?.name ?? modelId) : fr.chat.chooseModel}</span>
           </Button>
           {contextToggle ? (
             <IconButton

@@ -92,6 +92,13 @@ describe("tool gateway", () => {
     expect(await result).not.toHaveProperty("argv");
   });
 
+  it("records a test proof without inventing counts the runner did not report", async () => {
+    const h = setup({ mode: "verify", deps: { facts: async () => ({ ...FACTS, testRunner: { name: "other", command: ["npm", "test"] } }) } });
+    await h.call("run_tests", {}).result;
+    const proof = h.events.find((event) => event.type === "proof.recorded");
+    expect(proof).toMatchObject({ proof: { kind: "test", command: ["npm", "test"], exitCode: 0, summary: "code 0" } });
+  });
+
   it("ends a test run without a detected runner as unavailable, before any permission", async () => {
     const h = setup({ deps: { facts: async () => ({ ...FACTS, testRunner: null }) } });
     expect(await h.call("run_tests", {}).result).toMatchObject({ ok: false, display: { code: "unavailable" } });

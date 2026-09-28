@@ -146,8 +146,12 @@ function summaryOf(result: ToolResult): string {
   switch (display.kind) {
     case "error":
       return `${display.code}: ${display.message}`;
-    case "tests":
-      return `${String(display.passed ?? "?")} réussis, ${String(display.failed ?? "?")} échecs, code ${String(display.exitCode)}`;
+    case "tests": {
+      // Counts the runner did not report are left out, never shown as "?".
+      const passed = display.passed === null ? null : `${display.passed} réussis`;
+      const failed = display.failed === null ? null : `${display.failed} échecs`;
+      return [passed, failed, `code ${display.exitCode === null ? "inconnu" : String(display.exitCode)}`].filter(Boolean).join(", ");
+    }
     case "command":
       return `code ${String(display.exitCode)}`;
     case "file_change":

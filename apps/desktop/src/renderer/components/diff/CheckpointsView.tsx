@@ -27,7 +27,6 @@ export function CheckpointsView({ missionId }: { missionId: string | null }) {
   const toast = useToast();
   const workspaceId = useApp((state) => state.workspace.current?.id ?? null);
   const revealFile = useApp((state) => state.revealFile);
-  const refreshGit = useApp((state) => state.refreshGit);
   const now = useNow(60_000);
   const [keyed, setKeyed] = useState<{ key: string; load: Load } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -90,7 +89,6 @@ export function CheckpointsView({ missionId }: { missionId: string | null }) {
       if (result.status === "conflict") setConflict({ checkpointId: checkpoint.id, path });
       else {
         toast.show({ title: copy.restored(path), tone: "success" });
-        void refreshGit();
         refresh();
       }
     } catch (error) {
@@ -107,7 +105,6 @@ export function CheckpointsView({ missionId }: { missionId: string | null }) {
       if (result.status === "conflict") toast.show({ title: copy.mergeStale, tone: "warning" });
       else {
         toast.show({ title: copy.merged(target.path), tone: "success" });
-        void refreshGit();
         refresh();
       }
     } catch (error) {
@@ -121,7 +118,6 @@ export function CheckpointsView({ missionId }: { missionId: string | null }) {
     try {
       const result = await client.checkpoints.restoreAll({ checkpointId: checkpoint.id });
       setOutcome({ checkpointId: checkpoint.id, result });
-      void refreshGit();
       refresh();
     } catch (error) {
       toast.show(errorToast(error, copy.restoreFailed));

@@ -91,7 +91,9 @@ describe("argument parsing", () => {
       args: { path: "src/a.ts", startLine: 2 },
       repaired: true,
     });
-    expect(registry.parseArguments("read_file", '{"path":"../secret"}')).toMatchObject({ ok: false });
+    // An escaping path is valid input: the permission engine refuses it as a path fact (S2).
+    expect(registry.parseArguments("read_file", '{"path":"../secret"}')).toMatchObject({ ok: true, args: { path: "../secret" } });
+    expect(registry.parseArguments("read_file", '{"path":"."}')).toMatchObject({ ok: false });
     expect(registry.parseArguments("read_file", "[1,2]")).toEqual({ ok: false, error: "arguments must be a JSON object" });
     expect(registry.parseArguments("read_file", '{"path":"a","extra":1}')).toMatchObject({ ok: false });
     expect(registry.parseArguments("run_command", '{"argv":[]}')).toMatchObject({ ok: false });

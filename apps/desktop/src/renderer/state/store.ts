@@ -8,7 +8,6 @@ import type {
   ChatStreamEvent,
   CompanionAction,
   ConversationDetail,
-  GitStatus,
   Mission,
   MissionContractInput,
   MissionEvent,
@@ -156,8 +155,6 @@ export interface WorkspaceState {
   facts: WorkspaceFacts | null;
   status: Loadable;
   error: UiError | null;
-  /** null = not read yet; `{ available: false }` = no git here. */
-  git: GitStatus | null;
 }
 
 /** Plan being prepared from the agent composer, before the contract sheet launches it. */
@@ -270,7 +267,6 @@ export interface AppActions {
   /** Reopens a recent folder by id (no picker). */
   reopenWorkspace(workspaceId: string): Promise<void>;
   closeWorkspace(): Promise<void>;
-  refreshGit(): Promise<void>;
 
   // Missions, approvals, review
   setWorkMode(mode: WorkMode): void;
@@ -296,7 +292,6 @@ const PROVIDER = { providerId: "openrouter" } as const;
 /** Chat failures that main records on the provider connection (key refused, credits exhausted). */
 const CONNECTION_FAILURES = new Set(["invalid_key", "insufficient_credits"]);
 const LIST_REFRESH_DELAY_MS = 300;
-const GIT_REFRESH_DELAY_MS = 500;
 
 export function initialData(): AppData {
   return {
@@ -342,7 +337,7 @@ export function initialData(): AppData {
       approvalFocus: null,
       quickOpen: false,
     },
-    workspace: { current: null, facts: null, status: "idle", error: null, git: null },
+    workspace: { current: null, facts: null, status: "idle", error: null },
     missions: {
       list: [],
       listStatus: "idle",
@@ -528,18 +523,9 @@ export function createAppStore(client: NovaApi): AppStore {
     // ---------------------------------------------------------------------------
     // Atelier: missions, approvals, workspace
 
-    let gitTimer: ReturnType<typeof setTimeout> | null = null;
     let missionsTimer: ReturnType<typeof setTimeout> | null = null;
     let nonce = 0;
     const nextNonce = () => ++nonce;
-
-    const scheduleGitRefresh = () => {
-      if (gitTimer) clearTimeout(gitTimer);
-      gitTimer = setTimeout(() => {
-        gitTimer = null;
-        void get().refreshGit();
-      }, GIT_REFRESH_DELAY_MS);
-    };
 
     const scheduleMissionsRefresh = () => {
       if (missionsTimer) clearTimeout(missionsTimer);
@@ -580,9 +566,7 @@ export function createAppStore(client: NovaApi): AppStore {
         // An event of the shown mission before its detail arrived: the load includes it.
         void loadMission(event.missionId);
       }
-      const touchedFiles = event.type === "tool.finished" && event.display.kind === "file_change";
       const ended = event.type === "mission.succeeded" || event.type === "mission.failed" || event.type === "mission.cancelled";
-      if (touchedFiles || ended || event.type === "review.decided") scheduleGitRefresh();
       if (ended || event.type === "mission.created") scheduleMissionsRefresh();
     };
 
@@ -622,7 +606,7 @@ export function createAppStore(client: NovaApi): AppStore {
       const workspace = opened;
       set((state) => ({
         ...resetAtelier(),
-        workspace: { current: workspace, facts: null, status: "ready", error: null, git: null },
+        workspace: { current: workspace, facts: null, status: "ready", error: null },
         ui: {
           ...state.ui,
           explorer: "files",
@@ -638,7 +622,6 @@ export function createAppStore(client: NovaApi): AppStore {
         })
         // Facts are optional context (stack banner, test command); unknown stays unknown.
         .catch(() => undefined);
-      void get().refreshGit();
       void get().refreshMissions();
       void get().refreshApprovals();
     };
@@ -672,7 +655,6 @@ export function createAppStore(client: NovaApi): AppStore {
           unsubscribeMissions();
           unsubscribeApprovals();
           if (listTimer) clearTimeout(listTimer);
-          if (gitTimer) clearTimeout(gitTimer);
           if (missionsTimer) clearTimeout(missionsTimer);
         };
       },
@@ -1032,17 +1014,6 @@ export function createAppStore(client: NovaApi): AppStore {
         }));
       },
 
-      async refreshGit() {
-        const current = get().workspace.current;
-        if (!current) return;
-        try {
-          const git = await client.git.status({ workspaceId: current.id });
-          if (get().workspace.current?.id === current.id) set((state) => ({ workspace: { ...state.workspace, git } }));
-        } catch {
-          // Unknown stays unknown: the status bar shows no branch rather than a guess.
-        }
-      },
-
       setWorkMode(mode) {
         set({ workMode: mode });
       },
@@ -1162,9 +1133,7 @@ export function createAppStore(client: NovaApi): AppStore {
       },
 
       async reviewMission(missionId, decisions) {
-        const result = await client.missions.review({ missionId, decisions });
-        scheduleGitRefresh();
-        return result;
+        return client.missions.review({ missionId, decisions });
       },
     };
   });

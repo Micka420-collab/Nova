@@ -69,7 +69,8 @@ function Notice({ item }: { item: NoticeItem }) {
     case "plan":
       return <p className="nova-agent-notice">{copy.timeline.plan(notice.taskCount)}</p>;
     case "checkpoint":
-      return <p className="nova-agent-notice">{copy.timeline.checkpoint(notice.checkpoint.files.length)}</p>;
+      // Journaled when created, before the write fills it: its file count is always 0 here.
+      return <p className="nova-agent-notice">{copy.timeline.checkpoint}</p>;
     case "proof":
       return <p className="nova-agent-notice nova-agent-notice--proof">{copy.timeline.proof(notice.proof.summary)}</p>;
     case "resumed":

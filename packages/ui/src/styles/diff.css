@@ -21,15 +21,17 @@
   top: 0;
   z-index: 1;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--nv-space-2);
+  gap: var(--nv-space-1) var(--nv-space-2);
   min-height: 40px;
-  padding: 0 var(--nv-space-3) 0 var(--nv-space-1);
+  padding: var(--nv-space-1) var(--nv-space-3) var(--nv-space-1) var(--nv-space-1);
   background: var(--nv-panel);
   border-bottom: 1px solid var(--nv-border);
 }
 
 .nv-diff-file__toggle {
+  flex: none;
   display: inline-grid;
   place-items: center;
   width: 28px;
@@ -46,7 +48,9 @@
   color: var(--nv-text);
 }
 
+/* In a narrow column the facts and actions wrap below: the file name is never squeezed away. */
 .nv-diff-file__path {
+  flex: 1 1 12ch;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

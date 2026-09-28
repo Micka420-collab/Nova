@@ -15,7 +15,7 @@ import {
   type PermissionsProfileRequest,
   type PermissionsSetProfileRequest,
 } from "@nova/shared";
-import { createExcludedPathMatcher, evaluate, type EngineDecision, type IsolationReport } from "@nova/permissions";
+import { createExcludedPathMatcher, evaluate, resolveInWorkspace, type EngineDecision, type IsolationReport } from "@nova/permissions";
 import type { PolicyRepo } from "@nova/storage";
 import { ServiceError } from "../service-error";
 import type { AuditService } from "./audit-service";
@@ -34,12 +34,16 @@ export interface PermissionsServiceDeps {
   knownCommands?(workspaceId: string): readonly (readonly string[])[];
   /** Extra exclusions of the workspace (`.novaignore`); defaults only when absent. */
   excludedPatterns?(workspaceId: string): readonly string[];
+  /** Absolute root of a workspace, for the on-disk S2 check of `evaluateOnDisk`. */
+  rootOf?(workspaceId: string): Promise<string | null>;
   now?: () => number;
 }
 
 export interface EvaluateOptions {
   /** Tool call being decided (`tool_calls.id`), recorded with the decision. */
   toolCallId?: string | null;
+  /** The path resolves outside the workspace on disk (see `evaluateOnDisk`). */
+  pathEscapes?: boolean;
 }
 
 export class PermissionsService {
@@ -126,9 +130,21 @@ export class PermissionsService {
       isolationLevel: this.deps.isolation.level,
       isExcludedPath: createExcludedPathMatcher(this.deps.excludedPatterns?.(request.workspaceId) ?? []),
       knownCommands: this.deps.knownCommands?.(request.workspaceId) ?? [],
+      pathEscapes: options.pathEscapes === true,
       now,
     });
     this.deps.audit.recordDecision(request, decision, options.toolCallId ?? null);
     return decision;
+  }
+
+  /**
+   * `evaluate` for agent tools, whose paths come from the model: a canonical path that a symlink
+   * (even dangling) leads outside the workspace is refused HERE as `outside_workspace` and audited
+   * so, instead of being allowed and only stopped later by the file API.
+   */
+  async evaluateOnDisk(request: PermissionRequest, options: EvaluateOptions = {}): Promise<EngineDecision> {
+    const root = request.path === undefined ? null : await this.deps.rootOf?.(request.workspaceId);
+    const resolved = root && request.path !== undefined ? await resolveInWorkspace(root, request.path) : null;
+    return this.evaluate(request, { ...options, pathEscapes: resolved?.ok === false && resolved.reason === "outside_workspace" });
   }
 }

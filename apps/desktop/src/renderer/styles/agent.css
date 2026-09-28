@@ -63,9 +63,16 @@
   border-bottom: 1px solid var(--nv-border);
 }
 
+/* Six modes in a 320–560 px panel: the segments wrap onto a second row rather than hiding
+   « Corriger » and « Vérifier » behind a horizontal scrollbar. */
 .nova-agent__modes .nv-segmented {
-  overflow-x: auto;
+  display: flex;
+  flex-wrap: wrap;
   max-width: 100%;
+}
+
+.nova-agent__modes .nv-segmented__option {
+  flex: 1 0 auto;
 }
 
 .nova-agent__mode-hint {

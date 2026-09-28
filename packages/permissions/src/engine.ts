@@ -42,6 +42,11 @@ export interface EvaluationContext {
   isExcludedPath(path: string): boolean;
   /** Project commands treated as routine (detected test and build commands), as argv prefixes. */
   knownCommands?: readonly (readonly string[])[];
+  /**
+   * S2 on disk: the request's (canonical) path resolves outside the workspace through a symlink.
+   * Computed by the caller with `resolveInWorkspace`; the engine stays pure and synchronous.
+   */
+  pathEscapes?: boolean;
   /** Evaluation time for rule expiry (defaults to Date.now()). */
   now?: number;
 }
@@ -270,7 +275,7 @@ export function evaluate(request: PermissionRequest, context: EvaluationContext)
   if (denied !== null) return decide(facts, "deny", denyReason(denied), denied.id);
 
   // 2. Built-in denials.
-  if (request.path !== undefined && !isCanonicalRelativePath(request.path)) {
+  if (request.path !== undefined && (!isCanonicalRelativePath(request.path) || context.pathEscapes === true)) {
     return decide(facts, "deny", "outside_workspace", "builtin:outside-workspace");
   }
   if (request.path !== undefined && context.isExcludedPath(request.path)) {

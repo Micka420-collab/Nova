@@ -64,5 +64,8 @@ describe("AgentApproval", () => {
     renderCard({ typing: true, external: true });
     expect(screen.getByText("Cette action ne pourra pas être annulée par NOVA.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Pour cette mission" })).toBeNull();
+    // The shortcut hint does not announce the missing mission-wide shortcut.
+    expect(screen.getByText("Ctrl+Entrée : une fois · Échap : refuser")).toBeTruthy();
+    expect(screen.queryByText(/pour la mission/)).toBeNull();
   });
 });

@@ -222,8 +222,8 @@ export function createExplorerSlice<T extends ExplorerSlice>(
         const git = await client.git.status({ workspaceId: id });
         if (workspaceId() === id) patch({ git, gitLetters: gitLettersOf(git) });
       } catch {
-        // Git letters are a hint: when status fails the tree simply shows none.
-        if (workspaceId() === id) patch({ git: { available: false }, gitLetters: {} });
+        // Unknown stays unknown: no letters, no branch, never "no Git here" as a guess.
+        if (workspaceId() === id) patch({ git: null, gitLetters: {} });
       }
     },
 

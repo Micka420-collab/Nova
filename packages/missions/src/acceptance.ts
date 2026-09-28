@@ -38,8 +38,12 @@ export function evaluateAcceptance(tasks: readonly MissionTask[], evidence: read
         if (!last || last.display.kind !== "tests") return { taskId: task.id, state: "todo", reason: "tests non lancés depuis la dernière modification" };
         const passed = last.ok && last.display.exitCode === 0 && (last.display.failed ?? 0) === 0;
         return passed
-          ? { taskId: task.id, state: "verified", reason: `tests verts (${String(last.display.passed ?? "?")} réussis)` }
-          : { taskId: task.id, state: "failed", reason: `tests en échec (${String(last.display.failed ?? "?")} échec(s), code ${String(last.display.exitCode)})` };
+          ? { taskId: task.id, state: "verified", reason: last.display.passed === null ? "tests verts" : `tests verts (${last.display.passed} réussis)` }
+          : {
+              taskId: task.id,
+              state: "failed",
+              reason: `tests en échec (${last.display.failed === null ? "" : `${last.display.failed} échec(s), `}code ${String(last.display.exitCode)})`,
+            };
       }
       case "command_succeeds": {
         const matching = after.filter(

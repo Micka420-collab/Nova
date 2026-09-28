@@ -45,6 +45,11 @@
 
 .nova-chat__tools > .nv-button:not(.nv-icon-button) {
   min-width: 0;
+  max-width: 100%;
+}
+
+.nova-chat__model-label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }

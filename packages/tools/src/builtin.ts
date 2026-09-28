@@ -3,8 +3,6 @@
 import { z } from "zod";
 import {
   FILE_EDIT_MAX_BYTES,
-  RelativeEntryPathSchema,
-  RelativePathSchema,
   TOOL_LIMITS,
   type BuiltinToolName,
   type FileEntry,
@@ -26,8 +24,11 @@ function normalizeModelPath(value: string): string {
 }
 
 const RELATIVE_HINT = "workspace-relative path with '/' separators (no leading '/', no '..')";
-const entryPath = z.string().max(4096).describe(RELATIVE_HINT).transform(normalizeModelPath).pipe(RelativeEntryPathSchema);
-const anyPath = z.string().max(4096).describe(`${RELATIVE_HINT}; "" is the root`).transform(normalizeModelPath).pipe(RelativePathSchema);
+// Only the shape is checked here: `..`, absolute or otherwise non-canonical paths reach the
+// permission engine as path facts, which refuses them (`outside_workspace`, audited and shown)
+// before any executor runs. Rejecting them as bad arguments would hide the refusal and its reason.
+const entryPath = z.string().max(4096).describe(RELATIVE_HINT).transform(normalizeModelPath).refine((path) => path !== "", "chemin vide");
+const anyPath = z.string().max(4096).describe(`${RELATIVE_HINT}; "" is the root`).transform(normalizeModelPath);
 
 function inputSchema(schema: z.ZodType): JsonSchemaObject {
   const json = z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }) as Record<string, unknown>;

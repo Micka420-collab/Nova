@@ -125,7 +125,6 @@ function LoadedReview({ view }: { view: MissionView }) {
   const expert = useApp((state) => state.ui.displayMode === "expert");
   const reviewMission = useApp((state) => state.reviewMission);
   const revealFile = useApp((state) => state.revealFile);
-  const refreshGit = useApp((state) => state.refreshGit);
   const missionId = view.mission.id;
   const facts = useMemo(() => missionFacts(view), [view]);
   // Serialized so the diff reloads when the touched files change, not on every mission event.
@@ -195,7 +194,6 @@ function LoadedReview({ view }: { view: MissionView }) {
         else dispatch({ type: "decideAt", path: item.path, hunk: item.hunkIndex, decision: "pending" });
       }
       if (result.applied.length > 0) toast.show({ title: copy.applied(result.applied.length), tone: "success" });
-      void refreshGit();
       return true;
     } catch (error) {
       toast.show(errorToast(error, copy.applyFailed));

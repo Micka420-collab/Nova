@@ -4,6 +4,7 @@ import { BudgetMeter, OrbitIndicator, StatusBar, StatusBarItem } from "@nova/ui"
 import { fr } from "../../copy/fr";
 import { WORK_MODE_LABELS } from "../../copy/fr-atelier";
 import { MOD_KEY } from "../../lib/platform";
+import { useAtelier } from "../editor/atelier-context";
 import { useApp } from "../../state/context";
 import { liveMission, pendingApprovalList } from "../../state/store";
 import { budgetFormat } from "../agent/AgentPanel";
@@ -13,7 +14,7 @@ const copy = fr.atelier.statusBar;
 export function AtelierStatusBar({ agentVisible }: { agentVisible: boolean }) {
   const mode = useApp((state) => state.workMode);
   const workspace = useApp((state) => state.workspace.current);
-  const git = useApp((state) => state.workspace.git);
+  const git = useAtelier((state) => state.explorer.git);
   const approvals = useApp((state) => state.approvals);
   const mission = useApp(liveMission);
   const suspended = useApp((state) => Object.values(state.missions.views).some((view) => view.mission.state === "suspended"));

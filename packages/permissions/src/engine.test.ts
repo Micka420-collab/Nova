@@ -220,6 +220,11 @@ describe("evaluate — built-in denials (S2, C8)", () => {
     },
   );
 
+  it("refuses a canonical path that a symlink leads outside the workspace (fact from the caller)", () => {
+    const decision = evaluate(request("read", "build", { path: "lien/temoin.txt" }), context({ profile: "autonomous", pathEscapes: true }));
+    expect(decision).toMatchObject({ decision: "deny", reason: "outside_workspace", ruleId: "builtin:outside-workspace" });
+  });
+
   it.each([[".env"], [".env.local"], ["config/.env.production"], ["certs/site.pem"], ["deploy/id_rsa"], [".ssh/config"], ["keys/server.key"]])(
     "refuses the sensitive file %s",
     (path) => {

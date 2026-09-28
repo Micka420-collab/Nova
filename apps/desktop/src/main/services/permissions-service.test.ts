@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { OPERATION_CLASSES, type MissionContract, type PermissionRequest } from "@nova/shared";
 import {
@@ -116,6 +119,35 @@ describe("PermissionsService", () => {
       ["ask", "src/cart.ts", "profile_asks"],
     ]);
     expect(rows[0]?.outcome).toContain("Comprendre");
+  });
+
+  it("refuses on disk what a symlink leads outside the workspace, and audits that reason", async () => {
+    const base = mkdtempSync(join(tmpdir(), "nova-perm-"));
+    try {
+      const root = join(base, "shop");
+      mkdirSync(join(root, "src"), { recursive: true });
+      mkdirSync(join(base, "outside"));
+      writeFileSync(join(base, "outside", "temoin.txt"), "témoin");
+      symlinkSync(join(base, "outside"), join(root, "lien"));
+      const onDisk = new PermissionsService({
+        policies: createPolicyRepo(store.db, now),
+        audit,
+        isolation: { level: "L0" },
+        contractOf: (id) => (id === missionId ? contract : null),
+        rootOf: async () => root,
+        now,
+      });
+      const read = (path: string): PermissionRequest => ({ workspaceId, missionId, tool: "read_file", operation: "read", path, mode: "fix" });
+      expect(await onDisk.evaluateOnDisk(read("lien/temoin.txt"), { toolCallId: null })).toMatchObject({ decision: "deny", reason: "outside_workspace" });
+      expect(await onDisk.evaluateOnDisk(read("src/new.ts"), { toolCallId: null })).toMatchObject({ decision: "allow" });
+      const rows = audit.list({ action: "permission.decision" });
+      expect(rows.map((row) => [row.decision, row.target, row.dataSummary?.["reason"]])).toEqual([
+        ["allow", "src/new.ts", "contract_allows"],
+        ["deny", "lien/temoin.txt", "outside_workspace"],
+      ]);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 
   it("uses the mission contract's profile and routine commands", () => {

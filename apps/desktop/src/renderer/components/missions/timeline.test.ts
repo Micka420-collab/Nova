@@ -8,6 +8,7 @@ import {
   groupTimeline,
   missionFacts,
   pendingApprovals,
+  proofsForFile,
   TOOL_OUTPUT_TAIL_CHARS,
   viewFromDetail,
   type MissionView,
@@ -224,5 +225,39 @@ describe("mission timeline reducer", () => {
     const group = entries.find((entry) => entry.kind === "group");
     expect(group?.kind === "group" && group.items.map((item) => item.id)).toEqual(["r1", "r2", "r3", "r4"]);
     expect(entries.at(-1)).toMatchObject({ kind: "item", item: { id: "w1" } });
+  });
+
+  it("shows no empty Nomi message between the calls of turns that only called tools", () => {
+    const events = scenario().slice(0, 4);
+    const usage = { promptTokens: 100, completionTokens: 20, reasoningTokens: null, cachedTokens: null, cost: 0.0001 };
+    for (const id of ["r1", "r2", "r3", "r4"]) {
+      events.push(ev({ type: "message.completed", messageId: `m-${id}`, content: "", usage }));
+      events.push(ev({ type: "tool.requested", call: call(id, "read_file"), taskId: null }));
+    }
+    events.push(ev({ type: "message.completed", messageId: "m-end", content: "Fini.", usage }));
+    const entries = groupTimeline(run(events).items);
+    expect(entries.filter((entry) => entry.kind === "item" && entry.item.kind === "message").map((entry) => entry.kind === "item" && entry.item.id)).toEqual(["m-end"]);
+    // With the empty turns gone, the four reads fold into one group.
+    expect(entries.find((entry) => entry.kind === "group")).toMatchObject({ kind: "group", items: [{ id: "r1" }, { id: "r2" }, { id: "r3" }, { id: "r4" }] });
+  });
+
+  it("links a proof to the files changed before it, never to a file changed after (proofs carry no task)", () => {
+    const events = scenario();
+    const edit = (callId: string, path: string) => [
+      ev({ type: "tool.requested", call: call(callId, "edit_file", { operation: "write", path }), taskId: null }),
+      ev({
+        type: "tool.finished",
+        callId,
+        state: "succeeded",
+        display: { kind: "file_change", change: "modified", path, fromPath: null, additions: 1, deletions: 1, checkpointId: "k1" },
+        durationMs: 5,
+      }),
+    ];
+    const proof = { id: "p1", missionId: MISSION_ID, taskId: null, toolCallId: "t9", kind: "test" as const, command: ["npm", "test"], exitCode: 0, summary: "code 0", outputRef: null, createdAt: 50 };
+    events.push(...edit("e1", "src/cart.ts"), ev({ type: "proof.recorded", proof }), ...edit("e2", "src/format.ts"));
+    const view = run(events);
+    expect(proofsForFile(view, "src/cart.ts")).toEqual([proof]);
+    expect(proofsForFile(view, "src/format.ts")).toEqual([]);
+    expect(proofsForFile(view, "src/other.ts")).toEqual([]);
   });
 });

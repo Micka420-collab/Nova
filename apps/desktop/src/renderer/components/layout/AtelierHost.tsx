@@ -3,7 +3,7 @@
 // registry. The app store owns which workspace is open; this host forwards it, and routes reveal
 // requests to the editor and companion navigations to the shell.
 import { createContext, use, useEffect, useState, type ReactNode } from "react";
-import { createNovaPortRegistry, type NovaPortRegistry } from "@nova/shared";
+import { createNovaPortRegistry, type MissionEvent, type NovaPortRegistry } from "@nova/shared";
 import { useAppStore, useClient } from "../../state/context";
 import { createAtelierStore, ipcSessionStore, startAtelierSync, type AtelierStore } from "../../state/editor-slice";
 import { connectCompanion, createCompanionStore, type CompanionStore } from "../../state/companion-slice";
@@ -17,6 +17,10 @@ export interface ShellServices {
   companion: CompanionStore;
   /** One registry per page (terminal ports arrive through `window`). */
   ports: NovaPortRegistry;
+}
+
+function isTerminalMissionEvent(event: MissionEvent): boolean {
+  return event.type === "mission.succeeded" || event.type === "mission.failed" || event.type === "mission.cancelled";
 }
 
 const ShellServicesContext = createContext<ShellServices | null>(null);
@@ -80,6 +84,18 @@ export function AtelierHost({ children }: { children: ReactNode }) {
       if (id !== (previous.workspace.current?.id ?? null)) bind(id);
     });
   }, [appStore, stores]);
+
+  // `.git` is not watched: commits and mission reviews do not reach the tree through file events.
+  // The mission journal says when the repository may have changed; the explorer owns Git status
+  // (tree letters, status bar, home), so it re-reads it — else the branch and counts go stale.
+  useEffect(
+    () =>
+      client.missions.onEvent((event) => {
+        const git = event.type === "tool.finished" && event.display.kind.startsWith("git_");
+        if (git || event.type === "review.decided" || isTerminalMissionEvent(event)) void stores.atelier.getState().explorer.refreshGit();
+      }),
+    [client, stores],
+  );
 
   // Citation chips, diff "open", Nomi: `revealFile` requests become editor opens (user-initiated).
   useEffect(

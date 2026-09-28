@@ -282,6 +282,7 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
     audit,
     isolation,
     contractOf: (missionId) => missions?.controller.contractOf(missionId) ?? null,
+    rootOf: (workspaceId) => workspaceService.rootOf(workspaceId).catch(() => null),
     knownCommands: (workspaceId) => {
       const facts = workspaceRepo.getFacts(workspaceId);
       return [facts?.testRunner?.command, facts?.buildCommand].filter((command): command is string[] => !!command);
@@ -366,7 +367,7 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
     },
     toolDeps,
     mcpTools: (workspaceId) => mcp.listToolsForModel(workspaceId),
-    permissions,
+    permissions: { evaluate: (request, options) => permissions.evaluateOnDisk(request, options) },
     approvals,
     checkpoints: {
       create: (input) => checkpointsService.store.create(input),

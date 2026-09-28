@@ -51,7 +51,8 @@ function titleOf(item: ToolItem): ReactNode {
   return (
     <>
       <span className="nova-tool__verb">{verbOf(item)}</span>
-      {target ? <code className="nova-tool__target">{target}</code> : null}
+      {/* A real space: the title is inline text (read aloud and copied as « Lire src/a.ts »). */}
+      {target ? <> <code className="nova-tool__target">{target}</code></> : null}
       {suffix ? <span className="nova-tool__suffix">{suffix}</span> : null}
     </>
   );
