@@ -72,6 +72,8 @@ export interface MissionsServiceDeps {
   auditDecision?: ToolGatewayDeps["auditDecision"];
   fallbackModelIds?(modelId: string): string[];
   dailyLimitUsd?: number;
+  /** Bound on waiting for the runtime to end a stopped mission (controller default otherwise). */
+  stopTimeoutMs?: number;
   /** A fresh port to the agent-runtime worker (production: `openAgentRuntimePort(workers)`). */
   openRuntimePort(): Promise<PortLike>;
   logger?: RuntimeLogger;
@@ -222,6 +224,7 @@ export function createMissionsService(deps: MissionsServiceDeps): MissionsServic
     dailyLimitUsd: deps.dailyLimitUsd ?? DEFAULT_DAILY_BUDGET_USD,
     ...(deps.audit ? { audit: deps.audit } : {}),
     ...(deps.auditDecision ? { auditDecision: deps.auditDecision } : {}),
+    ...(deps.stopTimeoutMs !== undefined ? { stopTimeoutMs: deps.stopTimeoutMs } : {}),
   });
   const ready = controller;
 

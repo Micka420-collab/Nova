@@ -64,6 +64,11 @@ export interface MissionToolContext {
   seenVersions: Map<RelativePath, string>;
   /** Untrusted content entered the context (W5); set by the gateway, read by the engine. */
   tainted: boolean;
+  /**
+   * Aborted when main ends the mission (stop, runtime gone, any terminal event): pending approvals
+   * expire and running tools stop even when the runtime never cancels its call.
+   */
+  signal: AbortSignal;
 }
 
 /** What L1 `AuditService.recordToolExecution` takes (S5): no content, argv redacted by the sink. */
@@ -233,9 +238,10 @@ export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
   const now = deps.now ?? Date.now;
 
   return {
-    async run(request: ToolRunRequest, signal: AbortSignal): Promise<ToolResult> {
+    async run(request: ToolRunRequest, callSignal: AbortSignal): Promise<ToolResult> {
       const context = deps.context(request.missionId);
-      if (!context) return errorResult(request.id, "unavailable", "this mission is not running");
+      if (!context || context.signal.aborted) return errorResult(request.id, "unavailable", "this mission is not running");
+      const signal = AbortSignal.any([callSignal, context.signal]);
       if (!isToolName(request.name)) {
         return errorResult(request.id, "invalid_arguments", `unknown tool "${request.name.slice(0, 64)}"; use one of the tools provided`);
       }

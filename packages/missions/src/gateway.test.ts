@@ -50,7 +50,7 @@ function setup(options: { mode?: MissionContract["mode"]; deps?: Partial<ToolDep
     workspaceId: WS, mode, profile: "assisted", isolationLevel: "L0", allowedOperations: [], allowedHosts: [], webSearch: true, maxDurationMs: 60_000, budgetUsd: 1,
   };
   const context = {
-    workspaceId: WS, missionId, mode, contract, allowedTools: missionToolSet(mode, { webSearch: true, mcpTools }), registry, seenVersions: new Map(), tainted: false,
+    workspaceId: WS, missionId, mode, contract, allowedTools: missionToolSet(mode, { webSearch: true, mcpTools }), registry, seenVersions: new Map(), tainted: false, signal: new AbortController().signal,
   };
   const events: MissionEventInput[] = [];
   const evaluated: { request: PermissionRequest; toolCallId: string }[] = [];

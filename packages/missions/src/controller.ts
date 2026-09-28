@@ -220,6 +220,10 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
   const now = deps.now ?? Date.now;
   const stopTimeoutMs = deps.stopTimeoutMs ?? 5_000;
   const running = new Map<string, MissionToolContext>();
+  /** Ends a mission's main-side work: its pending approvals expire, its running tools stop. */
+  const lifetimes = new Map<string, AbortController>();
+  /** Gateway calls still in flight per mission: their end is journaled before the mission's. */
+  const inFlight = new Map<string, Set<Promise<unknown>>>();
   const terminalWaiters = new Map<string, (() => void)[]>();
   let link: RuntimeLink | null = null;
 
@@ -229,6 +233,8 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
     now,
     onTerminal(event) {
       const missionId = event.missionId;
+      lifetimes.get(missionId)?.abort();
+      lifetimes.delete(missionId);
       running.delete(missionId);
       deps.store.cost.releaseOpen(missionId);
       void deps.commands?.stopAll(missionId).catch(() => undefined);
@@ -251,6 +257,12 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
    */
   const closeOpenToolCalls = (missionId: string): void => {
     const events = deps.store.listEvents(missionId).map(eventFromRecord);
+    // An approval nobody can answer any more (its call is gone) reads « en attente » forever otherwise.
+    const decided = new Set(events.flatMap((event) => (event.type === "approval.resolved" ? [event.approval.id] : [])));
+    for (const event of events) {
+      if (event.type !== "approval.requested" || decided.has(event.approval.id)) continue;
+      append({ type: "approval.resolved", missionId, approval: { ...event.approval, status: "expired", decidedAt: now() } });
+    }
     const ended = new Set(events.flatMap((event) => (event.type === "tool.finished" ? [event.callId] : [])));
     const started = new Set(events.flatMap((event) => (event.type === "tool.started" ? [event.callId] : [])));
     for (const event of events) {
@@ -341,6 +353,28 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
       }]);
     });
 
+  /**
+   * Main ends a mission the runtime cannot end (gone, or silent after a stop): its main-side work
+   * is aborted and awaited (bounded) so each call's end and each approval's outcome is journaled
+   * BEFORE the terminal event, which closes the journal; whatever is still open is closed then.
+   */
+  async function endFromMain(missionId: string, terminal: MissionEventInput): Promise<void> {
+    lifetimes.get(missionId)?.abort();
+    const calls = [...(inFlight.get(missionId) ?? [])];
+    if (calls.length > 0) {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, stopTimeoutMs);
+        void Promise.allSettled(calls).then(() => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+    }
+    if (journal.isTerminated(missionId)) return;
+    closeOpenToolCalls(missionId);
+    append(terminal);
+  }
+
   async function runtimeLink(): Promise<RuntimeLink> {
     const next = await deps.runtime();
     if (next !== link) {
@@ -349,14 +383,14 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
       void next.closed.then(() => {
         if (link === next) link = null;
         for (const missionId of [...running.keys()]) {
-          append({ type: "mission.failed", missionId, reason: "internal", detail: "le runtime de l'agent s'est arrêté" });
+          void endFromMain(missionId, { type: "mission.failed", missionId, reason: "internal", detail: "le runtime de l'agent s'est arrêté" });
         }
       });
     }
     return next;
   }
 
-  const gateway = createToolGateway({
+  const toolGateway = createToolGateway({
     context: (missionId) => running.get(missionId) ?? null,
     permissions: deps.permissions,
     approvals: deps.approvals,
@@ -368,6 +402,18 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
     ...(deps.auditDecision ? { auditDecision: deps.auditDecision } : {}),
     now,
   });
+  const gateway: ToolGateway = {
+    run(request, signal) {
+      const call = toolGateway.run(request, signal);
+      const calls = inFlight.get(request.missionId) ?? new Set();
+      inFlight.set(request.missionId, calls.add(call));
+      void call.finally(() => {
+        calls.delete(call);
+        if (calls.size === 0 && inFlight.get(request.missionId) === calls) inFlight.delete(request.missionId);
+      });
+      return call;
+    },
+  };
 
   const summaryOf = (missionId: string): string => {
     const events = deps.store.listEvents(missionId).map(eventFromRecord);
@@ -442,6 +488,8 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
       const { registry, mcpTools } = await deps.tools({ workspaceId: record.workspaceId, missionId: record.id });
       const allowedTools = missionToolSet(record.mode, { webSearch: contract.webSearch, mcpTools });
       const tools = registry.definitions(allowedTools);
+      const lifetime = new AbortController();
+      lifetimes.set(record.id, lifetime);
       running.set(record.id, {
         workspaceId: record.workspaceId,
         missionId: record.id,
@@ -451,6 +499,7 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
         registry,
         seenVersions: new Map(),
         tainted: false,
+        signal: lifetime.signal,
       });
       append({ type: "mission.started", missionId: record.id, contract });
       emitBudget(record.id);
@@ -499,7 +548,7 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
         await waitForTerminal(record.id, stopTimeoutMs);
       }
       // Not started, runtime gone, or no answer in time: main closes it (the journal drops duplicates).
-      append({ type: "mission.cancelled", missionId: record.id, by: "user" });
+      await endFromMain(record.id, { type: "mission.cancelled", missionId: record.id, by: "user" });
       running.delete(record.id);
       return toMission(mission(record.id));
     },

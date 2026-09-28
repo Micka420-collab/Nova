@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildMissionSystemPrompt } from "@nova/agent-runtime";
-import { createPortPair, diffHunks, serveRuntimeChannel } from "@nova/missions";
+import { createPortPair, diffHunks, serveRuntimeChannel, type PortLike } from "@nova/missions";
 import type { ProviderStreamEvent, StreamChatRequest } from "@nova/providers";
 import type { MissionEvent, WorkspaceFacts } from "@nova/shared";
 import {
@@ -97,7 +97,10 @@ function commands(options: { hang?: boolean } = {}): CommandRunner {
   };
 }
 
-function build(options: { hang?: boolean } = {}): void {
+/** Runtime ports of the current service: tests crash (close) or wedge them. */
+let runtimePorts: PortLike[];
+
+function build(options: { hang?: boolean; wedgedStop?: boolean } = {}): void {
   const policies = createPolicyRepo(store.db);
   const audit = new AuditService({ repo: createAuditRepo(store.db) });
   const permissions = new PermissionsService({
@@ -140,10 +143,19 @@ function build(options: { hang?: boolean } = {}): void {
     },
     isolationLevel: () => "L0",
     audit: (entry) => audit.recordToolExecution(entry),
+    stopTimeoutMs: 100,
     async openRuntimePort() {
       const [mainPort, runtimePort] = createPortPair();
       serveRuntimeChannel(runtimePort, { systemPrompt: buildMissionSystemPrompt });
-      return mainPort;
+      runtimePorts.push(runtimePort);
+      if (!options.wedgedStop) return mainPort;
+      // A wedged runtime: its channel stays open but it never acts on a stop.
+      return {
+        ...mainPort,
+        postMessage: (message: unknown) => {
+          if ((message as { method?: unknown }).method !== "mission.stop") mainPort.postMessage(message);
+        },
+      };
     },
   });
 }
@@ -158,6 +170,9 @@ async function until(check: () => boolean, timeoutMs = 5_000): Promise<void> {
 
 const terminal = (): MissionEvent[] => pushed.filter((event) => ["mission.succeeded", "mission.failed", "mission.cancelled"].includes(event.type));
 const stored = (type: MissionEvent["type"]): MissionEvent[] => pushed.filter((event) => event.type === type && event.seq > 0);
+/** Stored event types of one mission, budget refreshes (accepted after the end) left out. */
+const storedTypes = (missionId: string): string[] =>
+  pushed.filter((event) => event.seq > 0 && event.missionId === missionId && event.type !== "budget.updated").map((event) => event.type);
 
 /** Approves every pending approval as it appears (the user clicking « Autoriser une fois »). */
 function autoApprove(): () => void {
@@ -180,6 +195,7 @@ beforeEach(async () => {
   pushed = [];
   requests = [];
   testRuns = [];
+  runtimePorts = [];
 });
 
 afterEach(async () => {
@@ -286,6 +302,51 @@ describe("missions service (main + runtime over a port)", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(terminal()).toHaveLength(1);
     expect(stored("tool.finished")).toMatchObject([{ state: "cancelled" }]);
+  });
+
+  it("stop with a wedged runtime: main expires the approval before cancelling, and a later approval cannot run the tool", async () => {
+    build({ wedgedStop: true });
+    turns = [
+      { text: PLAN },
+      { calls: [{ name: "write_file", args: { path: "src/new.ts", content: "export const x = 1;\n" } }] },
+    ];
+    const plan = await service.api.plan({ workspaceId, conversationId: null, goal: "Ajoute x", mode: "build", modelId: MODEL, contract: null });
+    await service.api.start({ missionId: plan.mission.id, tasks: null, contract: CONTRACT });
+    await until(() => stored("approval.requested").length === 1);
+
+    expect((await service.api.stop({ missionId: plan.mission.id })).state).toBe("cancelled");
+    expect(await approvals.list({ workspaceId: null, missionId: null, status: "pending" })).toEqual([]);
+    expect(storedTypes(plan.mission.id).slice(-3)).toEqual(["approval.resolved", "tool.finished", "mission.cancelled"]);
+    expect(stored("tool.finished")).toMatchObject([{ state: "cancelled" }]);
+    const [approval] = await approvals.list({ workspaceId: null, missionId: plan.mission.id, status: null });
+    await expect(approvals.decide({ approvalId: approval?.id ?? "", decision: "approve", scope: "once" })).rejects.toThrow(/expired/);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await expect(readFile(join(root, "src/new.ts"), "utf8")).rejects.toThrow(/ENOENT/);
+  });
+
+  it("a runtime crash during an approval or a running command ends each call and approval before the mission fails", async () => {
+    build({ hang: true });
+    turns = [
+      { text: PLAN },
+      { calls: [{ name: "write_file", args: { path: "src/new.ts", content: "export const x = 1;\n" } }] },
+    ];
+    const waiting = await service.api.plan({ workspaceId, conversationId: null, goal: "Ajoute x", mode: "build", modelId: MODEL, contract: null });
+    await service.api.start({ missionId: waiting.mission.id, tasks: null, contract: CONTRACT });
+    await until(() => stored("approval.requested").length === 1);
+    runtimePorts[0]?.close();
+    await until(() => terminal().length === 1);
+    expect(storedTypes(waiting.mission.id).slice(-3)).toEqual(["approval.resolved", "tool.finished", "mission.failed"]);
+    expect(await approvals.list({ workspaceId: null, missionId: null, status: "pending" })).toEqual([]);
+
+    turns = [{ text: PLAN }, { calls: [{ name: "run_tests", args: {} }] }];
+    const testing = await service.api.plan({ workspaceId, conversationId: null, goal: "Vérifie", mode: "verify", modelId: MODEL, contract: null });
+    const stop = autoApprove();
+    await service.api.start({ missionId: testing.mission.id, tasks: null, contract: CONTRACT });
+    await until(() => pushed.some((event) => event.type === "tool.started" && event.missionId === testing.mission.id));
+    stop();
+    runtimePorts[1]?.close();
+    await until(() => terminal().length === 2);
+    expect(storedTypes(testing.mission.id).slice(-2)).toEqual(["tool.finished", "mission.failed"]);
   });
 
   it("marks missions interrupted by a previous run as failed at startup", async () => {

@@ -157,7 +157,7 @@ export function createHarness(options: HarnessOptions) {
   const missionId = randomUUID();
   const allowedTools = missionToolSet(mode, { webSearch: false, mcpTools: [] });
   const context: MissionToolContext = {
-    workspaceId: WS, missionId, mode, contract, allowedTools, registry, seenVersions: new Map(), tainted: false,
+    workspaceId: WS, missionId, mode, contract, allowedTools, registry, seenVersions: new Map(), tainted: false, signal: new AbortController().signal,
   };
   const approvals: ApprovalGate = options.approvals ?? {
     async request() {
