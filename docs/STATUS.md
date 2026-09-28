@@ -173,6 +173,7 @@ Format attendu d'une cellule remplie : « Oui — 2026-mm-jj, commande ou run CI
 
 ## Historique de cette page
 
+- 2026-09-28 — revue J2-B, 22 défauts corrigés (tests unitaires qui échouent sur l'ancien code ; lint, types, 2 239 tests ; E2E non relancés) : contexte non fiable transmis aux sous-missions, bifurcations et index de skills (W5) ; réserve d'une sous-mission hors du total du jour (migration v7) ; « Prendre la main » détache le processus de la mission ; plafond de processus tenu en parallèle ; aucun processus orphelin des sous-missions ni des tests d'intégration ; résumé de conversation limité aux échanges complets ; barre système et Réglages sans faux zéro ; approbations d'un programme « Chaîne » toujours visibles ; pilote automatique lié à son message ; catalogue non chargé jamais présenté comme vide ; plafond « Jusqu'à preuve » à 0 refusé.
 - 2026-09-28 — E2E J2-B complétés (46/46 deux fois) ; corrections : titre d'approbation de `process_stop`, libellé « conflit » générique, tutoiement de la compaction, critères du dossier de passation en français, notices du terminal, marge des planifications, options segmentées.
 - 2026-09-28 — intégration J2-B : les huit voies branchées (main, renderer, palette), demandes de contrat des voies appliquées (ADR-022, ADR-023) ; lint, types, 2 212 tests, build, Playwright 42/42.
 - 2026-09-28 — J2-B phase 0 : contrats, migration v6 (skills, plannings, liens de missions, résumés de compaction, recherche FTS du journal, parent des appels d'une chaîne), points d'extension, stubs `unavailable`.

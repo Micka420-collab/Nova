@@ -154,7 +154,7 @@ Rien d'autre ne part. Aucune synchronisation ni service distant n'est activé pa
 | Sujet | Mesure | Jalon |
 | --- | --- | --- |
 | Isolation des outils et serveurs MCP | `utilityProcess` ou processus enfants avec environnement réduit, sans secrets hérités, répertoire limité à l'espace de travail, délais et quotas | J2–J3 |
-| Injection d'instructions | Contenus de fichiers, pages, sorties d'outils et descriptions d'outils MCP traités comme des données non fiables, affichés avec leur provenance ; ils ne peuvent ni élargir une permission ni déclencher une action sans passer par le moteur de permissions | J2–J3 |
+| Injection d'instructions | Contenus de fichiers, pages, sorties d'outils, descriptions d'outils MCP et de skills utilisateur ou projet traités comme des données non fiables (une sous-mission hérite du contexte non fiable de sa mission parente, une bifurcation démarre comme non fiable), affichés avec leur provenance ; ils ne peuvent ni élargir une permission ni déclencher une action sans passer par le moteur de permissions | J2–J3 |
 | Chemins | Résolution par `realpath` puis confinement strict dans la racine de l'espace de travail ; liens symboliques sortants refusés ; accès hors espace refusé et journalisé | J2 |
 | Effets externes | Clés d'idempotence ; aucune relance aveugle d'un effet externe après un plantage | J3 |
 | Budgets | Plafonds par mission, projet et période, avec réservation avant l'action, y compris avec plusieurs workers | J3 |
