@@ -209,11 +209,31 @@ function useMissionGuard(): ComposerBlock | null {
   return null;
 }
 
+/** missions.list failed: unknown is not empty, so say it and offer a retry. */
+export function MissionListFailed() {
+  const error = useApp((state) => state.missions.listError);
+  const refresh = useApp((state) => state.refreshMissions);
+  return (
+    <Callout
+      tone="danger"
+      title={copy.mission.listFailed}
+      action={
+        <Button size="sm" variant="secondary" onClick={() => void refresh()}>
+          {fr.app.retry}
+        </Button>
+      }
+    >
+      {error ? <p>{describeUiError(error).title}</p> : null}
+    </Callout>
+  );
+}
+
 function RecentMissions() {
   const list = useApp((state) => state.missions.list);
   const status = useApp((state) => state.missions.listStatus);
   const selectMission = useApp((state) => state.selectMission);
   const now = useNow(60_000);
+  if (status === "error") return <MissionListFailed />;
   if (status === "loading") {
     return (
       <div aria-busy="true" className="nova-agent__recent">
@@ -246,14 +266,15 @@ function RecentMissions() {
 function GoalComposer({ mode }: { mode: Exclude<WorkMode, "discuss"> }) {
   const planMission = useApp((state) => state.planMission);
   const hasWorkspace = useApp((state) => state.workspace.current !== null);
-  const hasMissions = useApp((state) => state.missions.list.length > 0);
+  // Only a loaded, empty list means « no mission »: a failed load is shown as such (RecentMissions).
+  const noMissions = useApp((state) => state.missions.listStatus === "ready" && state.missions.list.length === 0);
   const guard = useMissionGuard();
   const [goal, setGoal] = useState("");
   const picker = useMentionPicker(goal, setGoal);
   const suggestions = [copy.agent.suggestionUnderstand, copy.agent.suggestionVerify, copy.agent.suggestionFix];
   return (
     <div className="nova-agent__goal">
-      {hasWorkspace && !hasMissions ? (
+      {hasWorkspace && noMissions ? (
         <EmptyState title={copy.agent.noMission} description={copy.agent.noMissionBody} headingLevel={3} />
       ) : null}
       <RecentMissions />

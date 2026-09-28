@@ -435,6 +435,8 @@ export const atelierCopy = {
     none: "—",
     openDiff: "Ouvrir le diff",
     openJournal: "Voir le journal",
+    noSteps: "Pas d'étapes enregistrées",
+    noStepsBody: "Cette mission n'a enregistré aucun plan : son journal dit ce qu'elle a fait.",
     openCard: "Ouvrir la carte de mission",
     checkpoints: "Points de reprise",
     mapLabel: "Étapes de la mission",

@@ -1,41 +1,24 @@
 // Missions of the open project, in the explorer column (UX.md §4.3 "Missions" space).
-import { Button, Callout, EmptyState, Skeleton, StatusPill } from "@nova/ui";
+import { EmptyState, Skeleton, StatusPill } from "@nova/ui";
 import { fr } from "../../copy/fr";
 import { MISSION_STATE_LABELS } from "../../copy/fr-atelier";
-import { describeUiError } from "../../lib/errors";
 import { formatRelative } from "../../lib/format";
 import { useNow } from "../../lib/hooks";
 import { useApp } from "../../state/context";
-import { MISSION_STATE_TONES } from "../agent/AgentPanel";
+import { MISSION_STATE_TONES, MissionListFailed } from "../agent/AgentPanel";
 
 const copy = fr.atelier;
 
 export function MissionList() {
   const list = useApp((state) => state.missions.list);
   const status = useApp((state) => state.missions.listStatus);
-  const error = useApp((state) => state.missions.listError);
   const selectedId = useApp((state) => state.missions.selectedId);
-  const refresh = useApp((state) => state.refreshMissions);
   const selectMission = useApp((state) => state.selectMission);
   const openDoc = useApp((state) => state.openDoc);
   const setUi = useApp((state) => state.setUi);
   const now = useNow(60_000);
 
-  if (status === "error" && error) {
-    return (
-      <Callout
-        tone="danger"
-        title={copy.mission.listFailed}
-        action={
-          <Button size="sm" variant="secondary" onClick={() => void refresh()}>
-            {fr.app.retry}
-          </Button>
-        }
-      >
-        <p>{describeUiError(error).title}</p>
-      </Callout>
-    );
-  }
+  if (status === "error") return <MissionListFailed />;
   if (status === "loading" || status === "idle") {
     return (
       <div className="nova-mlist" aria-busy="true">

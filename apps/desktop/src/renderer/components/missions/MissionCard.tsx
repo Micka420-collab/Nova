@@ -166,6 +166,7 @@ export function MissionCard({ missionId }: { missionId: string }) {
   const error = useApp((state) => state.missions.detailError);
   const selectMission = useApp((state) => state.selectMission);
   const openDoc = useApp((state) => state.openDoc);
+  const setUi = useApp((state) => state.setUi);
   const [selected, setSelected] = useState<string | null>(null);
   const now = useNow(1_000);
 
@@ -227,6 +228,8 @@ export function MissionCard({ missionId }: { missionId: string }) {
               variant="ghost"
               onClick={() => {
                 selectMission(mission.id);
+                // The journal is the agent panel: show it (closing the narrow overlay that hides it).
+                setUi({ route: "chat", agentOpen: true, contextOverlayOpen: false });
               }}
             >
               {copy.mission.openJournal}
@@ -247,7 +250,7 @@ export function MissionCard({ missionId }: { missionId: string }) {
           {view.tasks.length > 0 ? (
             <MissionMap view={view} selected={selected} onSelect={setSelected} />
           ) : (
-            <EmptyState title={copy.mission.empty} description={copy.mission.emptyBody} headingLevel={3} />
+            <EmptyState title={copy.mission.noSteps} description={copy.mission.noStepsBody} headingLevel={3} />
           )}
           {view.budget ? (
             <div className="nova-mcard__budget">
