@@ -47,6 +47,11 @@ export interface PermissionRequest {
   operation: OperationClass;
   /** Relative path already resolved and contained by main (S2). */
   path?: RelativePath;
+  /**
+   * Every path of a call that touches several (move: source then destination), on approvals only:
+   * the engine decides each path separately, the card and the audit show them all.
+   */
+  paths?: RelativePath[];
   /** Destination host for `network` operations (lowercase, no port). */
   host?: string;
   /** Command for `execute` operations. */

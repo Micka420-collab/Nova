@@ -55,7 +55,8 @@ function bounded(text: string, max: number): string {
 }
 
 /** Path, host or redacted command line; never file content. */
-export function auditTarget(request: Pick<PermissionRequest, "path" | "host" | "argv" | "tool">): string {
+export function auditTarget(request: Pick<PermissionRequest, "path" | "paths" | "host" | "argv" | "tool">): string {
+  if (request.paths !== undefined && request.paths.length > 1) return bounded(request.paths.join(" → "), TARGET_MAX);
   if (request.path !== undefined) return request.path === "" ? "." : request.path;
   if (request.host !== undefined) return request.host;
   if (request.argv !== undefined) return bounded(request.argv.join(" "), TARGET_MAX);

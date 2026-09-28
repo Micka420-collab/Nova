@@ -293,6 +293,8 @@ export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
           tainted: context.tainted,
         });
         let ownerDetail: string | null = null;
+        /** The fact whose decision is the strictest: the approval is about that target. */
+        let decidingFact: ToolPermissionFacts = first;
         const decide = async (): Promise<PermissionDecision> => {
           if (!context.allowedTools.has(name)) {
             return {
@@ -315,15 +317,22 @@ export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
             ownerDetail = owner.detail;
             decisions.push(owner.decision);
           }
-          return strictestDecision(decisions);
+          const strictest = strictestDecision(decisions);
+          // strictestDecision keeps the first decision of the highest rank; an owner's comes after the facts.
+          decidingFact = facts[decisions.findIndex((decision) => decision.decision === strictest.decision)] ?? first;
+          return strictest;
         };
         const decision = await decide();
+        const approvalRequest = (): PermissionRequest => {
+          const paths = facts.flatMap((fact) => (fact.path === undefined ? [] : [fact.path]));
+          return { ...permissionRequest(decidingFact), ...(paths.length > 1 ? { paths } : {}) };
+        };
         deps.toolCalls.setDecision(request.id, decision.decision, decision.ruleId);
 
         if (decision.decision === "ask") {
           let pendingEmitted = false;
           const approval = await deps.approvals.request(
-            { request: permissionRequest(first), decision, toolCallId: request.id, missionId: context.missionId },
+            { request: approvalRequest(), decision, toolCallId: request.id, missionId: context.missionId },
             {
               signal,
               onPending: (pending) => {

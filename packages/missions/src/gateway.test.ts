@@ -150,6 +150,22 @@ describe("tool gateway", () => {
     expect(types.indexOf("approval.requested")).toBeLessThan(types.indexOf("tool.started"));
   });
 
+  it("asks about the move's destination when that is what decided, and shows both paths on the card", async () => {
+    const requested: { request: PermissionRequest; decision: PermissionDecision }[] = [];
+    const DEST_ASK: PermissionDecision = { ...ASK, ruleId: "rule-dest", explanation: "Écrire dans src/ demande ton accord." };
+    const approvals: ApprovalGate = {
+      async request(input) {
+        requested.push({ request: input.request, decision: input.decision });
+        return { id: randomUUID(), request: input.request, decision: input.decision, toolCallId: input.toolCallId, status: "denied", scope: null, createdAt: 0, decidedAt: 1 };
+      },
+    };
+    const h = setup({ approvals, decide: (request) => (request.path === "src/index.js" ? DEST_ASK : ALLOW) });
+    await h.call("move_path", { from: "a.ts", to: "src/index.js" }).result;
+    expect(requested).toEqual([
+      { request: expect.objectContaining({ path: "src/index.js", paths: ["a.ts", "src/index.js"] }), decision: DEST_ASK },
+    ]);
+  });
+
   describe("owner asks and remembering (S6)", () => {
     const askingWeb = (): { web: WebApi; fetched: string[] } => {
       const fetched: string[] = [];

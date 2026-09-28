@@ -22,7 +22,12 @@ export function approvalTargetText(approval: Approval): string | null {
   const { request } = approval;
   if (request.argv && request.argv.length > 0) return request.argv.join(" ");
   // An MCP call has no path or host: the service and its tool are what it acts on.
-  return request.path ?? request.host ?? (isMcpToolName(request.tool) ? mcpLabel(request.tool) : null);
+  return pathsText(request) ?? request.host ?? (isMcpToolName(request.tool) ? mcpLabel(request.tool) : null);
+}
+
+/** A move names its source and destination: the card never hides the path the call writes to. */
+function pathsText(request: Approval["request"]): string | null {
+  return request.paths && request.paths.length > 1 ? request.paths.join(" → ") : (request.path ?? null);
 }
 
 function mcpLabel(tool: string): string {
@@ -35,7 +40,8 @@ function approvalFacts(approval: Approval, workspaceName: string | null): Approv
     { label: copy.tool, value: <code>{isMcpToolName(request.tool) ? mcpLabel(request.tool) : request.tool}</code> },
   ];
   if (request.argv && request.argv.length > 0) facts.push({ label: copy.command, value: <code>{request.argv.join(" ")}</code> });
-  if (request.path) facts.push({ label: copy.path, value: <code>{request.path}</code> });
+  const paths = pathsText(request);
+  if (paths) facts.push({ label: copy.path, value: <code>{paths}</code> });
   if (request.host) facts.push({ label: copy.host, value: <code>{request.host}</code> });
   if (workspaceName) facts.push({ label: copy.scope, value: workspaceName });
   facts.push({
