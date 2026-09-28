@@ -36,6 +36,11 @@ export interface PermissionsServiceDeps {
   excludedPatterns?(workspaceId: string): readonly string[];
   /** Absolute root of a workspace, for the on-disk S2 check of `evaluateOnDisk`. */
   rootOf?(workspaceId: string): Promise<string | null>;
+  /**
+   * J2-B L5: root a mission works in when it is not its workspace's (a writing sub-mission's
+   * worktree); null = the workspace root. Paths are resolved (S2) where the effect happens.
+   */
+  missionRootOf?(missionId: string): Promise<string | null>;
   now?: () => number;
 }
 
@@ -145,7 +150,18 @@ export class PermissionsService {
    * what the call touches (`notes.txt -> .env`, `docs/ci -> ../.github/workflows`), not its name.
    */
   async evaluateOnDisk(request: PermissionRequest, options: EvaluateOptions = {}): Promise<EngineDecision> {
-    const root = request.path === undefined ? null : await this.deps.rootOf?.(request.workspaceId);
+    // A writing sub-mission acts in its worktree: its paths are checked (S2) there.
+    const missionRoot = request.path !== undefined && request.missionId ? await this.deps.missionRootOf?.(request.missionId) : null;
+    return this.evaluateAtRoot(request, options, missionRoot ?? null);
+  }
+
+  /** Like `evaluateOnDisk`, always against the project root (a sub-mission's integration writes there). */
+  async evaluateInProject(request: PermissionRequest, options: EvaluateOptions = {}): Promise<EngineDecision> {
+    return this.evaluateAtRoot(request, options, null);
+  }
+
+  private async evaluateAtRoot(request: PermissionRequest, options: EvaluateOptions, missionRoot: string | null): Promise<EngineDecision> {
+    const root = request.path === undefined ? null : (missionRoot ?? (await this.deps.rootOf?.(request.workspaceId)));
     const resolved = root && request.path !== undefined ? await resolveInWorkspace(root, request.path) : null;
     const target = resolved?.ok === true ? { ...request, path: resolved.relativePath } : request;
     return this.evaluate(target, { ...options, pathEscapes: resolved?.ok === false && resolved.reason === "outside_workspace" });

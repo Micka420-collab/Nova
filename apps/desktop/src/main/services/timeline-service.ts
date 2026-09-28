@@ -29,8 +29,8 @@ export interface TimelineMainService {
   /** Wire as `MainRuntimeHandlers.continuation` in the missions service's `connectRuntime`. */
   continuation: LoopContinuationHook;
   /**
-   * Call with each event the runtime appends, BEFORE `MainRuntimeHandlers.appendEvent` stores it
-   * (journals `continuation.stopped` proven/user/manual_only ahead of the terminal event).
+   * Wired as `MissionControllerDeps.beforeTerminal`: called before a terminal event is stored, from
+   * the runtime or main (journals `continuation.stopped` proven/user/manual_only ahead of it).
    */
   beforeRuntimeEvent(event: MissionEventInput): void;
 }

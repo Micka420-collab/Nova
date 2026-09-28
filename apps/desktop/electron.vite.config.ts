@@ -19,8 +19,11 @@ const NATIVE_EXTERNALS = ["node-pty", "@vscode/ripgrep"];
  */
 const TURNDOWN_CJS = createRequire(here("../../packages/web/package.json")).resolve("turndown");
 
-/** utilityProcess entries, built next to the main bundle as out/main/workers/<name>.js. */
-const WORKERS = ["pty-host", "fs-worker", "agent-runtime", "mcp-host"] as const;
+/**
+ * utilityProcess entries, built next to the main bundle as out/main/workers/<name>.js. `chain-host`
+ * is not in the WorkerPool: the chain service forks one host per program (J2-B L4).
+ */
+const WORKERS = ["pty-host", "fs-worker", "agent-runtime", "mcp-host", "chain-host"] as const;
 const workerInputs = Object.fromEntries(
   WORKERS.map((name) => [`workers/${name}`, here(`./src/workers/${name}.ts`)]),
 );

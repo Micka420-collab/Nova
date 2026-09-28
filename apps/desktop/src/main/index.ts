@@ -1,20 +1,23 @@
 // NOVA main process: data directory, store, vault, provider, runtime, IPC, window.
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { BrowserWindow, MessageChannelMain, Notification, app, dialog, net, safeStorage, session, shell } from "electron";
-import { ChatRunner } from "@nova/agent-runtime";
+import { BrowserWindow, Menu, MessageChannelMain, Notification, Tray, app, dialog, nativeImage, net, safeStorage, session, shell } from "electron";
+import { COMPACTION_SUMMARY_MAX_TOKENS, ChatRunner, buildCompactionPrompt, normalizeCompactionSummary } from "@nova/agent-runtime";
 import type { SystemNotification } from "@nova/companion";
 import { detectIsolation } from "@nova/permissions";
 import { OpenRouterProvider } from "@nova/providers";
-import { IPC_CHANNELS, type IpcChannel } from "@nova/shared";
+import { DEFAULT_DAILY_BUDGET_USD, IPC_CHANNELS, type IpcChannel } from "@nova/shared";
 import {
   createApprovalRepo,
   createAuditRepo,
   createCheckpointRepo,
   createEditorStateRepo,
   createMcpRepo,
+  createMissionRepo,
   createPolicyRepo,
+  createScheduleRepo,
   createSignalRepo,
+  createSkillRepo,
   createSuggestionRepo,
   createWebCacheRepo,
   createWebPolicyRepo,
@@ -25,7 +28,15 @@ import {
 } from "@nova/storage";
 import { createProcessCommandRunner, type ToolDeps } from "@nova/tools";
 import { createOpenRouterWebSearcher, pickWebSearchModel } from "@nova/web";
-import { createGitClient, createObjectStore, readBytesOrNull, resolveExisting } from "@nova/workspace";
+import {
+  createGitClient,
+  createIgnoreMatcher,
+  createObjectStore,
+  createWorkspaceFileOps,
+  createWorktreeManager,
+  readBytesOrNull,
+  resolveExisting,
+} from "@nova/workspace";
 import { openAgentRuntimePort } from "../workers/agent/main-port";
 import { createMainApi } from "./api";
 import { resolveRipgrepPath, workerSpecs } from "./native-deps";
@@ -45,7 +56,14 @@ import {
   quarantineDatabase,
 } from "./store-recovery";
 import { APP_ENTRY_URL, resolveLaunchOverrides } from "./security-policy";
+import { createDesktopPresence, type DesktopPresence } from "./desktop/presence";
+import { QUIT_CANCEL, QUIT_CONFIRM } from "./desktop/quit-warning";
+import { TRAY_ICON_DATA_URL, trayIconSize } from "./desktop/tray-icon";
 import { createAppService } from "./services/app-service";
+import { createChainService } from "./services/chain-service";
+import { createContextService } from "./services/context-service";
+import { createAutopilotService } from "./services/autopilot-service";
+import { createDesktopService, type DesktopService } from "./services/desktop-service";
 import { ApprovalsService } from "./services/approvals-service";
 import { AuditService } from "./services/audit-service";
 import { CatalogService } from "./services/catalog-service";
@@ -60,8 +78,13 @@ import { unavailableHarnessApi } from "./services/harness-unavailable";
 import { McpService } from "./services/mcp-service";
 import { createMissionsService, createReviewFsGate, type MissionsService } from "./services/missions-service";
 import { PermissionsService } from "./services/permissions-service";
+import { createProcessesService } from "./services/processes-service";
+import { createSchedulesService, type SchedulesService } from "./services/schedules-service";
 import { createSearchService } from "./services/search-service";
+import { createSkillsService } from "./services/skills-service";
+import { createSubmissionsService, type SubmissionsService } from "./services/submissions-service";
 import { createTerminalService } from "./services/terminal-service";
+import { createTimelineService } from "./services/timeline-service";
 import { WebService } from "./services/web-service";
 import { createWorkspaceService } from "./services/workspace-service";
 import { createElectronVault } from "./vault";
@@ -81,8 +104,13 @@ app.enableSandbox();
 registerAppScheme();
 
 let mainWindow: BrowserWindow | null = null;
+/** J2-B L7: tray, close behavior and quit question (created once the services exist). */
+let presence: DesktopPresence | null = null;
+let desktop: DesktopService | null = null;
 /** A quit waits for the window to close (its unsaved-edits guard may cancel it), then resumes. */
 let quitAfterClose = false;
+/** J2-B L7: the user answered the quit question (or nothing ran). */
+let quitConfirmed = false;
 
 /** Buttons of the unsaved-edits question (index = returned choice). */
 const UNSAVED_CHOICES = ["Annuler", "Continuer sans enregistrer"] as const;
@@ -132,9 +160,14 @@ function createWindow(context: SecurityContext): BrowserWindow {
       cancelId: UNSAVED_CANCEL,
       noLink: true,
     });
-    if (choice === UNSAVED_CANCEL) quitAfterClose = false;
-    else event.preventDefault();
+    if (choice === UNSAVED_CANCEL) {
+      quitAfterClose = false;
+      // J2-B L7: the quit is off; the next quit asks again and closing follows the setting.
+      quitConfirmed = false;
+      presence?.setQuitting(false);
+    } else event.preventDefault();
   });
+  presence?.attachWindow(window);
   window.on("closed", () => {
     if (mainWindow === window) mainWindow = null;
     if (quitAfterClose) app.quit();
@@ -264,6 +297,13 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
   // Late-bound: the companion, missions and approvals reference each other only through events.
   let companion: CompanionService | null = null;
   let missions: MissionsService | null = null;
+  // J2-B late-bound lanes: sub-missions and schedules follow mission events once they exist.
+  let submissions: SubmissionsService | null = null;
+  let schedules: SchedulesService | null = null;
+  const missionsController = () => {
+    if (!missions) throw new Error("missions not ready");
+    return missions.controller;
+  };
 
   const workspaceRepo = createWorkspaceRepo(store.db);
   const gitClient = createGitClient();
@@ -308,6 +348,8 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
     isolation,
     contractOf: (missionId) => missions?.controller.contractOf(missionId) ?? null,
     rootOf: (workspaceId) => workspaceService.rootOf(workspaceId).catch(() => null),
+    // J2-B L5: a writing sub-mission's paths resolve in its worktree, where its tools act.
+    missionRootOf: (missionId) => submissions?.controller.workspaceRootOf(missionId) ?? Promise.resolve(null),
     knownCommands: (workspaceId) => {
       const facts = workspaceRepo.getFacts(workspaceId);
       return [facts?.testRunner?.command, facts?.buildCommand].filter((command): command is string[] => !!command);
@@ -320,6 +362,7 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
     emit: (event) => {
       missions?.onApprovalEvent(event);
       push(IPC_CHANNELS.approvalsEvent, event);
+      desktop?.notify();
     },
   });
 
@@ -362,13 +405,17 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
     },
     createChannel: () => new MessageChannelMain(),
   });
-  terminal.onEvent((event) => push(IPC_CHANNELS.terminalEvent, event));
+  terminal.onEvent((event) => {
+    push(IPC_CHANNELS.terminalEvent, event);
+    desktop?.notify();
+  });
   terminal.onExit((ended, outputTail) =>
     companion?.onProcessExit({ sessionId: ended.id, exitCode: ended.exitCode, signal: null, outputTail }),
   );
 
   // Agent tools run in main under the permission engine (L0: no shell, confined cwd, scrubbed env).
-  const commandRunner = createProcessCommandRunner({
+  // J2-B L1: background processes run in read-only agent terminals; foreground ones are mirrored.
+  const processes = createProcessesService({
     resolveCwd: async (workspaceId, cwd) => {
       try {
         return await resolveExisting(await workspaceService.rootOf(workspaceId), cwd);
@@ -376,16 +423,68 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
         return null;
       }
     },
+    terminal,
+    // Late-bound: a process only ends after a mission started it.
+    journal: { append: (event) => missions?.controller.journal.append(event) },
+    mirrorTitle: "Commandes de Nomi",
+    logger,
   });
+  processes.onEvent((event) => {
+    push(IPC_CHANNELS.processesEvent, event);
+    desktop?.notify();
+  });
+
+  // J2-B L3: skills (builtin, user under <dataDir>/skills, project under .nova/skills).
+  const skills = createSkillsService({
+    skillsDir: join(dataDir, "skills"),
+    repo: createSkillRepo(store.db),
+    rootOf: (workspaceId) => workspaceService.rootOf(workspaceId),
+    pickFolder: async () => {
+      const options = { properties: ["openDirectory" as const] };
+      const picked = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+      return picked.canceled ? null : (picked.filePaths[0] ?? null);
+    },
+    logger,
+  });
+  await skills.init();
+
+  // J2-B L4: one isolated chain-host per program (outside the WorkerPool).
+  const chain = createChainService({ entry: join(import.meta.dirname, "workers", "chain-host.js"), logger });
+
   const objects = createObjectStore(checkpointObjectsDir(dataDir));
   const toolDeps = async (workspaceId: string): Promise<ToolDeps> => ({
     files: await filesService.fileOpsFor(workspaceId),
     facts: () => workspaceService.api.facts({ workspaceId, refresh: false }).catch(() => null),
-    commands: commandRunner,
+    commands: processes.runner,
     git: { status: gitService.api.status, diff: gitService.api.diff, commit: gitService.commit },
     web,
     mcp,
+    processes: processes.tools,
+    skills: skills.tools,
+    chain,
   });
+
+  // J2-B L2: context gauge, compaction proposals and model handoff (logic in main).
+  const missionsProxy = () => {
+    if (!missions) throw new Error("missions not ready");
+    return missions.host.proxy;
+  };
+  const contextService = createContextService({
+    store,
+    provider,
+    resolveApiKey,
+    missions: () => {
+      const ready = missionsController();
+      return { isRunning: (id) => ready.isRunning(id), journal: ready.journal, proxy: missionsProxy() };
+    },
+    push: (event) => push(IPC_CHANNELS.contextEvent, event),
+    prompt: buildCompactionPrompt,
+    normalize: normalizeCompactionSummary,
+    summaryMaxTokens: COMPACTION_SUMMARY_MAX_TOKENS,
+    logger,
+  });
+  // J2-B L8: « jusqu'à preuve » rounds, timeline search and fork.
+  const timeline = createTimelineService({ store, missions: missionsController });
   missions = createMissionsService({
     store,
     provider,
@@ -393,8 +492,18 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
     push: (event) => {
       push(IPC_CHANNELS.missionsEvent, event);
       companion?.onMissionEvent(event);
+      submissions?.controller.onMissionEvent(event);
+      schedules?.onMissionEvent(event);
+      desktop?.notify();
     },
     toolDeps,
+    skillIndex: (workspaceId) => skills.skillIndex(workspaceId),
+    contextHook: contextService.runtimeHook,
+    continuation: { hook: timeline.continuation, beforeTerminal: (event) => timeline.beforeRuntimeEvent(event) },
+    routeToolDeps: (workspaceId, missionId, base) =>
+      submissions ? submissions.toolDepsFor(workspaceId, missionId, base) : Promise.resolve(base),
+    stopMissionProcesses: (missionId) => submissions?.stopAll(missionId) ?? Promise.resolve(),
+    missionRootOf: (missionId) => submissions?.controller.workspaceRootOf(missionId) ?? Promise.resolve(null),
     mcpTools: (workspaceId) => mcp.listToolsForModel(workspaceId),
     permissions: { evaluate: (request, options) => permissions.evaluateOnDisk(request, options) },
     approvals,
@@ -420,6 +529,57 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
     logger,
   });
   const missionsApi = missions.api;
+
+  // J2-B L5: bounded sub-missions; a writing child works in a git worktree under <dataDir>.
+  submissions = createSubmissionsService({
+    store,
+    missions: missions.controller,
+    worktrees: createWorktreeManager({ dataDir }),
+    rootOf: (workspaceId) => workspaceService.rootOf(workspaceId),
+    facts: (workspaceId) => workspaceService.api.facts({ workspaceId, refresh: false }).catch(() => null),
+    // The integration writes into the PROJECT: its paths are checked there, not in the worktree.
+    permissions: { evaluate: (request) => permissions.evaluateInProject(request) },
+    checkpoints: { create: (input) => checkpointsService.store.create(input) },
+    projectFiles: (workspaceId) => filesService.fileOpsFor(workspaceId),
+    worktreeFiles: (workspaceId, root) =>
+      createWorkspaceFileOps({
+        workspaceId,
+        root,
+        matcher: createIgnoreMatcher(root),
+        checkpoints: checkpointsService.store,
+        rgPath,
+        trash: (path) => shell.trashItem(path),
+      }),
+    commandRunner: (root) =>
+      createProcessCommandRunner({
+        resolveCwd: async (_workspaceId, cwd) => {
+          try {
+            return await resolveExisting(root, cwd);
+          } catch {
+            return null;
+          }
+        },
+      }),
+    dailyLimitUsd: () => DEFAULT_DAILY_BUDGET_USD,
+  });
+
+  // J2-B L6: scheduled missions (run only while NOVA is open; missed runs follow their policy).
+  const missionRepo = createMissionRepo(store.db);
+  schedules = createSchedulesService({
+    repo: createScheduleRepo(store.db),
+    missions: missionsApi,
+    missionState: (missionId) => missionRepo.get(missionId)?.state ?? null,
+    workspaceExists: (workspaceId) => workspaceRepo.get(workspaceId) !== null,
+    supportsTools: (modelId) => store.loadCatalog("openrouter")?.models.find((model) => model.id === modelId)?.supportsTools ?? null,
+    // Same cap the mission controller enforces (DEFAULT_DAILY_BUDGET_USD), same day start.
+    dailyRemainingUsd: () => DEFAULT_DAILY_BUDGET_USD - missionRepo.cost.summary("", new Date().setHours(0, 0, 0, 0)).dailySpentUsd,
+    logger,
+  });
+  const scheduleService = schedules;
+  scheduleService.onEvent((event) => {
+    push(IPC_CHANNELS.schedulesEvent, event);
+    desktop?.notify();
+  });
   companion = createCompanionService({
     signals: createSignalRepo(store.db),
     suggestions: createSuggestionRepo(store.db),
@@ -438,11 +598,16 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
   audit.purgeExpired();
   approvals.expireOrphans();
   missions.controller.recoverInterrupted();
+  // After recoverInterrupted: children left open are settled, then missed schedules are applied.
+  void submissions.controller.recover().catch((error: unknown) => logger.warn("sub-missions recovery failed", { error: describeError(error) }));
+  scheduleService.start();
   void checkpointsService.purge().catch((error: unknown) => logger.warn("checkpoint purge failed", { error: describeError(error) }));
 
   const chatEvents = new ChatEventHub((event) => {
     push(IPC_CHANNELS.chatEvent, event);
     companion?.onChatEvent(event);
+    // J2-B L2: the conversation's context usage after each answer (gauge, « Résumer maintenant »).
+    if (event.type === "completed") contextService.observeConversation(event.conversationId);
   });
   const runner = new ChatRunner({
     store,
@@ -454,6 +619,70 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
     // A key refused mid-chat becomes the connection's recorded state (Nomi, composer, Home read it).
     onProviderError: (error, apiKey) => connections.recordChatFailure(apiKey, error),
     prepareTurn: createChatContext({ fileOps: (workspaceId) => filesService.fileOpsFor(workspaceId), web }),
+    // J2-B L2: an applied summary replaces the messages it covers in what the model receives.
+    historyForModel: (conversationId, history) => contextService.historyForModel(conversationId, history),
+    // J2-B L7: pasted images need a model whose catalog entry accepts "image"; effort needs reasoning.
+    modelInfo: async (modelId) => (await catalog.catalog({ refresh: false })).models.find((model) => model.id === modelId) ?? null,
+  });
+
+  // J2-B L7 desktop presence -------------------------------------------------
+  desktop = createDesktopService({
+    sources: {
+      missions: async () => (await missionsApi.list({ workspaceId: null, limit: 200 })).items,
+      pendingApprovals: async () => (await approvals.list({ workspaceId: null, missionId: null, status: "pending" })).length,
+      runningTerminals: async () => (await terminal.list({ workspaceId: null })).filter((item) => item.state === "running").length,
+      runningProcesses: async () => (await processes.api.list({ workspaceId: null, missionId: null })).filter((item) => item.state === "running").length,
+      schedules: () => ({ activeCount: scheduleService.activeCount(), nextDueAt: scheduleService.nextDueAt() }),
+    },
+    keepRunningOnClose: () => store.getSettings().desktop.keepRunningOnClose,
+    trayAvailable: () => presence?.trayAvailable() ?? false,
+    push: (event) => push(IPC_CHANNELS.desktopEvent, event),
+    logger,
+  });
+  const showMainWindow = (): void => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      mainWindow = createWindow(context);
+      return;
+    }
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  };
+  presence = createDesktopPresence({
+    desktop,
+    createTray: () => new Tray(nativeImage.createFromDataURL(TRAY_ICON_DATA_URL).resize({ width: trayIconSize(process.platform) })),
+    buildMenu: (template) => Menu.buildFromTemplate(template),
+    keepRunningOnClose: () => store.getSettings().desktop.keepRunningOnClose,
+    showWindow: showMainWindow,
+    quit: () => app.quit(),
+    askQuit: async (warning) => {
+      const options = {
+        type: "warning" as const,
+        title: warning.title,
+        message: warning.message,
+        detail: warning.detail,
+        buttons: [...warning.buttons],
+        defaultId: QUIT_CANCEL,
+        cancelId: QUIT_CANCEL,
+        noLink: true,
+      };
+      const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+      const answer = window ? await dialog.showMessageBox(window, options) : await dialog.showMessageBox(options);
+      return answer.response === QUIT_CONFIRM;
+    },
+    notify: (body) => {
+      if (Notification.isSupported()) new Notification({ title: APP_NAME, body, silent: true }).show();
+    },
+    platform: process.platform,
+    logger,
+  });
+  const autopilot = createAutopilotService({
+    provider,
+    resolveApiKey,
+    models: async () => (await catalog.catalog({ refresh: false })).models,
+    dataCollection: () => store.getSettings().privacy.providerDataCollection,
+    enabled: () => store.getSettings().chat.autopilot,
+    logger,
   });
   const api = createMainApi({
     store,
@@ -495,8 +724,25 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
       checkpoints: checkpointsService.api,
     },
     // J2-B: each lane's service replaces its group here (J2-B lane map).
-    harness: unavailableHarnessApi(),
+    harness: {
+      ...unavailableHarnessApi(),
+      processes: processes.api,
+      context: contextService.api,
+      skills: skills.api,
+      submissions: submissions.api,
+      schedules: scheduleService.api,
+      desktop: desktop.api,
+      autopilot: autopilot.api,
+      timeline: timeline.api,
+    },
   });
+  // The desktop state carries `keepRunningOnClose`: republish it when settings change.
+  const updateSettings = api.settings.update;
+  api.settings.update = async (patch) => {
+    const next = await updateSettings(patch);
+    desktop?.notify();
+    return next;
+  };
   registerIpcRoutes(buildIpcRoutes(api, logger), (frame) => isTrustedSender(frame, devOrigin), logger);
 
   let closed = false;
@@ -504,6 +750,16 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
   app.on("before-quit", (event) => {
     if (closed) return;
     event.preventDefault();
+    // J2-B L7: something runs → ask first (native dialog listing it); nothing runs → no question.
+    if (!quitConfirmed) {
+      void presence?.confirmQuit().then((confirmed) => {
+        if (!confirmed) return;
+        quitConfirmed = true;
+        presence?.setQuitting(true);
+        app.quit();
+      });
+      return;
+    }
     // The window closes first: its unsaved-edits question may cancel the quit, so nothing is shut
     // down before the answer. Its `closed` handler quits again, then without a window.
     const window = mainWindow;
@@ -513,13 +769,18 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
       return;
     }
     shutdown ??= (async () => {
+      presence?.dispose();
+      desktop?.dispose();
+      // No scheduled run starts during the quit.
+      scheduleService.stop();
       runner.stopAll();
       companion?.dispose();
+      contextService.dispose();
       const timeout = new Promise<void>((resolve) => setTimeout(resolve, QUIT_IDLE_TIMEOUT_MS));
       // Agent processes run in detached groups: nothing else kills them once NOVA exits.
-      const commandsStopped = commandRunner
-        .stopEverything()
-        .catch((error: unknown) => logger.warn("agent processes stop failed", { error: describeError(error) }));
+      const commandsStopped = Promise.all([processes.stopEverything(), submissions?.stopEverything(), chain.stopAll()]).catch(
+        (error: unknown) => logger.warn("agent processes stop failed", { error: describeError(error) }),
+      );
       await mcp.shutdown().catch((error: unknown) => logger.warn("mcp shutdown failed", { error: describeError(error) }));
       // Workers exit after their own cleanup (the pty-host kills its terminals' trees): wait for it.
       const workersStopped = workers.stopAll();
@@ -535,9 +796,7 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
   });
 
   mainWindow = createWindow(context);
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow(context);
-  });
+  app.on("activate", showMainWindow);
   logger.info("window created", { renderer: overrides.rendererDevUrl ? "dev-server" : "nova-protocol" });
   void vault.status().then((status) => logger.info("vault detected", { ...status }));
 }
@@ -549,7 +808,8 @@ if (process.argv.includes(SELFTEST_FLAG)) {
     .whenReady()
     .then(async () => {
       const pool = await createWorkerPool(logger);
-      const report = await runWorkerSelfTest(pool);
+      const chain = createChainService({ entry: join(import.meta.dirname, "workers", "chain-host.js"), logger });
+      const report = await runWorkerSelfTest(pool, { chain: () => chain.selfTest() });
       await pool.stopAll();
       process.stdout.write(`${JSON.stringify({ novaSelfTest: report })}\n`);
       app.exit(report.ok ? 0 : 1);
@@ -586,6 +846,7 @@ if (process.argv.includes(SELFTEST_FLAG)) {
   app.on("second-instance", () => {
     if (!mainWindow) return;
     if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
     mainWindow.focus();
   });
   app.on("window-all-closed", () => {

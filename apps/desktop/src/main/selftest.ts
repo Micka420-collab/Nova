@@ -13,11 +13,16 @@ export interface SelfTestReport {
   workers: Record<WorkerName, { ok: boolean; pid: number | null; error: string | null }>;
   pty: { ok: boolean; output: string | null; error: string | null };
   ripgrep: { ok: boolean; version: string | null; error: string | null };
+  /** J2-B L4: a real chain-host ran `return 6 * 7` in its isolated context (null = not checked). */
+  chain: { ok: boolean; detail: string } | null;
 }
 
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-export async function runWorkerSelfTest(pool: WorkerPool): Promise<SelfTestReport> {
+export async function runWorkerSelfTest(
+  pool: WorkerPool,
+  extra: { chain?: () => Promise<{ ok: boolean; detail: string }> } = {},
+): Promise<SelfTestReport> {
   const entries = await Promise.all(
     WORKER_NAMES.map(async (name) => {
       try {
@@ -44,6 +49,9 @@ export async function runWorkerSelfTest(pool: WorkerPool): Promise<SelfTestRepor
       (result) => ({ ok: result.version.startsWith("ripgrep "), version: result.version, error: null }),
       (error: unknown) => ({ ok: false, version: null, error: message(error) }),
     );
-  const ok = Object.values(workers).every((worker) => worker.ok) && pty.ok && ripgrep.ok;
-  return { ok, workers, pty, ripgrep };
+  const chain = extra.chain
+    ? await extra.chain().catch((error: unknown) => ({ ok: false, detail: message(error) }))
+    : null;
+  const ok = Object.values(workers).every((worker) => worker.ok) && pty.ok && ripgrep.ok && (chain?.ok ?? true);
+  return { ok, workers, pty, ripgrep, chain };
 }
