@@ -146,6 +146,18 @@ describe("ToolCard", () => {
     expect(screen.getByText(/Détail technique : the tool/)).toBeTruthy();
   });
 
+  it("does not blame a file for a conflict that is not about one (sub-mission refused for budget)", () => {
+    mount(
+      item({
+        call: { id: "call-1", name: "start_submission", operation: "read", argumentsPreview: "{}", path: null, host: null, argv: null },
+        state: "failed",
+        display: { kind: "error", code: "conflict", message: "not enough budget left for this sub-mission: 0.0500 USD available" },
+      }),
+    );
+    expect(screen.getByText(/Refusé dans l'état actuel/)).toBeTruthy();
+    expect(screen.queryByText(/le fichier a changé/)).toBeNull();
+  });
+
   it("shows a test run by its exit code when the runner reported no counts (no « other », no « inconnu »)", () => {
     mount(
       item({

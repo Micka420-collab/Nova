@@ -110,7 +110,8 @@ export const TOOL_ERROR_LABELS: Record<ToolErrorCode, string> = {
   invalid_arguments: "Demande mal formée : Nomi doit la reformuler.",
   permission_denied: "Refusé par les permissions.",
   not_found: "Introuvable.",
-  conflict: "Conflit : le fichier a changé depuis sa lecture, rien n'a été écrasé.",
+  // Shared by every tool (stale file, sub-mission budget, skill already installed…): never names one cause.
+  conflict: "Refusé dans l'état actuel (fichier modifié entre-temps, limite atteinte…) : rien n'a été écrasé.",
   outside_workspace: "Hors du dossier du projet.",
   excluded_path: "Fichier exclu (sensible).",
   too_large: "Trop volumineux.",
@@ -407,6 +408,8 @@ export const atelierCopy = {
       git_mutation: "Nomi veut modifier le dépôt",
       external: "Nomi veut agir hors de NOVA",
     } satisfies Record<OperationClass, string>,
+    /** process_stop is an `execute` whose argv is the command it kills, not one it starts. */
+    stopProcess: "Nomi veut arrêter",
     tool: "Outil",
     path: "Fichier",
     host: "Adresse",
