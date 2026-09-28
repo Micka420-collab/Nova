@@ -68,6 +68,17 @@ function collectDone(decisions: readonly ReviewDecision[]): Record<string, Done>
   return done;
 }
 
+/**
+ * Hunk decisions are positions in diff(before mission → disk now), which a hunk revert rewrites:
+ * the hunks after it move up. A recorded hunk decision is shown only for a file that never had a
+ * hunk reverted (its positions never moved); decisions applied against the loaded diff are shown
+ * until the next load (`current`). File decisions never move.
+ */
+function positionalDecisions(recorded: readonly ReviewDecision[], current: readonly ReviewDecision[]): ReviewDecision[] {
+  const moved = new Set(recorded.filter((item) => item.hunkIndex !== null && item.decision === "reverted").map((item) => item.path));
+  return [...recorded.filter((item) => item.hunkIndex === null || !moved.has(item.path)), ...current];
+}
+
 function conflictKey(path: string, hunk: number | null): string {
   return `${path}#${hunk ?? "file"}`;
 }
@@ -133,6 +144,8 @@ function LoadedReview({ view }: { view: MissionView }) {
   const [attempt, setAttempt] = useState(0);
   const [review, dispatch] = useReducer(reviewReducer, [], initialReview);
   const [applied, setApplied] = useState<ReviewDecision[]>([]);
+  /** Hunk decisions applied against the diff loaded for `key` (see positionalDecisions). */
+  const [appliedHunks, setAppliedHunks] = useState<{ key: string; decisions: ReviewDecision[] }>({ key: "", decisions: [] });
   const [conflicts, setConflicts] = useState<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [confirmRevertAll, setConfirmRevertAll] = useState(false);
@@ -166,7 +179,13 @@ function LoadedReview({ view }: { view: MissionView }) {
     };
   }, [client, workspaceId, missionId, touchedJson, requestKey]);
 
-  const done = useMemo(() => collectDone([...(view.review ?? []), ...applied]), [view.review, applied]);
+  const done = useMemo(
+    () =>
+      collectDone(
+        positionalDecisions([...(view.review ?? []), ...applied], appliedHunks.key === requestKey ? appliedHunks.decisions : []),
+      ),
+    [view.review, applied, appliedHunks, requestKey],
+  );
 
   // Keep the current hunk visible (WCAG 2.4.11).
   const cursorId = `diff-${missionId}-${review.cursor.file}-${review.cursor.hunk}`;
@@ -181,13 +200,22 @@ function LoadedReview({ view }: { view: MissionView }) {
     setBusy(true);
     try {
       const result = await reviewMission(missionId, decisions);
+      // A hunk revert renumbers the file's hunks: reload the diff before any further hunk decision.
+      const renumbered = result.applied.some((item) => item.hunkIndex !== null && item.decision === "reverted");
+      const hunkLevel = result.applied.filter((item) => item.hunkIndex !== null);
       setApplied((previous) => [...previous, ...result.applied]);
+      setAppliedHunks((previous) =>
+        renumbered
+          ? { key: "", decisions: [] }
+          : { key: requestKey, decisions: [...(previous.key === requestKey ? previous.decisions : []), ...hunkLevel] },
+      );
       setConflicts((previous) => {
-        const next = new Set(previous);
+        const next = new Set([...previous].filter((key) => !renumbered || key.endsWith("#file")));
         for (const item of result.applied) next.delete(conflictKey(item.path, item.hunkIndex));
         for (const item of result.conflicts) next.add(conflictKey(item.path, item.hunkIndex));
         return next;
       });
+      if (renumbered) setAttempt((value) => value + 1);
       // Applied decisions leave the local draft: what is shown now comes from main.
       for (const item of result.applied) {
         if (item.hunkIndex === null) dispatch({ type: "decideFile", path: item.path, decision: "pending" });

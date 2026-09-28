@@ -71,9 +71,62 @@ describe("DiffReview", () => {
         { path: "src/cart.ts", hunkIndex: 1, decision: "reverted" },
       ],
     ]);
-    // Once applied, the hunks show the recorded decision.
-    expect(within(region).getByText("gardé")).toBeTruthy();
-    expect(within(region).getByText("annulé")).toBeTruthy();
+    // A hunk revert renumbers the hunks: the diff is loaded again (this fake still returns both).
+    const reloaded = await screen.findByRole("region", { name: "Relecture des changements" });
+    expect(within(reloaded).getByRole("region", { name: "bloc 1 sur 2, lignes 1 à 3" })).toBeTruthy();
+  });
+
+  it("reloads the diff after a hunk revert, so the next decision names the hunk that is really there", async () => {
+    const hunk = (line: number, text: string) => `@@ -${line},2 +${line},3 @@\n a${line}\n+${text}\n b${line}\n`;
+    const all = [hunk(1, "// H0"), hunk(20, "// H1"), hunk(40, "// H2")];
+    let hunks = all;
+    const reviewed: ReviewDecision[][] = [];
+    renderWithMission({
+      edits: [{ path: "src/cart.ts", change: "modified", additions: 3, deletions: 0 }],
+      displayMode: "expert",
+      overrides: (base) => ({
+        ...base,
+        missions: {
+          ...base.missions,
+          diff: ({ missionId }): Promise<IpcResult<MissionDiff>> =>
+            Promise.resolve({
+              ok: true,
+              value: {
+                missionId,
+                files: [{ path: "src/cart.ts", change: "modified", beforeHash: null, currentHash: null, patch: `--- a/src/cart.ts\n+++ b/src/cart.ts\n${hunks.join("")}`, missing: null }],
+              },
+            }),
+          // Like main: reverting hunks rewrites the file, so diff(before → now) loses them.
+          review: ({ decisions }): Promise<IpcResult<ReviewResult>> => {
+            reviewed.push(decisions);
+            const reverted = new Set(decisions.filter((item) => item.decision === "reverted").map((item) => item.hunkIndex));
+            hunks = hunks.filter((_, index) => !reverted.has(index));
+            return Promise.resolve({ ok: true, value: { applied: decisions, conflicts: [] } });
+          },
+        },
+      }),
+      ui: (missionId) => <DiffReview missionId={missionId} />,
+    });
+    let region = await screen.findByRole("region", { name: "Relecture des changements" });
+    region.focus();
+    fireEvent.keyDown(region, { key: "x" });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Appliquer 1 décision" }));
+    });
+    region = await screen.findByRole("region", { name: "Relecture des changements" });
+    expect(within(region).getByRole("region", { name: /^bloc 1 sur 2, lignes 20/ })).toBeTruthy();
+    // No stale « annulé » mark lands on the hunk that took position 0.
+    expect(within(region).queryByText("annulé")).toBeNull();
+    region.focus();
+    fireEvent.keyDown(region, { key: "x" });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Appliquer 1 décision" }));
+    });
+    expect(reviewed).toEqual([
+      [{ path: "src/cart.ts", hunkIndex: 0, decision: "reverted" }],
+      [{ path: "src/cart.ts", hunkIndex: 0, decision: "reverted" }],
+    ]);
+    expect(hunks).toEqual([all[2]]);
   });
 
   it("shows a conflict from main instead of claiming the revert happened", async () => {
