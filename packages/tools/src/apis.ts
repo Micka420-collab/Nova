@@ -195,7 +195,8 @@ export interface McpApi {
   /**
    * Calls `toolName` on server `serverId` (the offer's ids, never re-derived from the qualified
    * name: another server may take that name later). `approved`: the gateway allowed or the user
-   * approved this exact call. Returns untrusted output.
+   * approved this exact call. Returns the server's raw untrusted output: the registry bounds,
+   * redacts and fences it.
    */
   callTool(
     target: { serverId: string; toolName: string },

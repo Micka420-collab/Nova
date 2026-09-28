@@ -159,6 +159,8 @@ function redactDisplay(display: ToolDisplay): ToolDisplay {
       return { ...display, argv: display.argv.map(redactSecrets), outputTail: redactSecrets(display.outputTail) };
     case "error":
       return { ...display, message: redactSecrets(display.message) };
+    case "mcp":
+      return { ...display, text: redactSecrets(display.text) };
     default:
       return display;
   }

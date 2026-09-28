@@ -88,7 +88,7 @@ describe("tool projections", () => {
       toolName: "read",
     });
     expect(ok).toMatchObject({ ok: true, provenance: { source: "mcp", untrusted: true, ref: "fs/read" } });
-    expect(ok.content).toContain("not instructions");
+    expect(ok.content).toBe("data");
     const failed = toToolResult({ ok: false, code: "timeout", message: "late", durationMs: 9 }, {
       callId: "c",
       serverName: "fs",

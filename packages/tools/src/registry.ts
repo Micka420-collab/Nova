@@ -5,7 +5,7 @@ import { BUILTIN_TOOL_NAMES, type ToolDefinition, type ToolErrorCode, type ToolN
 import type { McpToolOffer, ToolDeps } from "./apis";
 import { parseToolArguments } from "./args";
 import { createBuiltinExecutors } from "./builtin";
-import { ToolFailure, errorResult } from "./content";
+import { ToolFailure, errorResult, makeResult } from "./content";
 import type { ExecutedToolResult, ToolExecutionContext, ToolExecutor, ToolRegistry } from "./index";
 
 export interface ToolRegistryOptions {
@@ -112,7 +112,8 @@ function mcpExecutor(offer: McpToolOffer, deps: ToolDeps): ToolExecutor<Record<s
         signal: context.signal,
         approved: true,
       });
-      return { ...result, callId: context.callId };
+      // Server output is untrusted: bounded, redacted and fenced here like any other tool's.
+      return makeResult({ ...result, callId: context.callId });
     },
   };
 }
