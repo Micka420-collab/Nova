@@ -151,7 +151,28 @@ describe("review", () => {
   ]);
 
   it("builds one entry per changed file from the first before to the last after", () => {
-    expect(model.files).toEqual([{ path: "src/a.ts", beforeHash: A, afterHash: C, checkpointIds: ["cp1", "cp2"] }]);
+    expect(model.files).toEqual([{ path: "src/a.ts", beforeHash: A, afterHash: C, checkpointIds: ["cp1", "cp2"], chained: true }]);
+  });
+
+  it("refuses a whole-file revert, writing nothing, when something else changed the file between two mission writes", async () => {
+    const D = "d".repeat(64);
+    // cp1: A → B, then a command rewrote the file to D, then cp2: D → C.
+    const broken = buildReview([
+      checkpoint("cp1", 1, [{ checkpointId: "cp1", path: "src/a.ts", beforeHash: A, afterHash: B, userHashSeen: null }]),
+      checkpoint("cp2", 2, [{ checkpointId: "cp2", path: "src/a.ts", beforeHash: D, afterHash: C, userHashSeen: null }]),
+    ]);
+    const restored: string[] = [];
+    const fs = {
+      currentHash: async () => C,
+      restoreFile: async (checkpointId: string, path: string) => {
+        restored.push(checkpointId);
+        return { status: "restored" as const, path, checkpointId };
+      },
+      revertHunks: async () => ({ status: "reverted" as const }),
+    };
+    const decisions = [{ path: "src/a.ts", hunkIndex: null, decision: "reverted" as const }];
+    expect(await applyReview({ workspaceId: "w", missionId: "m", model: broken, decisions, fs })).toEqual({ applied: [], conflicts: [{ path: "src/a.ts", hunkIndex: null }] });
+    expect(restored).toEqual([]);
   });
 
   it("reverts a whole file newest checkpoint first, and refuses when the user changed it", async () => {

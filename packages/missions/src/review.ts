@@ -12,6 +12,12 @@ export interface ReviewFile {
   afterHash: ContentHash | null;
   /** Checkpoints that touched this file, oldest first. */
   checkpointIds: string[];
+  /**
+   * Each checkpoint starts from the content the previous one left. False when something else
+   * changed the file between two mission writes (a command, the user): restoring the checkpoints
+   * one by one would then stop midway, leaving a state nobody chose.
+   */
+  chained: boolean;
 }
 
 export interface ReviewModel {
@@ -45,8 +51,9 @@ export function buildReview(checkpoints: readonly Checkpoint[]): ReviewModel {
     for (const file of checkpoint.files) {
       const existing = files.get(file.path);
       if (!existing) {
-        files.set(file.path, { path: file.path, beforeHash: file.beforeHash, afterHash: file.afterHash, checkpointIds: [checkpoint.id] });
+        files.set(file.path, { path: file.path, beforeHash: file.beforeHash, afterHash: file.afterHash, checkpointIds: [checkpoint.id], chained: true });
       } else {
+        if (file.beforeHash !== existing.afterHash) existing.chained = false;
         existing.afterHash = file.afterHash;
         existing.checkpointIds.push(checkpoint.id);
       }
@@ -58,8 +65,9 @@ export function buildReview(checkpoints: readonly Checkpoint[]): ReviewModel {
 
 /**
  * Applies decisions. `kept` changes nothing on disk. A whole-file revert restores the file's
- * checkpoints newest first (each restore checks its own after-hash). A file-level decision wins
- * over hunk decisions of the same file.
+ * checkpoints newest first (each restore checks its own after-hash), only when they form one chain:
+ * otherwise it is a conflict and nothing is written (per-hunk revert still works, it diffs against
+ * the original content). A file-level decision wins over hunk decisions of the same file.
  */
 export async function applyReview(input: {
   workspaceId: string;
@@ -87,7 +95,7 @@ export async function applyReview(input: {
     if (reverts.length === 0) continue;
 
     const current = await input.fs.currentHash(input.workspaceId, path);
-    if (current !== file.afterHash) {
+    if (current !== file.afterHash || (whole && !file.chained)) {
       for (const decision of reverts) conflicts.push({ path, hunkIndex: decision.hunkIndex });
       continue;
     }
