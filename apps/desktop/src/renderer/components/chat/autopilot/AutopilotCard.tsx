@@ -16,10 +16,12 @@ export interface AutopilotCardProps {
   onSendWithout: () => void;
   /** Re-estimates for the current text. */
   onReclassify: () => void;
+  /** The text or the images changed since the estimate: the choice is about another message. */
+  stale: boolean;
   busy: boolean;
 }
 
-export function AutopilotCard({ control, onSend, onSendWithout, onReclassify, busy }: AutopilotCardProps) {
+export function AutopilotCard({ control, onSend, onSendWithout, onReclassify, stale, busy }: AutopilotCardProps) {
   const { phase } = control;
   const copy = desktopCopy.autopilot;
   if (phase.kind === "idle") return null;
@@ -46,6 +48,22 @@ export function AutopilotCard({ control, onSend, onSendWithout, onReclassify, bu
           </Button>
         </div>
       </div>
+    );
+  }
+  if (stale) {
+    return (
+      <section className="nova-autopilot" aria-label={copy.staleTitle}>
+        <p className="nova-autopilot__title">{copy.staleTitle}</p>
+        <p className="nova-autopilot__text">{copy.staleText}</p>
+        <div className="nova-autopilot__actions">
+          <Button size="sm" variant="secondary" disabled={busy} onClick={onReclassify}>
+            {copy.reclassify}
+          </Button>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={control.reset}>
+            {copy.dismiss}
+          </Button>
+        </div>
+      </section>
     );
   }
   const { choice } = phase;

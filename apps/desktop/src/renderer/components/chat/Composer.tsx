@@ -6,7 +6,7 @@ import { desktopCopy } from "../../copy/fr-desktop";
 import { imageFilesOf } from "../../lib/vision";
 import { ArrowUpIcon, StopIcon } from "../icons";
 import { AutopilotCard } from "./autopilot/AutopilotCard";
-import { autopilotExtras, nextStep } from "./autopilot/autopilot-state";
+import { autopilotExtras, isStale, nextStep } from "./autopilot/autopilot-state";
 import type { AutopilotControl } from "./autopilot/useAutopilot";
 import { ImageStrip } from "./vision/ImageStrip";
 import type { ImageAttachments } from "./vision/useImageAttachments";
@@ -76,6 +76,8 @@ export function Composer({
   // The images wait for a model that can read them (the reason and its fix are shown).
   const block = blocked ?? images?.block ?? null;
   const canSend = content.length > 0 && !block && !streaming && !sending;
+  /** The message now in the field, as the autopilot estimates it. */
+  const subject = { content, images: images?.images.length ?? 0 };
 
   async function submit(mode: SubmitMode = "enter") {
     if (!canSend) return;
@@ -93,11 +95,11 @@ export function Composer({
     const pasted = images?.images ?? [];
     const pilot = mode === "without_autopilot" ? null : (autopilot ?? null);
     if (pilot) {
-      const step = mode === "reclassify" ? "classify" : nextStep(pilot.phase);
+      const step = mode === "reclassify" ? "classify" : nextStep(pilot.phase, subject);
       if (step === "wait") return;
       if (step === "classify") {
-        // First Enter: the choice is shown; the next Enter sends with it.
-        await pilot.classify(content, pasted.length > 0);
+        // First Enter (or the message changed since): the choice is shown; the next Enter sends with it.
+        await pilot.classify(subject);
         return;
       }
     }
@@ -175,6 +177,7 @@ export function Composer({
       {autopilot ? (
         <AutopilotCard
           control={autopilot}
+          stale={isStale(autopilot.phase, subject)}
           busy={sending}
           onSend={() => void submit()}
           onSendWithout={() => void submit("without_autopilot")}

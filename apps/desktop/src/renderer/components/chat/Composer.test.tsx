@@ -155,35 +155,53 @@ describe("Composer J2-B L7 helpers", () => {
     expect(screen.getByText(/Pilote automatique : Entrée prépare les réglages/)).toBeTruthy();
     first.type("Compare ces deux architectures");
     await first.press("Enter");
-    expect(idle.classify).toHaveBeenCalledWith("Compare ces deux architectures", false);
+    expect(idle.classify).toHaveBeenCalledWith({ content: "Compare ces deux architectures", images: 0 });
     expect(first.onSend).not.toHaveBeenCalled();
     cleanup();
 
-    const ready = autopilotControl({ kind: "ready", choice, reasoningEffort: "medium", webSearch: true });
+    const subject = { content: "Compare ces deux architectures", images: 0 };
+    const ready = autopilotControl({ kind: "ready", subject, choice, reasoningEffort: "medium", webSearch: true });
     const second = setup({ autopilot: ready });
+    second.type("Compare ces deux architectures");
     expect(screen.getByText(choice.rationale)).toBeTruthy();
     expect(screen.getByText(/Estimé par vendor\/cheap/)).toBeTruthy();
     fireEvent.click(screen.getByRole("radio", { name: "Élevé" }));
     expect(ready.dispatch).toHaveBeenCalledWith({ type: "effort", value: "high" });
-    second.type("Compare ces deux architectures");
     await second.press("Enter");
     expect(second.onSend).toHaveBeenCalledWith("Compare ces deux architectures", { reasoningEffort: "medium", webSearch: true });
     expect(ready.reset).toHaveBeenCalledOnce();
   });
 
   it("says when the choice is NOVA's fallback, and never sends while the estimate runs", async () => {
-    const fallback = autopilotControl({ kind: "ready", choice: { ...choice, source: "fallback", classifierModelId: null, costUsd: 0 }, reasoningEffort: "medium", webSearch: false });
-    setup({ autopilot: fallback });
+    const fallback = autopilotControl({
+      kind: "ready",
+      subject: { content: "Bonjour", images: 0 },
+      choice: { ...choice, source: "fallback", classifierModelId: null, costUsd: 0 },
+      reasoningEffort: "medium",
+      webSearch: false,
+    });
+    setup({ autopilot: fallback }).type("Bonjour");
     expect(screen.getByRole("region", { name: "Réglages par défaut" })).toBeTruthy();
     cleanup();
 
-    const busy = autopilotControl({ kind: "classifying" });
+    const busy = autopilotControl({ kind: "classifying", subject: { content: "Encore", images: 0 } });
     const { onSend, type, press } = setup({ autopilot: busy });
     expect(screen.getByText("Analyse du message…")).toBeTruthy();
     type("Encore");
     await press("Enter");
     expect(onSend).not.toHaveBeenCalled();
     expect(busy.classify).not.toHaveBeenCalled();
+  });
+
+  it("never sends a choice estimated for another message: an edited text is estimated again", async () => {
+    const ready = autopilotControl({ kind: "ready", subject: { content: "bonjour", images: 0 }, choice, reasoningEffort: "low", webSearch: false });
+    const { onSend, type, press } = setup({ autopilot: ready });
+    type("Compare en détail ces deux architectures de cache et leurs compromis");
+    expect(screen.queryByText(choice.rationale)).toBeNull();
+    expect(screen.getByRole("region", { name: "Message modifié depuis l'estimation" })).toBeTruthy();
+    await press("Enter");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(ready.classify).toHaveBeenCalledWith({ content: "Compare en détail ces deux architectures de cache et leurs compromis", images: 0 });
   });
 
   it("when main does not serve the autopilot, says so and the next Enter sends without it", async () => {

@@ -4,11 +4,11 @@ import { useCallback, useReducer, useState } from "react";
 import { AUTOPILOT_LIMITS } from "@nova/shared";
 import { useClient, useApp } from "../../../state/context";
 import { isUnavailableError, useDesktopSlice, desktopStoreFor } from "../../../state/desktop-slice";
-import { AUTOPILOT_IDLE, autopilotReducer, type AutopilotAction, type AutopilotPhase } from "./autopilot-state";
+import { AUTOPILOT_IDLE, autopilotReducer, type AutopilotAction, type AutopilotPhase, type AutopilotSubject } from "./autopilot-state";
 
 export interface AutopilotControl {
   phase: AutopilotPhase;
-  classify: (content: string, hasImages: boolean) => Promise<void>;
+  classify: (subject: AutopilotSubject) => Promise<void>;
   dispatch: (action: AutopilotAction) => void;
   reset: () => void;
 }
@@ -29,11 +29,15 @@ export function useAutopilot(conversationKey: string | null, modelId: string | n
   }
 
   const classify = useCallback(
-    async (content: string, hasImages: boolean) => {
+    async (subject: AutopilotSubject) => {
       if (!modelId) return;
-      dispatch({ type: "classify" });
+      dispatch({ type: "classify", subject });
       try {
-        const choice = await client.autopilot.classify({ content: content.trim().slice(0, AUTOPILOT_LIMITS.excerptMaxChars), modelId, hasImages });
+        const choice = await client.autopilot.classify({
+          content: subject.content.slice(0, AUTOPILOT_LIMITS.excerptMaxChars),
+          modelId,
+          hasImages: subject.images > 0,
+        });
         dispatch({ type: "classified", choice });
       } catch (error) {
         const unavailable = isUnavailableError(error);

@@ -104,6 +104,8 @@ export const desktopCopy = {
     classifying: "Analyse du message…",
     title: "Réglages proposés pour ce message",
     fallbackTitle: "Réglages par défaut",
+    staleTitle: "Message modifié depuis l'estimation",
+    staleText: "Les réglages proposés concernaient un autre texte ou d'autres images. Entrée les réestime pour ce message.",
     effort: "Effort de réflexion",
     effortNotApplicable: "non réglable pour ce modèle",
     web: "Recherche web",

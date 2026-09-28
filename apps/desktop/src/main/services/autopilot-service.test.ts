@@ -148,7 +148,21 @@ describe("autopilot.classify", () => {
       },
       { timeoutMs: 5 },
     );
-    expect(await hanging.service.api.classify(REQUEST)).toMatchObject({ source: "fallback", costUsd: 0 });
+    // Sent, then cut by the timeout before any answer: the provider may have billed it.
+    expect(await hanging.service.api.classify(REQUEST)).toMatchObject({ source: "fallback", costUsd: null });
+  });
+
+  it("says a refused request cost nothing, and an unanswered one an unknown amount", async () => {
+    const refused = setup(async function* () {
+      yield* [];
+      throw new ProviderError(providerErrorInfo("rate_limited", { httpStatus: 429 }), "rate limited");
+    });
+    expect(await refused.service.api.classify(REQUEST)).toMatchObject({ source: "fallback", costUsd: 0 });
+    const cut = setup(async function* () {
+      yield* [];
+      throw new ProviderError(providerErrorInfo("network"), "socket hang up");
+    });
+    expect(await cut.service.api.classify(REQUEST)).toMatchObject({ source: "fallback", costUsd: null });
   });
 
   it("falls back without any call when no key or no usable model exists, and refuses while off", async () => {

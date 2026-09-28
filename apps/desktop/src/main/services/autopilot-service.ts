@@ -9,7 +9,7 @@
 // - An effort is proposed only when the catalog does not say the target model cannot reason.
 // No Electron import: tested in Node.
 import type { RuntimeLogger } from "@nova/agent-runtime";
-import type { ModelProvider } from "@nova/providers";
+import { ProviderError, type ModelProvider } from "@nova/providers";
 import {
   AUTOPILOT_LIMITS,
   redactSecrets,
@@ -41,6 +41,8 @@ interface ClassifierCall {
   usage: UsageSummary | null;
   /** The provider answered (any stream event): the call may be billed. */
   started: boolean;
+  /** The provider refused the request itself (HTTP 4xx, nothing generated): known to cost nothing. */
+  refused: boolean;
 }
 
 export interface AutopilotServiceDeps {
@@ -207,9 +209,11 @@ export function createAutopilotService(deps: AutopilotServiceDeps): AutopilotSer
         if (event.type === "text") text += event.text;
         else if (event.type === "usage") usage = event.usage;
       }
-      return { ok: true, text, usage, started };
-    } catch {
-      return { ok: false, text, usage, started };
+      return { ok: true, text, usage, started, refused: false };
+    } catch (error) {
+      const status = error instanceof ProviderError ? error.info.httpStatus : null;
+      const refused = !started && status !== null && status >= 400 && status < 500;
+      return { ok: false, text, usage, started, refused };
     } finally {
       clearTimeout(timer);
     }
@@ -231,8 +235,9 @@ export function createAutopilotService(deps: AutopilotServiceDeps): AutopilotSer
     if (!apiKey) return fallbackChoice(target, "no_key", 0);
     const startedAt = now();
     const call = await callClassifier(apiKey, classifier, req);
-    // Unknown when the provider answered without reporting a cost; 0 when it never answered.
-    const cost = call.started ? (call.usage?.cost ?? null) : 0;
+    // Known only when reported, or when the provider refused the request outright (0). A request cut
+    // by the timeout or the network before any answer may still have been accepted and billed.
+    const cost = call.refused ? 0 : (call.usage?.cost ?? null);
     const verdict = call.ok ? parseClassifierAnswer(call.text) : null;
     // Codes and timings only: the message and the answer are never logged.
     deps.logger?.info("autopilot classified", { classifier: classifier.id, call: call.ok, parsed: verdict !== null, ms: now() - startedAt });
