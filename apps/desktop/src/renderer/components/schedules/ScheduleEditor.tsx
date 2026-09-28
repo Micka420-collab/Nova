@@ -7,6 +7,7 @@ import { Button, Callout, SegmentedControl, Switch, TextArea, TextField } from "
 import { MISSED_RUN_POLICIES, NovaIpcError, SCHEDULABLE_MODES, type Schedule } from "@nova/shared";
 import { WEEKDAY_ORDER, WEEKDAY_SHORT, WEEKDAY_LABELS, scheduleErrorCopy, schedulesCopy } from "../../copy/fr-schedules";
 import { PROFILE_HINTS, PROFILE_LABELS, WORK_MODE_HINTS, WORK_MODE_LABELS } from "../../copy/fr-atelier";
+import { CatalogPending } from "../models/CatalogPending";
 import { formatInstant } from "./schedule-format";
 import {
   SCHEDULE_PROFILES,
@@ -33,7 +34,8 @@ export interface ScheduleModelChoice {
 export interface ScheduleEditorProps {
   /** null = new schedule. */
   schedule: Schedule | null;
-  models: readonly ScheduleModelChoice[];
+  /** null = the catalog is not loaded (loading or failed): unknown, not « no model ». */
+  models: readonly ScheduleModelChoice[] | null;
   defaultModelId: string | null;
   save(fields: ScheduleFields): Promise<void>;
   onCancel(): void;
@@ -42,12 +44,16 @@ export interface ScheduleEditorProps {
 
 export function ScheduleEditor({ schedule, models, defaultModelId, save, onCancel, now = Date.now }: ScheduleEditorProps) {
   const id = useId();
-  const usable = models.filter((model) => model.supportsTools !== false);
+  const usable = (models ?? []).filter((model) => model.supportsTools !== false);
+  const firstUsable = usable.find((model) => model.id === defaultModelId)?.id ?? usable[0]?.id ?? "";
   const [draft, setDraft] = useState<ScheduleDraft>(() =>
     schedule
       ? draftFromSchedule(schedule, now())
-      : emptyScheduleDraft({ modelId: usable.find((model) => model.id === defaultModelId)?.id ?? usable[0]?.id ?? "", now: now() }),
+      : emptyScheduleDraft({ modelId: firstUsable, now: now() }),
   );
+  // The catalog arrived after the form opened: a new schedule gets its default model then
+  // (adjusted during render, so the form never shows an empty choice for one frame).
+  if (draft.modelId === "" && firstUsable !== "") setDraft({ ...draft, modelId: firstUsable });
   const [errors, setErrors] = useState<ScheduleDraftErrors>({});
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -103,11 +109,16 @@ export function ScheduleEditor({ schedule, models, defaultModelId, save, onCance
           </select>
           <span className="nova-note">{WORK_MODE_HINTS[draft.mode]}</span>
         </label>
-        <label className="nova-sched-form__label">
-          <span>{copy.model}</span>
-          {modelOptions.length === 0 ? (
-            <span className="nova-note">{copy.modelNone}</span>
-          ) : (
+        {modelOptions.length === 0 ? (
+          // No <label> here: it would name the retry button inside it.
+          <div className="nova-sched-form__label">
+            <span>{copy.model}</span>
+            {models === null ? <CatalogPending /> : <span className="nova-note">{copy.modelNone}</span>}
+            {errors.model ? <span className="nova-sched-form__error">{errors.model}</span> : null}
+          </div>
+        ) : (
+          <label className="nova-sched-form__label">
+            <span>{copy.model}</span>
             <select
               className="nv-field__control"
               value={draft.modelId}
@@ -120,9 +131,9 @@ export function ScheduleEditor({ schedule, models, defaultModelId, save, onCance
                 </option>
               ))}
             </select>
-          )}
-          {errors.model ? <span className="nova-sched-form__error">{errors.model}</span> : null}
-        </label>
+            {errors.model ? <span className="nova-sched-form__error">{errors.model}</span> : null}
+          </label>
+        )}
       </div>
 
       <fieldset className="nova-sched-form__fieldset">

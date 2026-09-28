@@ -350,6 +350,7 @@ export const fr = {
     clearFilters: "Effacer les filtres",
     loading: "Chargement du catalogue…",
     loadFailed: "Le catalogue n'a pas pu être chargé",
+    retry: "Réessayer",
     empty: "Aucun modèle ne correspond",
     emptyBody: "Élargis ta recherche ou retire un filtre.",
     freshness: (relative: string) => `Catalogue mis à jour ${relative}`,

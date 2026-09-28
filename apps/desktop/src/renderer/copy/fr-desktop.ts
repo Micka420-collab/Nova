@@ -126,6 +126,7 @@ export const desktopCopy = {
     notice: "Les images partent avec ce message seulement : NOVA ne les enregistre pas.",
     cannotRead: (model: string) => `${model} ne lit pas les images.`,
     unknownModel: "Ce modèle n'indique pas s'il lit les images.",
+    catalogUnknown: "Le catalogue n'est pas chargé : NOVA ne sait pas encore si ce modèle lit les images.",
     suggest: (model: string) => `Utiliser ${model}`,
     suggestPrice: (value: string) => `environ ${value} par million de jetons en entrée`,
     noVisionModel: "Aucun modèle du catalogue ne lit les images : retire-les pour envoyer.",

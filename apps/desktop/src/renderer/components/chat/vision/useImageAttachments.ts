@@ -83,9 +83,10 @@ export function useImageAttachments(conversationKey: string | null, modelId: str
   const copy = desktopCopy.vision;
   let block: ComposerBlock | null = null;
   if (blocked) {
-    const reason = model?.inputModalities ? copy.cannotRead(model.name) : copy.unknownModel;
-    // No candidate while suggestions are on means the catalog has none: say it, offer to remove them.
-    const none = suggestEnabled && !candidate;
+    const reason = models === undefined ? copy.catalogUnknown : model?.inputModalities ? copy.cannotRead(model.name) : copy.unknownModel;
+    // No candidate while suggestions are on means the LOADED catalog has none: say it, offer to
+    // remove them. A catalog not loaded is unknown: the model picker loads it.
+    const none = suggestEnabled && models !== undefined && !candidate;
     block = none
       ? { reason: `${reason} ${copy.noVisionModel}`, action: { label: copy.removeAll, onAction: clear } }
       : { reason, action: { label: copy.chooseModel, onAction: () => openModelPicker("conversation") } };

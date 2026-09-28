@@ -57,17 +57,19 @@ function Harness({ onSend }: { onSend: ComposerProps["onSend"] }) {
   return <Composer label="Message" streaming={false} blocked={null} onSend={onSend} onStop={() => undefined} images={images} autopilot={autopilot} />;
 }
 
-function mount(options: { chat?: Partial<AppSettings["chat"]>; harness?: HarnessOverrides; models?: ModelInfo[] } = {}) {
+function mount(options: { chat?: Partial<AppSettings["chat"]>; harness?: HarnessOverrides; models?: ModelInfo[]; catalogFailed?: boolean } = {}) {
   const fake = createFakeBridge({ harness: options.harness ?? {} });
   const client = createNovaClient(fake.bridge);
   const store = createAppStore(client);
   store.setState({
     settings: { ...DEFAULT_SETTINGS, defaultModelId: TEXT.id, chat: { ...DEFAULT_SETTINGS.chat, ...options.chat } },
-    catalog: {
-      status: "ready",
-      data: { providerId: "openrouter", models: options.models ?? [TEXT, VISION], fetchedAt: 1, source: "cache", refreshError: null },
-      error: null,
-    },
+    catalog: options.catalogFailed
+      ? { status: "error", data: null, error: { code: "internal", providerError: null } }
+      : {
+          status: "ready",
+          data: { providerId: "openrouter", models: options.models ?? [TEXT, VISION], fetchedAt: 1, source: "cache", refreshError: null },
+          error: null,
+        },
   });
   const onSend = vi.fn<ComposerProps["onSend"]>(async () => true);
   render(
@@ -187,6 +189,14 @@ describe("pasted images", () => {
     expect(screen.getByText(/Aucun modèle du catalogue ne lit les images/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Retirer les images" }));
     await waitFor(() => expect(screen.queryByRole("img")).toBeNull());
+  });
+
+  it("with the catalog not loaded, never claims no model reads images: the picker loads it", async () => {
+    const { input } = mount({ catalogFailed: true });
+    await paste(input);
+    expect(screen.queryByText(/Aucun modèle du catalogue ne lit les images/)).toBeNull();
+    expect(screen.getByText(/Le catalogue n'est pas chargé/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Choisir un modèle" })).toBeTruthy();
   });
 
   it("with the suggestion turned off, blocks with the model picker only", async () => {

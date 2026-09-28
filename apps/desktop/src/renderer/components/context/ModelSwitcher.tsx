@@ -4,6 +4,7 @@ import { useId, useState } from "react";
 import { Button } from "@nova/ui";
 import type { ModelInfo } from "@nova/shared";
 import { contextCopy } from "../../copy/fr-context";
+import { CatalogPending } from "../models/CatalogPending";
 // Side-effect import: the stylesheet ships with the component (emitted as a file, CSP-safe).
 // oxlint-disable-next-line import/no-unassigned-import
 import "./context.css";
@@ -18,7 +19,8 @@ export function switchCandidates(models: readonly ModelInfo[], currentModelId: s
 }
 
 export interface ModelSwitcherProps {
-  models: readonly ModelInfo[];
+  /** null = the catalog is not loaded (loading or failed): unknown, not « no other model ». */
+  models: readonly ModelInfo[] | null;
   currentModelId: string | null;
   /** Resolves once the dossier exists; rejects with the IPC error (the caller shows it). */
   onSwitch(modelId: string): Promise<void>;
@@ -27,7 +29,7 @@ export interface ModelSwitcherProps {
 
 export function ModelSwitcher({ models, currentModelId, onSwitch, busy = false }: ModelSwitcherProps) {
   const [open, setOpen] = useState(false);
-  const candidates = switchCandidates(models, currentModelId);
+  const candidates = switchCandidates(models ?? [], currentModelId);
   const [choice, setChoice] = useState<string>("");
   const selectId = useId();
   const selected = candidates.some((model) => model.id === choice) ? choice : (candidates[0]?.id ?? "");
@@ -43,7 +45,11 @@ export function ModelSwitcher({ models, currentModelId, onSwitch, busy = false }
   return (
     <div className="nova-context-switcher">
       <p className="nova-note">{copy.explain}</p>
-      {candidates.length === 0 ? (
+      {models === null ? (
+        <p>
+          <CatalogPending />
+        </p>
+      ) : candidates.length === 0 ? (
         <p className="nova-note">{copy.none}</p>
       ) : (
         <>

@@ -88,7 +88,7 @@ export function MissionContextPanel({ view }: { view: MissionView }) {
           switched={journal.modelSwitches.some((item) => item.handoffSummaryId === dossier.summaryId)}
         />
       ))}
-      {live ? <ModelSwitcher models={models ?? []} currentModelId={modelId} onSwitch={switchModel} busy={fromMain.busy === "switching"} /> : null}
+      {live ? <ModelSwitcher models={models ?? null} currentModelId={modelId} onSwitch={switchModel} busy={fromMain.busy === "switching"} /> : null}
     </section>
   );
 }

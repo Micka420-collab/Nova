@@ -19,7 +19,7 @@ export function SchedulesDoc() {
       api={client.schedules}
       store={schedules}
       workspaceId={workspaceId}
-      models={models ?? []}
+      models={models}
       defaultModelId={defaultModelId}
       onOpenMission={(missionId) => openDoc({ kind: "mission", missionId })}
     />

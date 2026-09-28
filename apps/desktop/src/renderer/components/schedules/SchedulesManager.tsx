@@ -26,8 +26,8 @@ export interface SchedulesManagerProps {
   store: SchedulesStore;
   /** The project whose schedules are shown (a schedule belongs to one project). */
   workspaceId: string;
-  /** Catalog models (tool-less ones are not offered). */
-  models: readonly ScheduleModelChoice[];
+  /** Catalog models (tool-less ones are not offered); null = the catalog is not loaded. */
+  models: readonly ScheduleModelChoice[] | null;
   defaultModelId: string | null;
   /** Opens a run's mission; absent = no « Ouvrir la mission » button. */
   onOpenMission?(missionId: string): void;
