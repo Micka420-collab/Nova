@@ -307,6 +307,10 @@ describe("missions service (main + runtime over a port)", () => {
     const plan = await service.api.plan({ workspaceId, conversationId: null, goal: "x", mode: "fix", modelId: MODEL, contract: null });
     // The planning call reported 0.002 $ of the default 0.50 $ cap.
     expect(service.controller.budget.reserve(plan.mission.id, 1)).toEqual({ ok: false, code: "budget", message: "budget de la mission atteint (reste 0,49 $)" });
+    // Under one cent, four decimals, and float noise does not eat a unit: 0.0024 − 0.002 is 0,0004.
+    turns = [{ text: PLAN }];
+    const tiny = await service.api.plan({ workspaceId, conversationId: null, goal: "y", mode: "fix", modelId: MODEL, contract: { ...CONTRACT, budgetUsd: 0.0024 } });
+    expect(service.controller.budget.reserve(tiny.mission.id, 1)).toMatchObject({ ok: false, message: "budget de la mission atteint (reste 0,0004 $)" });
   });
 
   it("closes the tool calls a crash left open: a started one as interrupted (result unknown), never replayed", async () => {

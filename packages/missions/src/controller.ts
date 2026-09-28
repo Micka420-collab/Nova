@@ -115,7 +115,8 @@ export interface MissionStoreLike {
 function remainingUsdText(usd: number): string {
   const digits = usd > 0 && usd < 0.01 ? 4 : 2;
   const factor = 10 ** digits;
-  return (Math.floor(usd * factor) / factor).toFixed(digits).replace(".", ",");
+  // The epsilon absorbs float noise (0.002 − 0.0016 = 0.000399…): rounding down, not losing a unit.
+  return (Math.floor(usd * factor + 1e-6) / factor).toFixed(digits).replace(".", ",");
 }
 
 /** Expected refusal with an IPC error code (main maps it to ServiceError). */
