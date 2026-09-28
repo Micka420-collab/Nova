@@ -6,8 +6,13 @@
 //
 // Tool routing: a writing child works in its worktree. `toolDepsFor(workspaceId, missionId, base)`
 // gives the mission controller's `tools()` the deps of THAT mission: for such a child, files and
-// commands are rooted in the worktree (git and process tools are not offered there, and it never
-// delegates); every other mission gets `base` plus the sub-mission starter.
+// commands are rooted in the worktree (git and process tools are not offered there, background
+// programs are refused since nothing would list or stop them, and it never delegates); every other
+// mission gets `base` plus the sub-mission starter.
+//
+// Processes: a child's runner and each integration's test runner are this service's; the child's
+// end stops its runner, and the quit (`stopEverything`) interrupts running integration tests and
+// kills every tree they started (detached POSIX groups survive NOVA otherwise).
 import {
   SubmissionError,
   createSubmissionsController,
@@ -26,7 +31,7 @@ import {
   type WorkspaceFacts,
 } from "@nova/shared";
 import { createMissionLinkRepo, createMissionRepo, type NovaStore } from "@nova/storage";
-import type { CommandRunner, ToolDeps, WorkspaceFileApi } from "@nova/tools";
+import { ToolFailure, type CommandRunner, type ProcessCommandRunner, type ToolDeps, type WorkspaceFileApi } from "@nova/tools";
 import { readBytesOrNull } from "@nova/workspace";
 import type { MainApi } from "../api";
 import { ServiceError } from "../service-error";
@@ -54,7 +59,7 @@ export interface SubmissionsServiceDeps {
   /** Agent file API rooted in a worktree (`createWorkspaceFileOps({ root, … })`, same checkpoint store). */
   worktreeFiles(workspaceId: string, root: string): WorkspaceFileApi | Promise<WorkspaceFileApi>;
   /** L0 command runner whose cwd resolves inside `root` (`createProcessCommandRunner`). */
-  commandRunner(root: string): CommandRunner;
+  commandRunner(root: string): ProcessCommandRunner;
   dailyLimitUsd(): number;
   now?: () => number;
 }
@@ -69,6 +74,25 @@ export interface SubmissionsService {
   stopEverything(): Promise<void>;
 }
 
+/**
+ * A writing child's commands: foreground only. A background program there would run in the
+ * worktree with nothing to list, read or stop it (no process tools, not in « Processus »).
+ */
+function foregroundOnly(runner: CommandRunner): CommandRunner {
+  return {
+    run: (spec, signal, onOutput, onTerminal) => runner.run(spec, signal, onOutput, onTerminal),
+    startBackground: async () => {
+      throw new ToolFailure(
+        "unavailable",
+        "a sub-mission working in its own copy of the project cannot start background programs; run the command in the foreground (with a timeout), or leave servers to the parent mission",
+      );
+    },
+    list: (missionId) => runner.list(missionId),
+    stop: (processId) => runner.stop(processId),
+    stopAll: (missionId) => runner.stopAll(missionId),
+  };
+}
+
 function toServiceError(error: unknown): unknown {
   if (error instanceof SubmissionError) return new ServiceError(error.code, error.message);
   return error;
@@ -79,9 +103,12 @@ export function createSubmissionsService(deps: SubmissionsServiceDeps): Submissi
   const links = createMissionLinkRepo(deps.store.db);
   const cost = missions.cost;
   /** One runner per writing child, rooted in its worktree. */
-  const runners = new Map<string, { root: string; runner: CommandRunner }>();
+  const runners = new Map<string, { root: string; runner: ProcessCommandRunner }>();
+  /** Test runners of integrations in progress, and the quit that interrupts them. */
+  const integrations = new Set<ProcessCommandRunner>();
+  const quit = new AbortController();
 
-  const runnerFor = (missionId: string, root: string): CommandRunner => {
+  const runnerFor = (missionId: string, root: string): ProcessCommandRunner => {
     const known = runners.get(missionId);
     if (known?.root === root) return known.runner;
     const runner = deps.commandRunner(root);
@@ -114,15 +141,20 @@ export function createSubmissionsService(deps: SubmissionsServiceDeps): Submissi
       ...(mission ? { mode: mission.mode } : {}),
     });
     if (decision.decision === "deny") return { status: "refused" };
+    if (quit.signal.aborted) throw new SubmissionError("unavailable", "NOVA is closing: the integration did not run");
     const runner = deps.commandRunner(input.root);
+    integrations.add(runner);
     try {
       const outcome = await runner.run(
         { workspaceId: input.workspaceId, missionId: input.missionId, argv, cwd: "", timeoutMs: Math.max(TOOL_LIMITS.commandTimeoutMs, INTEGRATION_TESTS_TIMEOUT_MS), env: { CI: "1" } },
-        input.signal,
+        AbortSignal.any([input.signal, quit.signal]),
       );
+      // Interrupted by the quit: the tests neither passed nor failed (the child stays « à intégrer »).
+      if (quit.signal.aborted) throw new SubmissionError("unavailable", "NOVA is closing: the integration was interrupted");
       return { status: outcome.exitCode === 0 && !outcome.timedOut && !outcome.cancelled ? "passed" : "failed" };
     } finally {
-      await runner.stopAll(input.missionId).catch(() => undefined);
+      integrations.delete(runner);
+      await runner.stopEverything().catch(() => undefined);
     }
   };
 
@@ -184,7 +216,7 @@ export function createSubmissionsService(deps: SubmissionsServiceDeps): Submissi
       return {
         ...base,
         files: await deps.worktreeFiles(workspaceId, root),
-        commands: runnerFor(missionId, root),
+        commands: foregroundOnly(runnerFor(missionId, root)),
         // Git reads and process tools would describe the project, not this child's copy.
         git: null,
         processes: null,
@@ -193,7 +225,10 @@ export function createSubmissionsService(deps: SubmissionsServiceDeps): Submissi
     },
     stopAll,
     async stopEverything() {
-      await Promise.all([...runners.keys()].map((missionId) => stopAll(missionId)));
+      quit.abort();
+      const children = [...runners.values()].map((known) => known.runner);
+      runners.clear();
+      await Promise.all([...children, ...integrations].map((runner) => runner.stopEverything().catch(() => undefined)));
     },
   };
 }

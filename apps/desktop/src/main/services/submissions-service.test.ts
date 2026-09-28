@@ -51,6 +51,7 @@ let parentId: string;
 let evaluated: PermissionRequest[];
 let denyTests: boolean;
 let journal: MissionEvent[];
+let facts: WorkspaceFacts;
 
 const PARENT_CONTRACT = (): MissionContract => ({
   workspaceId,
@@ -79,6 +80,15 @@ function end(missionId: string, state: Extract<MissionState, "succeeded" | "fail
         ? { ...base, type: "mission.failed", reason: "internal", detail: null }
         : { ...base, type: "mission.cancelled", by: "user" };
   service.controller.onMissionEvent(event);
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function settle(): Promise<void> {
@@ -111,7 +121,7 @@ beforeEach(async () => {
   evaluated = [];
   denyTests = false;
   journal = [];
-  const facts: WorkspaceFacts = {
+  facts = {
     workspaceId,
     detectedAt: 0,
     packageManager: null,
@@ -280,6 +290,53 @@ describe("submissions service", () => {
     const discarded = await service.api.discard({ childMissionId: childId });
     expect(discarded.children[0]?.link).toMatchObject({ integration: "discarded", worktree: null });
     expect(existsSync(join(data.path, "worktrees", childId))).toBe(false);
+  });
+
+  it("refuses background programs in a writing child: nothing would list or stop them", async () => {
+    const { childId } = await startWriter();
+    const deps = await service.toolDepsFor(workspaceId, childId, base());
+    expect(deps.processes).toBeNull();
+    await expect(
+      deps.commands?.startBackground({ workspaceId, missionId: childId, argv: [process.execPath, "-e", "setInterval(() => {}, 1000)"], cwd: "", timeoutMs: 10_000 }),
+    ).rejects.toMatchObject({ code: "unavailable", message: expect.stringContaining("foreground") });
+  });
+
+  it("kills a child's foreground command when the child ends", async () => {
+    const { childId } = await startWriter();
+    const deps = await service.toolDepsFor(workspaceId, childId, base());
+    let output = "";
+    const run = deps.commands?.run(
+      { workspaceId, missionId: childId, argv: [process.execPath, "-e", "console.log('pid=' + process.pid); setInterval(() => {}, 1000)"], cwd: "", timeoutMs: 60_000 },
+      new AbortController().signal,
+      (_stream, text) => (output += text),
+    );
+    const pid = async (): Promise<number> => {
+      for (let attempt = 0; attempt < 500 && !/pid=\d+/.test(output); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+      return Number(/pid=(\d+)/.exec(output)?.[1] ?? -1);
+    };
+    const child = await pid();
+    end(childId, "failed");
+    await run;
+    expect(alive(child)).toBe(false);
+  });
+
+  it("interrupts an integration's tests at quit: no orphan test process, the child stays « à intégrer »", async () => {
+    const { childId } = await startWriter();
+    await childWrites(childId, "src/a.txt", "changed\n");
+    end(childId, "succeeded");
+    await settle();
+    const pidFile = join(data.path, "tests.pid");
+    facts.testRunner = { name: "other", command: [process.execPath, "-e", `require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000)`] };
+    const integrating = service.api.integrate({ childMissionId: childId }).catch((error: unknown) => error);
+    for (let attempt = 0; attempt < 500 && !existsSync(pidFile); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    const testsPid = Number(readFileSync(pidFile, "utf8"));
+    expect(alive(testsPid)).toBe(true);
+    await service.stopEverything();
+    const outcome = await integrating;
+    expect(outcome).toMatchObject({ code: "unavailable" });
+    expect(alive(testsPid)).toBe(false);
+    expect((await service.api.tree({ missionId: parentId })).children[0]?.link.integration).toBe("pending");
+    expect(readFileSync(join(project.path, "src/a.txt"), "utf8")).toBe("alpha\n");
   });
 
   it("maps refusals to typed IPC errors", async () => {
