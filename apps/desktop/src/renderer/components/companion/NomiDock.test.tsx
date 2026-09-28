@@ -175,6 +175,44 @@ describe("NomiDock", () => {
     expect(fake.calls.slice(before)).toEqual([]);
   });
 
+  it("« Demander au modèle » confirms only once the question was sent, else says why, and shows the new conversation", async () => {
+    const { appStore, fake } = setup();
+    const explain = async () => {
+      act(() => {
+        appStore.setState({
+          lastOutcome: {
+            kind: "error",
+            at: Date.now(),
+            conversationId: "c1",
+            error: { code: "timeout", httpStatus: null, retryAfterSec: null, providerMessage: null, retryable: true },
+          },
+          settings: { ...appStore.getState().settings!, defaultModelId: "vendor/model-a" },
+        });
+      });
+      fireEvent.click(screen.getByTitle("Actions de Nomi"));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("menuitem", { name: "Explique cette erreur" }));
+      });
+      return screen.getByRole("status", { name: "Messages de Nomi" });
+    };
+
+    fake.failNext("chat.send", { code: "unavailable", message: "offline" });
+    let region = await explain();
+    await act(async () => {
+      fireEvent.click(within(region).getByRole("button", { name: "Demander au modèle" }));
+    });
+    expect(within(region).queryByText(/Question envoyée/)).toBeNull();
+    expect(within(region).getByText(/^L'action n'a pas abouti : /)).toBeTruthy();
+
+    region = await explain();
+    await act(async () => {
+      fireEvent.click(within(region).getByRole("button", { name: "Demander au modèle" }));
+    });
+    expect(within(region).getByText(/Question envoyée/)).toBeTruthy();
+    expect(appStore.getState().activeId).not.toBeNull();
+    expect(appStore.getState().ui.route).toBe("chat");
+  });
+
   it("a failed answer in a conversation not on screen is a P6 fact: open it, or close the fact for good", async () => {
     const { appStore } = setup();
     act(() => {

@@ -17,7 +17,7 @@ import { Nomi, StatusPill, type BadgeTone, type NomiState } from "@nova/ui";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { fr } from "../../copy/fr";
-import { describeProviderError } from "../../lib/errors";
+import { describeProviderError, describeUiError, toUiError } from "../../lib/errors";
 import { REDUCED_MOTION_QUERY, useMediaQuery, useOnline } from "../../lib/hooks";
 import { useApp, useAppStore } from "../../state/context";
 import { OUTCOME_WINDOW_MS, deriveNomiState } from "../../state/nomi";
@@ -185,8 +185,21 @@ export function NomiDock() {
   const askModel =
     explanation && newModelId
       ? askModelFor(explanation, newModelId, catalog?.models ?? [], (prompt, modelName) => {
-          void appStore.getState().send(prompt, null);
-          companionStore.getState().showOutcome({ ok: true, message: NOMI_COPY.outcome.askedModel(modelName), navigate: null });
+          const state = appStore.getState();
+          // The answer lands in a new conversation: show the new-chat view, which send() then
+          // replaces with that conversation. Nomi confirms only once main accepted the question.
+          state.showChat();
+          state.newConversation();
+          state.send(prompt, null).then(
+            () => companionStore.getState().showOutcome({ ok: true, message: NOMI_COPY.outcome.askedModel(modelName), navigate: null }),
+            // The chat route's own error copy (offline, key refused…), not a generic action failure.
+            (error: unknown) =>
+              companionStore.getState().showOutcome({
+                ok: false,
+                reason: "failed",
+                message: NOMI_COPY.outcome.failed(describeUiError(toUiError(error)).title),
+              }),
+          );
         })
       : null;
 
