@@ -94,6 +94,8 @@ Environnement commun, sauf mention contraire : Linux x64, Ubuntu 26.04, Node 24.
 | 2026-09-28 | Intégration J2-B — `pnpm test` | Linux x64, Vitest 5.0.2 | 208 fichiers réussis, 1 ignoré (209) ; 2 212 tests réussis, 2 ignorés (2 214) | Intégration J2-B |
 | 2026-09-28 | Intégration J2-B — `cd apps/desktop && npx electron-vite build` | Linux x64 | Build OK, 5 entrées worker dont `chain-host` ; seul avertissement : taille de bloc > 500 kB | Intégration J2-B |
 | 2026-09-28 | Intégration J2-B — `LD_LIBRARY_PATH=<.devdeps>/usr/lib/x86_64-linux-gnu xvfb-run -a npx playwright test` (dans `apps/desktop`) | Linux x64, Electron 44.4.5, Xvfb | 42/42 réussis (4,8 min) : les 29 existants (dont `atelier-foundations` qui exige désormais `chain: ok` du self-test) + `j2b-chain` 1, `j2b-compaction` 3, `j2b-desktop` 4, `j2b-proof-timeline` 1, `j2b-schedules` 1, `j2b-skills` 1, `j2b-submissions` 1, `j2b-terminal-agent` 1 | Intégration J2-B |
+| 2026-09-28 | E2E J2-B complétés — `pnpm lint` ; `pnpm typecheck` ; `pnpm test` | Linux x64, Vitest 5.0.2 | Code 0 ; 208 fichiers réussis, 1 ignoré ; 2 215 tests réussis, 2 ignorés | E2E J2-B |
+| 2026-09-28 | E2E J2-B complétés — `npx electron-vite build` puis `LD_LIBRARY_PATH=<.devdeps>/usr/lib/x86_64-linux-gnu xvfb-run -a npx playwright test` (dans `apps/desktop`), deux fois de suite | Linux x64, Electron 44.4.5, Xvfb | 46/46 puis 46/46 (≈ 5 min chacun) : + Chaîne avec appel refusé, budget partagé des sous-missions, planification « toutes les minutes » exécutée puis en pause, menu de la barre système et avertissement de sortie, arrêt de la poursuite au plafond | E2E J2-B |
 | en attente | Scénario 1 manuel avec un vrai compte OpenRouter (réponse en continu réelle) | | à faire : demande une clé avec crédit | |
 
 ## Non vérifié
@@ -171,6 +173,7 @@ Format attendu d'une cellule remplie : « Oui — 2026-mm-jj, commande ou run CI
 
 ## Historique de cette page
 
+- 2026-09-28 — E2E J2-B complétés (46/46 deux fois) ; corrections : titre d'approbation de `process_stop`, libellé « conflit » générique, tutoiement de la compaction, critères du dossier de passation en français, notices du terminal, marge des planifications, options segmentées.
 - 2026-09-28 — intégration J2-B : les huit voies branchées (main, renderer, palette), demandes de contrat des voies appliquées (ADR-022, ADR-023) ; lint, types, 2 212 tests, build, Playwright 42/42.
 - 2026-09-28 — J2-B phase 0 : contrats, migration v6 (skills, plannings, liens de missions, résumés de compaction, recherche FTS du journal, parent des appels d'une chaîne), points d'extension, stubs `unavailable`.
 - 2026-09-28 — vérification finale J2-A sur `643b286` : lint, types, tests unitaires, build, Playwright 29/29 ×2, `vault-smoke` `os`.
