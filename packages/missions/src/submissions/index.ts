@@ -284,7 +284,9 @@ export function createSubmissionsController(deps: SubmissionsControllerDeps): Su
     } else if (state !== "succeeded") {
       next = await removeWorktree(setIntegration(childMissionId, "discarded"));
     } else {
-      next = await pendingOrEmpty(link);
+      // Reading the worktree can fail (git timeout, project unmounted): the child has ended all the
+      // same, so it is offered for integration (which reads it again) or discard, never left « en cours ».
+      next = await pendingOrEmpty(link).catch(() => setIntegration(childMissionId, "pending"));
     }
     report(next);
   };

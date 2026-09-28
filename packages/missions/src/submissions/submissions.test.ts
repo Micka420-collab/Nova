@@ -59,7 +59,9 @@ interface Reservation {
   backsSubmission: boolean;
 }
 
-function harness(options: { parentContract?: MissionContract; worktrees?: boolean; tests?: () => Promise<ChildTestsOutcome>; parentTainted?: boolean } = {}) {
+function harness(
+  options: { parentContract?: MissionContract; worktrees?: boolean; tests?: () => Promise<ChildTestsOutcome>; parentTainted?: boolean; changesFail?: () => boolean } = {},
+) {
   let clock = 1_000;
   let ids = 0;
   const missions = new Map<string, Mission>();
@@ -150,6 +152,7 @@ function harness(options: { parentContract?: MissionContract; worktrees?: boolea
       return worktreeFiles.has(id) ? { root: `/data/worktrees/${id}`, baseSha: `base-${id}` } : null;
     },
     async changes(info: { id: string }) {
+      if (options.changesFail?.()) throw new Error("git timed out");
       const files = worktreeFiles.get(info.id) ?? new Map<string, string>();
       const base = bases.get(info.id) ?? new Map<string, string>();
       const changes: { path: RelativePath; change: "added" | "modified" | "deleted" }[] = [];
@@ -460,6 +463,22 @@ describe("worktree lifecycle", () => {
     expect(update).toMatchObject({ type: "submission.updated", missionId: "parent", childState: "succeeded", link: { integration: "pending" } });
     // Nothing reached the project.
     expect(h.project.get("src/a.txt")).toBe("alpha\n");
+  });
+
+  it("settles a child whose worktree cannot be read at its end: offered for integration, reported to the parent", async () => {
+    let failing = false;
+    const h = harness({ changesFail: () => failing });
+    const child = (await h.start("build")).link.childMissionId;
+    h.worktreeFiles.get(child)?.set("src/a.txt", "alpha 2\n");
+    failing = true;
+    h.end(child, "succeeded");
+    await flush();
+    expect(h.links.get(child)?.integration).toBe("pending");
+    expect(h.events.at(-1)).toMatchObject({ type: "submission.updated", missionId: "parent", link: { integration: "pending" } });
+    // Once git answers again, the user's « Intégrer » goes through.
+    failing = false;
+    await h.controller.integrate(child);
+    expect(h.links.get(child)?.integration).toBe("integrated");
   });
 
   it("drops the worktree of a child that changed nothing, failed, or was discarded", async () => {
