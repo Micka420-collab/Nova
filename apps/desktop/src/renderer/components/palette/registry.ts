@@ -6,6 +6,7 @@ import { WORK_MODES, type WorkMode, type ThemePreference } from "@nova/shared";
 import type { ToastApi } from "@nova/ui";
 import { fr } from "../../copy/fr";
 import { WORK_MODE_LABELS } from "../../copy/fr-atelier";
+import { contextCopy } from "../../copy/fr-context";
 import { errorToast } from "../../lib/errors";
 import { liveMission, pendingApprovalList, selectedMissionView, type AppState, type AppStore } from "../../state/store";
 import { isMissionActive, missionFacts, type MissionView } from "../missions/timeline";
@@ -312,7 +313,49 @@ export function buildCommands(): CommandDefinition[] {
       title: c.openExtensions,
       category: "app",
       keywords: ["mcp", "serveur", "connecteur"],
-      run: (_, { store }) => store.getState().openDoc({ kind: "extensions" }),
+      run: (_, { store }) => {
+        store.getState().setUi({ extensionsTab: "mcp" });
+        store.getState().openDoc({ kind: "extensions" });
+      },
+    },
+    {
+      id: "app.skills",
+      title: c.openSkills,
+      category: "app",
+      keywords: ["skill", "méthode", "extension"],
+      run: (_, { store }) => {
+        store.getState().setUi({ extensionsTab: "skills" });
+        store.getState().openDoc({ kind: "extensions" });
+      },
+    },
+    {
+      id: "mission.schedules",
+      title: c.openSchedules,
+      category: "mission",
+      keywords: ["planification", "planifier", "horaire", "cron", "récurrent"],
+      when: hasWorkspace,
+      run: (_, { store }) => store.getState().openDoc({ kind: "schedules" }),
+    },
+    {
+      id: "mission.searchTimeline",
+      title: c.searchTimeline,
+      category: "mission",
+      keywords: ["chronologie", "journal", "chercher", "bifurquer", "reprendre"],
+      run: (_, { store }) => store.getState().openDoc({ kind: "timeline" }),
+    },
+    {
+      id: "conversation.compact",
+      title: contextCopy.command.palette,
+      category: "conversation",
+      keywords: ["compact", "résumé", "contexte", "/compact"],
+      when: (ctx) => ctx.state.activeId !== null,
+      // Same path as typing « /compact » (the proposal is only applied after « Appliquer »).
+      run: (ctx, { store }) => {
+        const conversationId = ctx.state.activeId;
+        store.getState().showChat();
+        store.getState().setDraft(conversationId, "/compact ");
+        focusAgentComposer();
+      },
     },
     ...WORK_MODES.map(modeCommand),
     {

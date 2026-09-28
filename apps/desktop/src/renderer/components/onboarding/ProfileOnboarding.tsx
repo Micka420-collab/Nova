@@ -107,7 +107,9 @@ export function ProfileOnboarding({ onLater }: { onLater: () => void }) {
 export function ProfileOnboardingGate() {
   const settings = useApp((state) => state.settings);
   const connection = useApp((state) => state.connection);
+  // First run stays one question at a time: key, then model, then this profile question.
+  const pickingModel = useApp((state) => state.ui.modelPicker.open || state.settings?.defaultModelId === null);
   const [later, setLater] = useState(false);
-  if (later || !needsProfileOnboarding(settings, connection)) return null;
+  if (later || pickingModel || !needsProfileOnboarding(settings, connection)) return null;
   return <ProfileOnboarding onLater={() => setLater(true)} />;
 }

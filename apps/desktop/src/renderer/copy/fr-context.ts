@@ -73,4 +73,12 @@ export const contextCopy = {
     heading: "Contexte de la conversation",
     proposalReady: "Résumé prêt : relisez-le puis appliquez-le ou écartez-le.",
   },
+  command: {
+    /** Palette entry and its hint (« /compact » in the composer does the same). */
+    palette: "Résumer la conversation",
+    paletteHint: "Propose un résumé de l’historique, appliqué seulement après votre accord",
+    tooLong: (max: number) => `Consigne trop longue : ${max} caractères au plus. Rien n’a été envoyé.`,
+    needsConversation: "Rien à résumer : cette conversation n’a pas encore de message.",
+    needsModel: "Choisissez d’abord un modèle : c’est lui qui écrit le résumé.",
+  },
 } as const;

@@ -6,8 +6,10 @@ import { useApp } from "../../state/context";
 import { docKey, liveMission, type WorkbenchDoc } from "../../state/store";
 import { CheckpointsView } from "../diff/CheckpointsView";
 import { DiffReview } from "../diff/DiffReview";
-import { McpManager } from "../extensions/McpManager";
+import { ExtensionsDoc } from "../extensions/ExtensionsDoc";
 import { MissionCard } from "../missions/MissionCard";
+import { SchedulesDoc } from "../schedules/SchedulesDoc";
+import { TimelineDoc } from "../timeline/TimelineDoc";
 import { ContextPanel } from "./ContextPanel";
 import { lazy, Suspense, useMemo } from "react";
 
@@ -34,6 +36,10 @@ function useDocLabel(): (doc: WorkbenchDoc) => string {
         return copy.checkpointsDoc;
       case "extensions":
         return copy.extensions;
+      case "schedules":
+        return copy.schedulesDoc;
+      case "timeline":
+        return copy.searchTimeline;
     }
   };
 }
@@ -76,7 +82,11 @@ function DocView({ doc }: { doc: WorkbenchDoc }) {
     case "checkpoints":
       return <CheckpointsView missionId={doc.missionId} />;
     case "extensions":
-      return <McpManager />;
+      return <ExtensionsDoc />;
+    case "schedules":
+      return <SchedulesDoc />;
+    case "timeline":
+      return <TimelineDoc />;
   }
 }
 

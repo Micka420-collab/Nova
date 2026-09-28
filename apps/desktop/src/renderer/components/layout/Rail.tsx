@@ -5,7 +5,7 @@ import { MOD_KEY } from "../../lib/platform";
 import { useApp } from "../../state/context";
 import type { ExplorerView } from "../../state/store";
 import { HomeIcon, SettingsIcon } from "../icons";
-import { ConversationsIcon, FolderIcon, MissionIcon, PlugIcon, SearchFilesIcon } from "./rail-icons";
+import { ClockIcon, ConversationsIcon, FolderIcon, MissionIcon, PlugIcon, SearchFilesIcon } from "./rail-icons";
 
 const copy = fr.atelier.shell;
 
@@ -42,6 +42,7 @@ export function Rail() {
   const explorerOpen = useApp((state) => state.ui.explorerOpen);
   const hasWorkspace = useApp((state) => state.workspace.current !== null);
   const extensionsActive = useApp((state) => state.ui.activeDoc === "extensions");
+  const schedulesActive = useApp((state) => state.ui.activeDoc === "schedules");
   const goHome = useApp((state) => state.goHome);
   const showExplorer = useApp((state) => state.showExplorer);
   const setUi = useApp((state) => state.setUi);
@@ -80,6 +81,9 @@ export function Rail() {
         />
       ) : null}
       <RailButton label={copy.missions} icon={<MissionIcon />} current={explorerCurrent("missions")} onClick={() => toggle("missions")} />
+      {hasWorkspace ? (
+        <RailButton label={copy.schedules} icon={<ClockIcon />} current={schedulesActive} onClick={() => openDoc({ kind: "schedules" })} />
+      ) : null}
       <RailButton label={copy.extensions} icon={<PlugIcon />} current={extensionsActive} onClick={() => openDoc({ kind: "extensions" })} />
       <span className="nova-rail__spacer" />
       <RailButton

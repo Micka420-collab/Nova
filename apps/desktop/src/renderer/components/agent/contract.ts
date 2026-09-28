@@ -1,10 +1,12 @@
 // Contract sheet model (A9/A13, UX.md §7.1): the plan and contract as the user edits them before
 // launch, and their validation into a `missions.start` request. Pure: tested without a DOM.
 import {
+  DEFAULT_MISSION_HARNESS,
   HostPatternSchema,
   MissionStartRequestSchema,
   type AcceptanceKind,
   type MissionContractInput,
+  type MissionHarnessOptions,
   type MissionPlanResult,
   type MissionTaskDraft,
   type OperationClass,
@@ -38,6 +40,10 @@ export interface ContractDraft {
   /** Text inputs keep what the user typed (French decimal comma accepted). */
   durationMinutes: string;
   budgetUsd: string;
+  /** J2-B opt-ins of the contract (Chaîne, Jusqu'à preuve, Sous-missions); all off by default. */
+  harness: MissionHarnessOptions;
+  /** French error of the « Jusqu'à preuve » fields (the option validates them); null = valid. */
+  autoContinueError: string | null;
 }
 
 export interface ContractErrors {
@@ -46,6 +52,7 @@ export interface ContractErrors {
   duration?: string;
   budget?: string;
   hosts?: string;
+  autoContinue?: string;
 }
 
 export type ContractValidation =
@@ -80,6 +87,8 @@ export function draftFromPlan(result: MissionPlanResult): ContractDraft {
     webSearch: contract.webSearch,
     durationMinutes: formatNumberInput(Math.round(contract.maxDurationMs / 60_000)),
     budgetUsd: formatNumberInput(contract.budgetUsd),
+    harness: { ...DEFAULT_MISSION_HARNESS, ...contract.harness },
+    autoContinueError: null,
   };
 }
 
@@ -130,6 +139,8 @@ export function validateContractDraft(missionId: string, draft: ContractDraft): 
   if (invalidHost !== undefined) errors.hosts = copy.host(invalidHost);
   else if (hosts.length > MAX_HOSTS) errors.hosts = copy.tooManyHosts;
 
+  if (draft.autoContinueError !== null) errors.autoContinue = draft.autoContinueError;
+
   if (Object.keys(errors).length > 0 || minutes === null || cap === null) return { ok: false, errors };
 
   const tasks: MissionTaskDraft[] | null = draft.stepsEdited
@@ -146,6 +157,8 @@ export function validateContractDraft(missionId: string, draft: ContractDraft): 
     maxDurationMs: Math.round(minutes) * 60_000,
     // To the hundredth of a cent: a cap under one cent (cheap models) is not rounded away to 0.
     budgetUsd: cap,
+    // Sent only when an option is on: a plain contract stays byte-identical to J2-A's.
+    ...(harnessEnabled(draft.harness) ? { harness: draft.harness } : {}),
   };
   // Same schema main applies: what passes here is exactly what main will accept.
   const parsed = MissionStartRequestSchema.safeParse({ missionId, tasks, contract });
@@ -154,6 +167,10 @@ export function validateContractDraft(missionId: string, draft: ContractDraft): 
     return { ok: false, errors: field === "tasks" ? { steps: copy.noSteps } : { budget: copy.budget } };
   }
   return { ok: true, tasks, contract };
+}
+
+function harnessEnabled(harness: MissionHarnessOptions): boolean {
+  return harness.chain || harness.autoContinue !== null || harness.subMissions !== null;
 }
 
 // Step edits (each marks the plan as edited).

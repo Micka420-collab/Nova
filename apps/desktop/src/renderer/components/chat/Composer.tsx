@@ -42,6 +42,11 @@ export interface ComposerProps {
   images?: ImageAttachments;
   /** J2-B L7 (Discuter): the autopilot (`useAutopilot`); null or absent = sends directly. */
   autopilot?: AutopilotControl | null;
+  /**
+   * Slash commands (« /compact »): null when `content` is not one; otherwise the command runs
+   * instead of a send (no autopilot, nothing sent) and resolves true when the text can be cleared.
+   */
+  command?: (content: string) => Promise<boolean> | null;
 }
 
 export function Composer({
@@ -56,6 +61,7 @@ export function Composer({
   onValueChange,
   images,
   autopilot,
+  command,
 }: ComposerProps) {
   const id = useId();
   const textarea = useRef<HTMLTextAreaElement>(null);
@@ -73,6 +79,17 @@ export function Composer({
 
   async function submit(mode: SubmitMode = "enter") {
     if (!canSend) return;
+    const handled = command?.(content) ?? null;
+    if (handled) {
+      setSending(true);
+      try {
+        if (await handled) setValue("");
+      } finally {
+        setSending(false);
+        textarea.current?.focus();
+      }
+      return;
+    }
     const pasted = images?.images ?? [];
     const pilot = mode === "without_autopilot" ? null : (autopilot ?? null);
     if (pilot) {

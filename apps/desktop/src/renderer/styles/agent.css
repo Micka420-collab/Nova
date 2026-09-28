@@ -823,3 +823,38 @@
 .nova-agent-raisecap .nv-field {
   max-width: 14rem;
 }
+
+/* J2-B contract options (Jusqu'à preuve, Chaîne, Sous-missions) and nested program calls. */
+.nova-contract__options {
+  display: grid;
+  gap: var(--nv-space-3);
+  margin-block: var(--nv-space-3);
+}
+
+.nova-contract__option {
+  display: grid;
+  gap: var(--nv-space-1);
+}
+
+.nova-chain {
+  margin-top: var(--nv-space-2);
+}
+
+.nova-chain__calls {
+  list-style: none;
+  margin: 0;
+  padding-left: var(--nv-space-3);
+  border-left: 2px solid var(--nv-border);
+  display: grid;
+  gap: var(--nv-space-2);
+}
+
+.nova-chain__program summary {
+  cursor: pointer;
+}
+
+.nova-mission-harness {
+  display: grid;
+  gap: var(--nv-space-3);
+  margin-top: var(--nv-space-3);
+}

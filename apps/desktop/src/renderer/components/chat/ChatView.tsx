@@ -14,6 +14,10 @@ import { MessageItem } from "./MessageItem";
 import { SendFailure } from "./SendFailure";
 import { useSendGuard } from "./useSendGuard";
 import { useSendMessage } from "./useSendMessage";
+import { contextCopy } from "../../copy/fr-context";
+import { ConversationContextPanel, parseCompactCommand, useCompactAction } from "../context";
+import { useAutopilot } from "./autopilot/useAutopilot";
+import { useImageAttachments } from "./vision/useImageAttachments";
 
 const STICK_THRESHOLD_PX = 64;
 
@@ -177,7 +181,29 @@ export function ChatView({ contextToggle }: { contextToggle: { open: boolean; to
   const draft = useSendMessage(activeId);
   const hasWorkspace = useApp((state) => state.workspace.current !== null);
   const picker = useMentionPicker(draft.text, draft.setText);
+  const images = useImageAttachments(activeId, modelId);
+  const autopilot = useAutopilot(activeId, modelId);
   const toast = useToast();
+  const compact = useCompactAction();
+
+  /** « /compact [consigne] »: a summary proposal instead of a message (applied only on « Appliquer »). */
+  function runCommand(content: string): Promise<boolean> | null {
+    const command = parseCompactCommand(content);
+    if (!command) return null;
+    if (command.kind === "too_long") {
+      toast.show({ tone: "warning", title: contextCopy.command.tooLong(command.max) });
+      return Promise.resolve(false);
+    }
+    if (!activeId) {
+      toast.show({ tone: "info", title: contextCopy.command.needsConversation });
+      return Promise.resolve(false);
+    }
+    if (!modelId) {
+      toast.show({ tone: "info", title: contextCopy.command.needsModel });
+      return Promise.resolve(false);
+    }
+    return compact(activeId, modelId, command.instructions);
+  }
 
   const shown = detail && detail.conversation.id === activeId ? detail : null;
   const model = findModel(models, modelId);
@@ -259,6 +285,7 @@ export function ChatView({ contextToggle }: { contextToggle: { open: boolean; to
         </div>
       </header>
       {body}
+      {activeId ? <ConversationContextPanel conversationId={activeId} modelId={modelId} /> : null}
       {/* Capture phase: the mention picker takes ↑ ↓ Entrée Échap only while it is open. */}
       <div className="nova-chat__composer" onKeyDownCapture={hasWorkspace ? picker.onKeyDownCapture : undefined}>
         {draft.error ? <SendFailure error={draft.error} /> : null}
@@ -273,6 +300,9 @@ export function ChatView({ contextToggle }: { contextToggle: { open: boolean; to
           onSend={draft.send}
           onStop={stopActive}
           autoFocus
+          images={images}
+          autopilot={autopilot}
+          command={runCommand}
         />
         {hasWorkspace ? <ContextInspector goal={draft.text} onGoalChange={draft.setText} target="chat" /> : null}
       </div>

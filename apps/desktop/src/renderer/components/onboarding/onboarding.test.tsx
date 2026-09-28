@@ -15,7 +15,10 @@ import { needsProfileOnboarding, ProfileOnboardingGate } from "./ProfileOnboardi
 installDomPolyfills();
 afterEach(cleanup);
 
-function mount(node: React.ReactNode, settings: Partial<AppSettings> = {}, connection: ProviderConnectionView = VALID_CONNECTION) {
+/** First run answers the key and the model before this question (defaultModelId set). */
+const MODEL_CHOSEN: Partial<AppSettings> = { defaultModelId: "acme/model" };
+
+function mount(node: React.ReactNode, settings: Partial<AppSettings> = MODEL_CHOSEN, connection: ProviderConnectionView = VALID_CONNECTION) {
   const fake = createFakeBridge({ settings, connection });
   const client = createNovaClient(fake.bridge);
   const store = createAppStore(client);
@@ -74,6 +77,11 @@ describe("ProfileOnboardingGate", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Plus tard" })[0] as HTMLElement);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(fake.calls).not.toContain("settings.update");
+  });
+
+  it("waits for the model to be chosen (one first-run question at a time)", () => {
+    mount(<ProfileOnboardingGate />, {});
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("is not shown before the key step", () => {

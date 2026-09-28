@@ -9,6 +9,7 @@ import { GlobalKeymap } from "./components/palette/GlobalKeymap";
 import { ModelPicker } from "./components/models/ModelPicker";
 import { AtelierHost } from "./components/layout/AtelierHost";
 import { Workshop } from "./components/layout/Workshop";
+import { ProfileOnboardingGate } from "./components/onboarding/ProfileOnboarding";
 
 /** data-theme / data-motion / data-density on <html>, as the design system expects. */
 function useDocumentPreferences() {
@@ -97,6 +98,7 @@ export function App() {
         <CommandPalette />
       </AtelierHost>
       <ModelPicker />
+      <ProfileOnboardingGate />
       <OutcomeAnnouncer />
     </>
   );

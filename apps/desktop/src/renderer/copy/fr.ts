@@ -483,6 +483,7 @@ export const fr = {
       privacy: "Confidentialité",
       appearance: "Apparence",
       companion: "Compagnon",
+      desktop: "Bureau et affichage",
       shortcuts: "Raccourcis",
       diagnostics: "Diagnostics",
     },

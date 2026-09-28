@@ -121,6 +121,19 @@ describe("contract sheet validation", () => {
     });
   });
 
+  it("sends the J2-B options only when one is on, and refuses an invalid « Jusqu'à preuve »", () => {
+    const draft = draftFromPlan(plan());
+    const plain = validateContractDraft(MISSION_ID, draft);
+    expect(plain.ok && "harness" in plain.contract).toBe(false);
+
+    const harness = { chain: true, autoContinue: { maxRounds: 2, budgetUsd: 0.1 }, subMissions: null };
+    const opted = validateContractDraft(MISSION_ID, { ...draft, harness });
+    expect(opted.ok ? opted.contract.harness : null).toEqual(harness);
+
+    const invalid = validateContractDraft(MISSION_ID, { ...draft, harness, autoContinueError: "Entre 1 et 10 tours." });
+    expect(invalid).toEqual({ ok: false, errors: { autoContinue: "Entre 1 et 10 tours." } });
+  });
+
   it("lowercases and dedupes hosts, accepts wildcard subdomains", () => {
     const draft = { ...draftFromPlan(plan()), hostsText: "Docs.Example.com, *.npmjs.org docs.example.com" };
     const result = validateContractDraft(MISSION_ID, draft);

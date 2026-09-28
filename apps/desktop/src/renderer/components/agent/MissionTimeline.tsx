@@ -7,10 +7,15 @@ import { SUSPEND_REASON_COPY } from "../../copy/fr-atelier";
 import { errorToast } from "../../lib/errors";
 import { formatCost, formatInteger } from "../../lib/format";
 import { useApp } from "../../state/context";
-import { groupTimeline, type MessageItem, type MissionView, type NoticeItem } from "../missions/timeline";
+import { chainRunOf, nestChainCalls } from "../missions/harness/chain-view";
+import { MissionHarnessHeader, MissionHarnessPanels } from "../missions/MissionHarness";
+import { groupTimeline, isMissionActive, type MessageItem, type MissionView, type NoticeItem, type TimelineItem } from "../missions/timeline";
+import { EventActions } from "../timeline";
+import { MissionDensityBar, useMissionDensity } from "../onboarding/DensityChoice";
 import { AgentApproval } from "./AgentApproval";
 import { splitCitations } from "./citations";
 import { EndCard } from "./EndCard";
+import { ChainCalls } from "./harness/ChainDisplay";
 import { ToolCard, ToolGroupCard } from "./ToolCard";
 
 const copy = fr.atelier;
@@ -153,15 +158,44 @@ function SuspendedBanner({ view }: { view: MissionView }) {
   );
 }
 
+/** Key moments a mission can be resumed from: Nomi's turns and the calls that changed or checked something. */
+function isForkPoint(item: TimelineItem): boolean {
+  if (item.kind === "message") return item.complete;
+  if (item.kind !== "tool" || item.state !== "succeeded") return false;
+  const kind = item.display?.kind;
+  return kind === "file_change" || kind === "tests" || kind === "command";
+}
+
 export function MissionTimeline({ view }: { view: MissionView }) {
   const expert = useApp((state) => state.ui.displayMode === "expert");
-  const entries = groupTimeline(view.items);
+  const adoptPlan = useApp((state) => state.adoptPlan);
+  // L4: the calls of a program sit under its run_chain card; density then applies to the top level.
+  const nested = nestChainCalls(view.items);
+  const density = useMissionDensity(nested.items);
+  const entries = groupTimeline(density.items);
+  // L8: « Reprendre / Bifurquer d'ici » once the mission has ended (a live one is still moving).
+  const forkable = !isMissionActive(view);
+
+  const renderItem = (item: TimelineItem) => (
+    <>
+      {item.kind === "tool" ? <ToolCard item={item} expert={expert} /> : null}
+      {item.kind === "tool" && item.call.name === "run_chain" ? (
+        <ChainCalls run={chainRunOf(view.harness.chain, item.call.id)} items={nested.children.get(item.call.id) ?? []} renderItem={renderItem} />
+      ) : null}
+      {item.kind === "message" ? <AgentMessage item={item} /> : null}
+      {item.kind === "approval" ? <AgentApproval approval={item.approval} /> : null}
+      {item.kind === "notice" ? <Notice item={item} /> : null}
+    </>
+  );
+
   return (
     <div className="nova-agent-timeline">
       <p className="nova-agent-goal">
         <span className="nova-agent-msg__author">{copy.agent.you}</span>
         <span>{view.mission.goal}</span>
       </p>
+      <MissionHarnessHeader view={view} />
+      <MissionDensityBar control={density} />
       <ol className="nova-agent-timeline__list" aria-label={copy.agent.timelineLabel}>
         {entries.map((entry) => {
           if (entry.kind === "group") {
@@ -174,15 +208,16 @@ export function MissionTimeline({ view }: { view: MissionView }) {
           const { item } = entry;
           return (
             <li key={`${item.kind}-${item.id}`}>
-              {item.kind === "tool" ? <ToolCard item={item} expert={expert} /> : null}
-              {item.kind === "message" ? <AgentMessage item={item} /> : null}
-              {item.kind === "approval" ? <AgentApproval approval={item.approval} /> : null}
-              {item.kind === "notice" ? <Notice item={item} /> : null}
+              {renderItem(item)}
+              {forkable && isForkPoint(item) ? (
+                <EventActions missionId={view.mission.id} seq={item.seq} onReady={adoptPlan} />
+              ) : null}
             </li>
           );
         })}
       </ol>
       <SuspendedBanner view={view} />
+      <MissionHarnessPanels view={view} />
       <EndCard view={view} />
     </div>
   );

@@ -297,7 +297,8 @@ export function createFakeBridge(seed: FakeSeed = {}): FakeBridge {
   const failures = new Map<string, IpcError>();
   const listeners = new Set<(event: ChatStreamEvent) => void>();
   let connection = seed.connection ?? ABSENT_CONNECTION;
-  let settings: AppSettings = { ...DEFAULT_SETTINGS, ...seed.settings };
+  // J2-B L7: app-level tests start after the first-run profile question (its own tests seed null).
+  let settings: AppSettings = { ...DEFAULT_SETTINGS, onboarding: { profile: "code", completedAt: 1 }, display: { density: "all" }, ...seed.settings };
   const conversations = new Map((seed.conversations ?? []).map((entry) => [entry.conversation.id, { ...entry }]));
   const active: ActiveStream[] = [];
   const catalog: ModelCatalog = {

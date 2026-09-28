@@ -9,6 +9,9 @@ import { describeUiError, type UiError } from "../../lib/errors";
 import { formatCost } from "../../lib/format";
 import { MOD_KEY } from "../../lib/platform";
 import { PlusIcon, TrashIcon } from "../icons";
+import { AutoContinueOption, autoContinueAvailable, planHasProvableCriteria } from "./contract/AutoContinueOption";
+import { ChainOption } from "./contract/ChainOption";
+import { SubMissionsOption } from "./contract/SubMissionsOption";
 import {
   addStep,
   draftFromPlan,
@@ -61,7 +64,10 @@ export function ContractSheet({ result, workspacePath, expert, starting, error, 
   const estimateStale = draft.steps.length !== result.tasks.length;
   const over = !estimateStale && estimateExceedsCap(result.estimate, draft.budgetUsd);
   const cap = formatCost(parseDecimal(draft.budgetUsd));
-  const canLaunch = !starting && !blocked;
+  const canLaunch = !starting && !blocked && draft.autoContinueError === null;
+  // The J2-B options exist only where the mission's mode can use them (never a switch doing nothing).
+  const toolMode = result.mission.mode !== "discuss";
+  const harness = draft.harness;
 
   const launch = () => {
     if (!canLaunch) return;
@@ -257,6 +263,26 @@ export function ContractSheet({ result, workspacePath, expert, starting, error, 
             value={draft.budgetUsd}
             error={errors.budget}
             onChange={(event) => edit({ ...draft, budgetUsd: event.target.value })}
+          />
+        </div>
+        <div className="nova-contract__options">
+          <AutoContinueOption
+            available={autoContinueAvailable(result.mission.mode)}
+            value={harness.autoContinue}
+            missionBudgetUsd={parseDecimal(draft.budgetUsd)}
+            hasCheckableCriteria={planHasProvableCriteria(
+              result.mission.mode,
+              draft.steps.map((step) => ({ acceptance: { kind: step.acceptanceKind, detail: step.acceptanceDetail } })),
+            )}
+            onChange={({ value, error: optionError }) =>
+              edit({ ...draft, harness: { ...harness, autoContinue: value }, autoContinueError: optionError })
+            }
+          />
+          <ChainOption available={toolMode} checked={harness.chain} onCheckedChange={(chain) => edit({ ...draft, harness: { ...harness, chain } })} />
+          <SubMissionsOption
+            available={toolMode}
+            value={harness.subMissions}
+            onChange={(subMissions) => edit({ ...draft, harness: { ...harness, subMissions } })}
           />
         </div>
         <p className="nova-contract__estimate">
