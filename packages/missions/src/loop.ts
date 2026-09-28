@@ -10,7 +10,7 @@ import type {
   ToolResult,
   UsageSummary,
 } from "@nova/shared";
-import { evaluateAcceptance, type AcceptanceEvidence } from "./acceptance";
+import { evaluateAcceptance, isCheckable, type AcceptanceEvidence } from "./acceptance";
 import {
   ProxyError,
   type MissionEventInput,
@@ -95,10 +95,11 @@ class MissionRun {
     private readonly deps: Required<Omit<MissionLoopDeps, "limits">> & { limits: LoopLimits },
   ) {
     this.deadline = deps.now() + spec.contract.maxDurationMs;
-    // Criteria the mode cannot check with its tools are left to the user, like `manual`.
+    // Criteria NOVA cannot check (no command given, or the mode has no tool to run it) are left to
+    // the user, like `manual`.
     const canRun = spec.tools.some((tool) => RUN_TOOLS.has(tool.name));
     this.tasks = spec.tasks.map((task) =>
-      !canRun && (task.acceptance.kind === "test_passes" || task.acceptance.kind === "command_succeeds")
+      !isCheckable(task.acceptance) || (!canRun && (task.acceptance.kind === "test_passes" || task.acceptance.kind === "command_succeeds"))
         ? { ...task, acceptance: { kind: "manual", detail: task.acceptance.detail } }
         : task,
     );

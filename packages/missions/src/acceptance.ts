@@ -16,6 +16,21 @@ export interface AcceptanceVerdict {
   reason: string;
 }
 
+/** The planned command as argv: backticks dropped, quoted words kept whole (`sh -c`-free, like run_command). */
+function commandTokens(detail: string): string[] {
+  const text = detail.trim().replace(/^`+|`+$/g, "");
+  return [...text.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)].map((match) => match[1] ?? match[2] ?? match[3] ?? "");
+}
+
+/**
+ * Whether NOVA can check the criterion itself. A command criterion without a command would be met
+ * by any command that exits 0 (`ls`): it is the user's to confirm, like `manual`.
+ */
+export function isCheckable(acceptance: MissionTask["acceptance"]): boolean {
+  if (acceptance.kind === "manual") return false;
+  return acceptance.kind !== "command_succeeds" || commandTokens(acceptance.detail).length > 0;
+}
+
 function normalizePath(value: string): string {
   return value.trim().replace(/^\.\/+/, "").replace(/^`|`$/g, "");
 }
@@ -29,6 +44,7 @@ export function evaluateAcceptance(tasks: readonly MissionTask[], evidence: read
 
   return tasks.map((task): AcceptanceVerdict => {
     const detail = task.acceptance.detail.trim();
+    if (!isCheckable(task.acceptance)) return { taskId: task.id, state: "todo", reason: "à confirmer par toi" };
     switch (task.acceptance.kind) {
       case "manual":
         return { taskId: task.id, state: "todo", reason: "à confirmer par toi" };
@@ -36,6 +52,8 @@ export function evaluateAcceptance(tasks: readonly MissionTask[], evidence: read
         const runs = after.filter((item) => item.display.kind === "tests");
         const last = runs.at(-1);
         if (!last || last.display.kind !== "tests") return { taskId: task.id, state: "todo", reason: "tests non lancés depuis la dernière modification" };
+        // A run that executed no test (a filter matching nothing) proves nothing, even with exit 0.
+        if (last.display.passed === 0) return { taskId: task.id, state: "failed", reason: "aucun test exécuté" };
         const passed = last.ok && last.display.exitCode === 0 && (last.display.failed ?? 0) === 0;
         return passed
           ? { taskId: task.id, state: "verified", reason: last.display.passed === null ? "tests verts" : `tests verts (${last.display.passed} réussis)` }
@@ -46,11 +64,14 @@ export function evaluateAcceptance(tasks: readonly MissionTask[], evidence: read
             };
       }
       case "command_succeeds": {
+        // The exact planned command, not a substring: `echo pnpm build` does not verify `pnpm build`.
+        const planned = commandTokens(detail);
         const matching = after.filter(
           (item) =>
             item.display.kind === "command" &&
             item.display.exitCode !== null &&
-            (detail === "" || item.display.argv.join(" ").includes(detail.replace(/^`|`$/g, ""))),
+            item.display.argv.length === planned.length &&
+            item.display.argv.every((arg, index) => arg === planned[index]),
         );
         const last = matching.at(-1);
         if (!last || last.display.kind !== "command") return { taskId: task.id, state: "todo", reason: "commande non lancée depuis la dernière modification" };

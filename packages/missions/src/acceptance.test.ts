@@ -21,3 +21,26 @@ describe("evaluateAcceptance — test_passes", () => {
     expect(evaluateAcceptance([TASK], [{ ok: true, display: tests(0, 4, 0) }])).toEqual([{ taskId: "t1", state: "verified", reason: "tests verts (4 réussis)" }]);
   });
 });
+
+describe("evaluateAcceptance — only what NOVA really ran counts (A4)", () => {
+  const command = (argv: string[], exitCode: number): ToolDisplay => ({
+    kind: "command", argv, cwd: "", exitCode, signal: null, durationMs: 1, outputTail: "", outputArtifactId: null, isolationLevel: "L0",
+  });
+  const BUILD: MissionTask = { ...TASK, id: "b", acceptance: { kind: "command_succeeds", detail: "`pnpm build`" } };
+
+  it("does not verify a command criterion with another command that merely contains it", () => {
+    expect(evaluateAcceptance([BUILD], [{ ok: true, display: command(["echo", "pnpm", "build"], 0) }])).toMatchObject([{ state: "todo" }]);
+    expect(evaluateAcceptance([BUILD], [{ ok: true, display: command(["sh", "-c", "pnpm build || true"], 0) }])).toMatchObject([{ state: "todo" }]);
+    expect(evaluateAcceptance([BUILD], [{ ok: true, display: command(["pnpm", "build"], 0) }])).toMatchObject([{ state: "verified" }]);
+    expect(evaluateAcceptance([BUILD], [{ ok: false, display: command(["pnpm", "build"], 2) }])).toMatchObject([{ state: "failed" }]);
+  });
+
+  it("leaves a command criterion without a command to the user instead of accepting any command", () => {
+    const empty: MissionTask = { ...BUILD, acceptance: { kind: "command_succeeds", detail: " " } };
+    expect(evaluateAcceptance([empty], [{ ok: true, display: command(["ls"], 0) }])).toEqual([{ taskId: "b", state: "todo", reason: "à confirmer par toi" }]);
+  });
+
+  it("does not count a test run that executed no test as green", () => {
+    expect(evaluateAcceptance([TASK], [{ ok: true, display: tests(0, 0, 0) }])).toEqual([{ taskId: "t1", state: "failed", reason: "aucun test exécuté" }]);
+  });
+});
