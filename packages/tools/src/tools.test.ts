@@ -265,10 +265,11 @@ describe("web and MCP executors", () => {
     });
   });
 
-  it("makes an MCP tool set to ask ask every time, and calls it as approved once allowed", async () => {
+  it("makes an MCP tool set to ask ask every time, reading the live rule, and calls it as approved once allowed", async () => {
     const calls: unknown[] = [];
+    let live = [offer("alpha", "external", "ask"), offer("zeta", "read", "allow")];
     const mcp = {
-      listToolsForModel: async () => [],
+      listToolsForModel: async () => live,
       async callTool(name: string, args: Record<string, unknown>, ctx: { approved: boolean; callId: string }) {
         calls.push({ name, args, approved: ctx.approved });
         return {
@@ -284,6 +285,11 @@ describe("web and MCP executors", () => {
     const scope = { workspaceId: WS, missionHosts: null };
     expect(await registry.get("mcp__fs__alpha")?.ownerPolicy?.({}, scope)).toMatchObject({ decision: "ask", reason: "mcp_tool_policy" });
     expect(await registry.get("mcp__fs__zeta")?.ownerPolicy?.({}, scope)).toBeNull();
+    // Rules changed in the MCP manager during the mission apply to the next call.
+    live = [offer("alpha", "external", "allow"), offer("zeta", "read", "ask")];
+    expect(await registry.get("mcp__fs__zeta")?.ownerPolicy?.({}, scope)).toMatchObject({ decision: "ask", reason: "mcp_tool_policy" });
+    live = [offer("zeta", "read", "ask")];
+    expect(await registry.get("mcp__fs__alpha")?.ownerPolicy?.({}, scope)).toMatchObject({ decision: "deny", reason: "mcp_tool_policy" });
     const result = await registry.get("mcp__fs__alpha")?.execute({ q: 1 }, context({ callId: "call-9" }));
     expect(calls).toEqual([{ name: "mcp__fs__alpha", args: { q: 1 }, approved: true }]);
     expect(result).toMatchObject({ callId: "call-9", provenance: { untrusted: true } });

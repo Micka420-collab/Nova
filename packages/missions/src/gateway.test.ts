@@ -24,6 +24,7 @@ function setup(options: { mode?: MissionContract["mode"]; deps?: Partial<ToolDep
   const missionId = randomUUID();
   const memory = memoryFiles({ "a.ts": "a\n" });
   const mcpCalls: string[] = [];
+  const mcpTools = options.mcp ?? [];
   const deps: ToolDeps = {
     files: memory.api,
     facts: async () => FACTS,
@@ -31,7 +32,7 @@ function setup(options: { mode?: MissionContract["mode"]; deps?: Partial<ToolDep
     git: null,
     web: null,
     mcp: {
-      listToolsForModel: async () => [],
+      listToolsForModel: async () => mcpTools,
       async callTool(name, _args, context) {
         mcpCalls.push(name);
         return {
@@ -42,7 +43,6 @@ function setup(options: { mode?: MissionContract["mode"]; deps?: Partial<ToolDep
     },
     ...options.deps,
   };
-  const mcpTools = options.mcp ?? [];
   const registry = createToolRegistry({ deps, mcpTools });
   const contract: MissionContract = {
     workspaceId: WS, mode, profile: "assisted", isolationLevel: "L0", allowedOperations: [], allowedHosts: [], webSearch: true, maxDurationMs: 60_000, budgetUsd: 1,

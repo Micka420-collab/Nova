@@ -10,7 +10,7 @@ import type { ExecutedToolResult, ToolExecutionContext, ToolExecutor, ToolRegist
 
 export interface ToolRegistryOptions {
   deps: ToolDeps;
-  /** Enabled MCP tools of the workspace (`McpService.listToolsForModel`), snapshot at mission start. */
+  /** Enabled MCP tools of the workspace (`McpService.listToolsForModel`), snapshot at mission start (their permission is re-read per call). */
   mcpTools?: readonly McpToolOffer[];
 }
 
@@ -91,8 +91,16 @@ function mcpExecutor(offer: McpToolOffer, deps: ToolDeps): ToolExecutor<Record<s
     argsSchema: z.record(z.string(), z.unknown()),
     permissionFacts: () => [{}],
     // M5: a tool set to "ask" in the MCP manager asks on every call, whatever the profile says.
-    ownerPolicy: async () =>
-      offer.permission === "ask" ? { decision: "ask", reason: "mcp_tool_policy", detail: `${ref} asks before each call` } : null,
+    // The rule is read from the owner at each call, never from the mission-start snapshot: the
+    // user can switch a tool to "ask" (or deny it) while a mission runs, and execute() below
+    // calls it as approved.
+    async ownerPolicy(_args, scope) {
+      const live = (await deps.mcp?.listToolsForModel(scope.workspaceId, { connect: false }))?.find(
+        (tool) => tool.definition.name === definition.name,
+      );
+      if (!live) return { decision: "deny", reason: "mcp_tool_policy", detail: `${ref} is no longer available (denied, disabled or disconnected)` };
+      return live.permission === "ask" ? { decision: "ask", reason: "mcp_tool_policy", detail: `${ref} asks before each call` } : null;
+    },
     checkpointPaths: () => [],
     async execute(args, context) {
       if (!deps.mcp) throw new ToolFailure("unavailable", "MCP is not available in this session");

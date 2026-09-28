@@ -179,12 +179,13 @@ export interface McpToolOffer {
   definition: ToolDefinition & { name: McpToolName };
   serverName: string;
   toolName: string;
-  /** Per-tool permission set in the MCP manager; `ask` makes every call ask (mcp_tool_policy). */
+  /** Per-tool permission set in the MCP manager when listed; `ask` makes every call ask (mcp_tool_policy). */
   permission: "allow" | "ask";
 }
 
 export interface McpApi {
-  listToolsForModel(workspaceId: string): Promise<McpToolOffer[]>;
+  /** `connect: false` lists the live tools of already-connected servers only (per-call rule lookup). */
+  listToolsForModel(workspaceId: string, options?: { connect?: boolean }): Promise<McpToolOffer[]>;
   /** `approved`: the gateway allowed or the user approved this exact call. Returns untrusted output. */
   callTool(
     name: string,
