@@ -37,10 +37,12 @@ export interface ChainCallsProps {
   items: readonly TimelineItem[];
   /** How the timeline renders one item (the same card as a direct call). */
   renderItem(item: TimelineItem): ReactNode;
+  /** The program has ended (its call is over): only then is « no call » a fact. */
+  ended: boolean;
 }
 
 /** What goes under a run_chain card: the program (folded) and each call it made, in order. */
-export function ChainCalls({ run, items, renderItem }: ChainCallsProps) {
+export function ChainCalls({ run, items, renderItem, ended }: ChainCallsProps) {
   const timeline = chainCopy.timeline;
   return (
     <div className="nova-chain">
@@ -59,7 +61,7 @@ export function ChainCalls({ run, items, renderItem }: ChainCallsProps) {
           ))}
         </ol>
       ) : (
-        <p className="nova-note">{timeline.noChildren}</p>
+        <p className="nova-note">{ended ? timeline.noChildren : timeline.noChildrenYet}</p>
       )}
     </div>
   );

@@ -36,6 +36,7 @@ describe("ChainCalls", () => {
         run={{ callId: "chain-1", programPreview: "await nova.read_file({ path: 'src/a.ts' })", startedAt: 1, summary: null }}
         items={[child]}
         renderItem={(item) => <span>carte {item.id}</span>}
+        ended={false}
       />,
     );
     expect(screen.getByText("Programme")).toBeTruthy();
@@ -44,8 +45,14 @@ describe("ChainCalls", () => {
   });
 
   it("says when the program is unknown and when it made no call", () => {
-    render(<ChainCalls run={{ callId: "chain-1", programPreview: null, startedAt: null, summary: null }} items={[]} renderItem={() => null} />);
+    render(<ChainCalls run={{ callId: "chain-1", programPreview: null, startedAt: null, summary: null }} items={[]} renderItem={() => null} ended />);
     expect(screen.getByText("Programme : inconnu (début absent du journal)")).toBeTruthy();
     expect(screen.getByText("Aucun appel d’outil.")).toBeTruthy();
+  });
+
+  it("does not state « no call » as a fact while the program still runs", () => {
+    render(<ChainCalls run={{ callId: "chain-1", programPreview: "await nova.list_dir({})", startedAt: 1, summary: null }} items={[]} renderItem={() => null} ended={false} />);
+    expect(screen.queryByText("Aucun appel d’outil.")).toBeNull();
+    expect(screen.getByText("Pas encore d’appel d’outil.")).toBeTruthy();
   });
 });

@@ -12,8 +12,15 @@ export interface DensityView {
   hidden: number;
 }
 
-/** Owed by the user or explaining a stop: shown at every density. */
-function alwaysShown(item: TimelineItem): boolean {
+/** Calls of a « Chaîne » program (and their approvals), per run_chain call id (`nestChainCalls`). */
+export type NestedCalls = ReadonlyMap<string, readonly TimelineItem[]>;
+
+/**
+ * Owed by the user or explaining a stop: shown at every density. A run_chain card carries its
+ * program's calls: it is kept whenever one of them is owed (a pending approval inside it).
+ */
+function alwaysShown(item: TimelineItem, nested: NestedCalls): boolean {
+  if (item.kind === "tool" && (nested.get(item.call.id) ?? []).some((child) => alwaysShown(child, nested))) return true;
   switch (item.kind) {
     case "approval":
       return item.approval.status === "pending";
@@ -56,11 +63,11 @@ function resultItem(item: TimelineItem, index: number, answer: number): boolean 
   return item.notice.type === "proof" || item.notice.type === "review";
 }
 
-export function applyDensity(items: readonly TimelineItem[], density: DetailDensity): DensityView {
+export function applyDensity(items: readonly TimelineItem[], density: DetailDensity, nested: NestedCalls = new Map()): DensityView {
   if (density === "all") return { items: [...items], hidden: 0 };
   const answer = density === "result" ? lastAnswerIndex(items) : -1;
   const kept = items.filter(
-    (item, index) => alwaysShown(item) || (density === "key_steps" ? keyStep(item) : resultItem(item, index, answer)),
+    (item, index) => alwaysShown(item, nested) || (density === "key_steps" ? keyStep(item) : resultItem(item, index, answer)),
   );
   // Empty tool-only turns are not steps: they are not counted as hidden either.
   const countable = items.filter((item) => !(item.kind === "message" && item.complete && item.text.trim() === "")).length;

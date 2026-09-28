@@ -9,7 +9,7 @@ import { formatCost, formatInteger } from "../../lib/format";
 import { useApp } from "../../state/context";
 import { chainRunOf, nestChainCalls } from "../missions/harness/chain-view";
 import { MissionHarnessHeader, MissionHarnessPanels } from "../missions/MissionHarness";
-import { groupTimeline, isMissionActive, type MessageItem, type MissionView, type NoticeItem, type TimelineItem } from "../missions/timeline";
+import { groupTimeline, isMissionActive, type MessageItem, type MissionView, type NoticeItem, type TimelineItem, type ToolItemState } from "../missions/timeline";
 import { EventActions } from "../timeline";
 import { MissionDensityBar, useMissionDensity } from "../onboarding/DensityChoice";
 import { AgentApproval } from "./AgentApproval";
@@ -158,6 +158,9 @@ function SuspendedBanner({ view }: { view: MissionView }) {
   );
 }
 
+/** A call still in progress: its program may yet make calls. */
+const LIVE_TOOL_STATES: ReadonlySet<ToolItemState> = new Set(["requested", "waiting", "running"]);
+
 /** Key moments a mission can be resumed from: Nomi's turns and the calls that changed or checked something. */
 function isForkPoint(item: TimelineItem): boolean {
   if (item.kind === "message") return item.complete;
@@ -171,7 +174,7 @@ export function MissionTimeline({ view }: { view: MissionView }) {
   const adoptPlan = useApp((state) => state.adoptPlan);
   // L4: the calls of a program sit under its run_chain card; density then applies to the top level.
   const nested = nestChainCalls(view.items);
-  const density = useMissionDensity(nested.items);
+  const density = useMissionDensity(nested.items, nested.children);
   const entries = groupTimeline(density.items);
   // L8: « Reprendre / Bifurquer d'ici » once the mission has ended (a live one is still moving).
   const forkable = !isMissionActive(view);
@@ -180,7 +183,12 @@ export function MissionTimeline({ view }: { view: MissionView }) {
     <>
       {item.kind === "tool" ? <ToolCard item={item} expert={expert} /> : null}
       {item.kind === "tool" && item.call.name === "run_chain" ? (
-        <ChainCalls run={chainRunOf(view.harness.chain, item.call.id)} items={nested.children.get(item.call.id) ?? []} renderItem={renderItem} />
+        <ChainCalls
+          run={chainRunOf(view.harness.chain, item.call.id)}
+          items={nested.children.get(item.call.id) ?? []}
+          renderItem={renderItem}
+          ended={!LIVE_TOOL_STATES.has(item.state)}
+        />
       ) : null}
       {item.kind === "message" ? <AgentMessage item={item} /> : null}
       {item.kind === "approval" ? <AgentApproval approval={item.approval} /> : null}

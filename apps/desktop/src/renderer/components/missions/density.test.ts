@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Approval, Proof, ToolName } from "@nova/shared";
 import { applyDensity } from "./density";
-import type { MessageItem, NoticeItem, TimelineItem, ToolItem, ToolItemState } from "./timeline";
+import { nestChainCalls } from "./harness/chain-view";
+import { groupTimeline, type MessageItem, type NoticeItem, type TimelineItem, type ToolItem, type ToolItemState } from "./timeline";
 
 const MISSION_ID = "00000000-0000-4000-8000-00000000d001";
 const WORKSPACE_ID = "00000000-0000-4000-8000-00000000d002";
@@ -111,5 +112,43 @@ describe("applyDensity", () => {
     const view = applyDensity(items, "result");
     expect(view.items).toEqual([]);
     expect(view.hidden).toBe(2);
+  });
+});
+
+describe("« Chaîne » programs", () => {
+  const chained = (name: ToolName, state: ToolItemState, parent: string | null): ToolItem => {
+    const item = tool(name, state);
+    return { ...item, call: { ...item.call, operation: "execute", parentCallId: parent } };
+  };
+
+  it("keeps a run_chain card at every density while a call inside it waits for the user", () => {
+    const chain = chained("run_chain", "running", null);
+    const child = chained("run_command", "waiting", chain.call.id);
+    const pending = approval("pending");
+    const owed = pending.kind === "approval" ? { ...pending, approval: { ...pending.approval, toolCallId: child.call.id } } : pending;
+    const nested = nestChainCalls([chain, child, owed]);
+    expect(ids(nested.items)).toEqual([chain.id]);
+    for (const density of ["result", "key_steps"] as const) {
+      expect(ids(applyDensity(nested.items, density, nested.children).items)).toEqual([chain.id]);
+    }
+    // Nothing owed inside: « Résultat » leaves the program out, like any step.
+    const done = chained("run_chain", "succeeded", null);
+    const quiet = nestChainCalls([done, chained("run_command", "succeeded", done.call.id)]);
+    expect(applyDensity(quiet.items, "result", quiet.children).items).toEqual([]);
+  });
+
+  it("never folds a run_chain into a group of commands: its card carries the program and its calls", () => {
+    const commands = [chained("run_command", "succeeded", null), chained("run_tests", "succeeded", null), chained("run_command", "succeeded", null)];
+    const chain = chained("run_chain", "running", null);
+    const nested = nestChainCalls([...commands, chain, chained("run_command", "waiting", chain.call.id)]);
+    // Three commands then the program: without the program, the run is too short to fold.
+    const entries = groupTimeline(applyDensity(nested.items, "all", nested.children).items);
+    expect(entries.map((entry) => (entry.kind === "item" ? entry.item.id : "group"))).toEqual([...ids(commands), chain.id]);
+    // A long run of commands still folds, and the program stays out of it.
+    const more = [...commands, chained("run_command", "succeeded", null)];
+    expect(groupTimeline([...more, chain])).toEqual([
+      { kind: "group", category: "terminal", items: more },
+      { kind: "item", item: chain },
+    ]);
   });
 });

@@ -28,6 +28,7 @@ export const chainCopy = {
     programUnknown: "Programme : inconnu (début absent du journal)",
     children: (count: number) => `${count} appel${count > 1 ? "s" : ""} de ce programme`,
     noChildren: "Aucun appel d’outil.",
+    noChildrenYet: "Pas encore d’appel d’outil.",
   },
   option: {
     label: "Mode « Chaîne »",

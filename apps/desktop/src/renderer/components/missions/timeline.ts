@@ -573,7 +573,9 @@ export function groupTimeline(items: readonly TimelineItem[]): TimelineEntry[] {
   for (const item of items) {
     // A model turn that only called tools has no text: no empty « Nomi » bubble between the cards.
     if (item.kind === "message" && item.complete && item.text.trim() === "") continue;
-    const foldable = item.kind === "tool" && !STANDS_OUT.has(item.state);
+    // A run_chain card carries its program and the calls it made (approvals included): folded
+    // into a group it would show none of them.
+    const foldable = item.kind === "tool" && !STANDS_OUT.has(item.state) && item.call.name !== "run_chain";
     const sameRun =
       foldable && run.length > 0 && run[0] !== undefined && toolCategory(run[0].call.name) === toolCategory(item.call.name);
     if (foldable && (run.length === 0 || sameRun)) {

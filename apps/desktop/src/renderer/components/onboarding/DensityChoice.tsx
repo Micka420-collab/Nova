@@ -6,7 +6,7 @@ import { DETAIL_DENSITIES, type DetailDensity } from "@nova/shared";
 import { DENSITY_DESCRIPTIONS, DENSITY_LABELS, desktopCopy } from "../../copy/fr-desktop";
 import { errorToast } from "../../lib/errors";
 import { useApp } from "../../state/context";
-import { applyDensity, type DensityView } from "../missions/density";
+import { applyDensity, type DensityView, type NestedCalls } from "../missions/density";
 import type { TimelineItem } from "../missions/timeline";
 // oxlint-disable-next-line import/no-unassigned-import -- component styles (Vite injects them)
 import "./onboarding.css";
@@ -61,9 +61,9 @@ export interface MissionDensity extends DensityView {
 }
 
 /** The timeline items a mission card shows at the saved density (to pass to `groupTimeline`). */
-export function useMissionDensity(items: readonly TimelineItem[]): MissionDensity {
+export function useMissionDensity(items: readonly TimelineItem[], nested?: NestedCalls): MissionDensity {
   const { density, setDensity } = useDensitySetting();
-  return { ...applyDensity(items, density), density, setDensity };
+  return { ...applyDensity(items, density, nested), density, setDensity };
 }
 
 /** Density switch of a mission card, and what it hides with a way to see everything. */
