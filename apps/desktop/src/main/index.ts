@@ -303,7 +303,8 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
     cache: createWebCacheRepo(store.db),
     usage: createWebSearchUsageRepo(store.db),
     providerId: provider.id,
-    knownSecrets: () => (knownKey ? [knownKey] : []),
+    // `mcp` is created below; the guard only runs on requests, after startup.
+    knownSecrets: () => [...(knownKey ? [knownKey] : []), ...mcp.knownSecrets()],
     searcher: createOpenRouterWebSearcher({
       apiKey: resolveApiKey,
       selectModel: async () => pickWebSearchModel((await catalog.catalog({ refresh: false })).models)?.id ?? null,

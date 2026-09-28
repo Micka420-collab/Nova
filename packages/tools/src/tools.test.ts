@@ -265,6 +265,26 @@ describe("web and MCP executors", () => {
     });
   });
 
+  it("hands the workspace content already shown to the model to the web guard (W5 anti-exfiltration)", async () => {
+    const allowed = fakeWeb("allow");
+    const searches: unknown[] = [];
+    const web: WebApi = {
+      ...allowed.web,
+      async webSearch(input) {
+        searches.push(input);
+        return { result: { query: input.query, citations: [], costUsd: null }, content: "" };
+      },
+    };
+    const { run } = setup({ "src/secret-algo.ts": "export const algorithm = 'proprietary scoring';\n" }, { web, commands: testRunner({ output: "build log line\n" }) });
+    await run("read_file", { path: "src/secret-algo.ts" });
+    await run("run_command", { argv: ["make"] });
+    await run("fetch_page", { url: "https://docs.dev/a" });
+    await run("web_search", { query: "q" });
+    const expected = ["build log line\n", expect.stringContaining("proprietary scoring")];
+    expect(allowed.calls).toMatchObject([{ workspaceTexts: expected }]);
+    expect(searches).toMatchObject([{ workspaceTexts: expected }]);
+  });
+
   it("makes an MCP tool set to ask ask every time, reading the live rule, and calls it as approved once allowed", async () => {
     const calls: unknown[] = [];
     let live = [offer("alpha", "external", "ask"), offer("zeta", "read", "allow")];

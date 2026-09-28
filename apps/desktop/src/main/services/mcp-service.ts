@@ -156,6 +156,11 @@ export class McpService {
   private readonly httpSessions = new Map<string, McpSession>();
   private readonly lastStderr = new Map<string, string>();
   private readonly connecting = new Map<string, Promise<McpServerStatus>>();
+  /**
+   * Secret values decrypted for a connection this session (tokens, secret env), for the W5
+   * anti-exfiltration guard only. Never cleared: a rotated-out secret is still worth catching.
+   */
+  private readonly decryptedSecrets = new Set<string>();
   private queue: Promise<unknown> = Promise.resolve();
   private readonly unsubscribe: () => void;
 
@@ -269,6 +274,11 @@ export class McpService {
       });
     }
     return result.sort((a, b) => (a.definition.name < b.definition.name ? -1 : 1));
+  }
+
+  /** Literal MCP secrets in use this session (compared by the web guard, never logged). */
+  knownSecrets(): string[] {
+    return [...this.decryptedSecrets];
   }
 
   async callTool(name: string, args: Record<string, unknown>, context: McpCallContext): Promise<ToolResult> {
@@ -690,8 +700,10 @@ export class McpService {
       }
       const secret = this.deps.secrets.getSecret(value.secretRef);
       if (!secret) throw new VaultError("Missing secret");
-      resolved.values[name] = (await this.deps.vault.decrypt(secret.ciphertext)).plain;
+      const plain = (await this.deps.vault.decrypt(secret.ciphertext)).plain;
+      resolved.values[name] = plain;
       resolved.secretNames.push(name);
+      this.decryptedSecrets.add(plain);
     }
     return resolved;
   }

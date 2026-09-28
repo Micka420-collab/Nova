@@ -160,6 +160,8 @@ export interface WebApi {
     context: WebCallContext;
     /** Hosts approved for this call (the permission step covered them). */
     approvedHosts?: readonly string[];
+    /** Workspace content already shown to the model: a verbatim copy in the URL is refused (W5). */
+    workspaceTexts?: readonly string[];
     signal: AbortSignal;
   }): Promise<{ page: FetchedPage; content: string }>;
   webSearch(input: {
@@ -167,6 +169,8 @@ export interface WebApi {
     context: WebCallContext;
     maxResults?: number;
     usageRef: { conversationId: string | null; messageId: string | null; missionId: string | null; toolCallId: string | null };
+    /** Workspace content already shown to the model: a verbatim copy in the query is refused (W5). */
+    workspaceTexts?: readonly string[];
     signal: AbortSignal;
   }): Promise<{ result: { query: string; citations: WebCitation[]; costUsd: number | null }; content: string }>;
 }

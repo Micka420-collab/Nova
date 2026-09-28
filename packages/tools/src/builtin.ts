@@ -90,8 +90,32 @@ const webContext = (context: { workspaceId: string; missionHosts: readonly strin
   missionHosts: context.missionHosts,
 });
 
+/** Characters of workspace text kept for the anti-exfiltration guard (most recent first). */
+const WORKSPACE_TEXTS_MAX_CHARS = 500_000;
+
+/**
+ * Workspace content this mission's tools returned to the model (files, search hits, command and
+ * git output), newest first and bounded. The web tools hand it to the W5 guard, which blocks an
+ * outgoing URL or query that copies it verbatim. One instance per registry, i.e. per mission.
+ */
+function workspaceTextLog() {
+  const texts: string[] = [];
+  let total = 0;
+  return {
+    record(text: string): void {
+      if (text.length === 0) return;
+      const kept = text.slice(0, WORKSPACE_TEXTS_MAX_CHARS);
+      texts.unshift(kept);
+      total += kept.length;
+      while (total > WORKSPACE_TEXTS_MAX_CHARS) total -= (texts.pop() as string).length;
+    },
+    snapshot: (): readonly string[] => [...texts],
+  };
+}
+
 export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
   const { files } = deps;
+  const seenText = workspaceTextLog();
 
   const readFile = builtin({
     name: "read_file",
@@ -112,6 +136,7 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
         ...(args.endLine === undefined ? {} : { endLine: args.endLine }),
       });
       context.seenVersions.set(args.path, file.hash);
+      seenText.record(file.content);
       const lines = file.content === "" && file.totalLines === 0 ? [] : file.content.split("\n");
       const lastLine = lines.length === 0 ? file.startLine - 1 : file.startLine + lines.length - 1;
       const body = lines.length === 0 ? "(empty file)" : numberLines(lines.map((line) => line.replace(/\r$/, "")), file.startLine);
@@ -202,6 +227,7 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
     facts: () => [{}],
     async run(args, context, started) {
       const result = await files.searchText({ wholeWord: false, ...args }, context.signal);
+      seenText.record(result.matches.map((match) => match.lineText).join("\n"));
       const text = result.matches.map((match) => `${match.path}:${match.line}: ${match.lineText}`).join("\n") || "(no match)";
       return makeResult({
         callId: context.callId,
@@ -376,6 +402,7 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
       if (args.background) {
         const { process, initialOutput, isolationLevel } = await runner.startBackground(spec, context.onOutput);
         const running = process.state === "running";
+        seenText.record(initialOutput);
         return {
           ...makeResult({
             callId: context.callId,
@@ -393,6 +420,7 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
       }
       const outcome = await runner.run(spec, context.signal, context.onOutput);
       if (outcome.cancelled) throw new ToolFailure("cancelled", "the command was stopped");
+      seenText.record(outcome.output);
       const status = outcome.timedOut
         ? `Timed out after ${args.timeoutMs} ms (process tree killed)`
         : `Exit code ${String(outcome.exitCode)}${outcome.signal ? ` (signal ${outcome.signal})` : ""}`;
@@ -451,6 +479,7 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
         context.onOutput,
       );
       if (outcome.cancelled) throw new ToolFailure("cancelled", "the tests were stopped");
+      seenText.record(outcome.output);
       const report = parseTestOutput(invocation.runner, outcome.output);
       const passedRun = outcome.exitCode === 0 && !outcome.timedOut && (report?.failed ?? 0) === 0;
       const counts = report
@@ -515,6 +544,7 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
     facts: (args) => [args.path === null ? {} : { path: args.path }],
     async run(args, context, started) {
       const diff = await requireDep(deps.git, "git").diff({ workspaceId: context.workspaceId, path: args.path, staged: args.staged });
+      seenText.record(diff.patch);
       const shown = capText(diff.patch, 100_000);
       const excluded = diff.excluded.length > 0 ? `\n[excluded files not shown (sensitive): ${diff.excluded.join(", ")}]` : "";
       return makeResult({
@@ -560,6 +590,7 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
         maxResults: args.maxResults,
         context: webContext(context),
         usageRef: { conversationId: null, messageId: null, missionId: context.missionId, toolCallId: context.callId },
+        workspaceTexts: seenText.snapshot(),
         signal: context.signal,
       });
       return makeResult({
@@ -598,6 +629,7 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
         url: args.url,
         context: webContext(context),
         approvedHosts: [host],
+        workspaceTexts: seenText.snapshot(),
         signal: context.signal,
       });
       return makeResult({

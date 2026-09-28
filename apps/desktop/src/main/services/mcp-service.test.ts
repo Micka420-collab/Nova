@@ -110,6 +110,8 @@ describe("McpService (stdio through the host)", () => {
 
     // The secret reached the child process (and only through its env).
     expect((await call("mcp__Fixture__env", { name: "FIXTURE_TOKEN" })).content).toContain("set");
+    // …and the web guard knows it literally (W5: a URL carrying it is refused).
+    expect(service.knownSecrets()).toContain(SECRET);
   });
 
   it("offers tools to the model sorted, defaults to ask, and enforces deny/ask/allow on calls", async () => {
