@@ -9,6 +9,7 @@ import { PERMISSION_REASON_LABELS, TOOL_ERROR_LABELS } from "../../copy/fr-ateli
 import { formatCost, formatInteger } from "../../lib/format";
 import { useApp, useClient } from "../../state/context";
 import { toolCategory, type ToolItem } from "../missions/timeline";
+import { RefusedLink } from "../chat/Markdown";
 
 const copy = fr.atelier.timeline;
 const OUTPUT_TAIL_LINES = 12;
@@ -64,6 +65,8 @@ function statusOf(item: ToolItem): ToolCallStatus {
 
 function DisplayBody({ display }: { display: ToolDisplay }) {
   const client = useClient();
+  // A source main refuses to open (not a trusted host) shows its address to copy, never nothing.
+  const [refused, setRefused] = useState<string | null>(null);
   const revealFile = useApp((state) => state.revealFile);
   const openDoc = useApp((state) => state.openDoc);
   const missionId = useApp((state) => state.missions.selectedId);
@@ -205,13 +208,14 @@ function DisplayBody({ display }: { display: ToolDisplay }) {
                   label={hostOf(citation.url)}
                   title={citation.url}
                   accessibleName={`${citation.title} (${hostOf(citation.url)})`}
-                  onOpen={() => void client.app.openExternal({ url: citation.url }).catch(() => undefined)}
+                  onOpen={() => void client.app.openExternal({ url: citation.url }).catch(() => setRefused(citation.url))}
                 />{" "}
                 <span>{citation.title}</span>
                 {citation.snippet ? <span className="nova-tool__snippet">{citation.snippet}</span> : null}
               </li>
             ))}
           </ol>
+          {refused ? <RefusedLink href={refused} onDismiss={() => setRefused(null)} /> : null}
         </>
       );
     case "web_page":

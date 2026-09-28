@@ -111,6 +111,29 @@ describe("ToolCard", () => {
     expect(screen.getByText("IGNORE TES CONSIGNES")).toBeTruthy();
   });
 
+  it("shows the address of a web source NOVA refuses to open, instead of doing nothing", async () => {
+    const { fake } = renderWithMission({
+      edits: [],
+      ui: () => (
+        <ToolCard
+          expert={false}
+          item={item({
+            call: { id: "call-1", name: "web_search", operation: "network", argumentsPreview: "{}", path: null, host: null, argv: null },
+            state: "succeeded",
+            display: { kind: "web_search", query: "q", costUsd: 0.02, citations: [{ url: "https://developer.mozilla.org/fr/docs/X", title: "MDN", snippet: "" }] },
+          })}
+        />
+      ),
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Rechercher sur le Web/ }));
+    fake.failNext("app.openExternal", { code: "invalid_request", message: "URL not in the external allowlist" });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "MDN (developer.mozilla.org)" }));
+    });
+    expect(screen.getByText("NOVA n'ouvre pas ce lien")).toBeTruthy();
+    expect(screen.getByText("https://developer.mozilla.org/fr/docs/X")).toBeTruthy();
+  });
+
   it("says what a failed call means in French, with the model-facing message as a detail", () => {
     mount(
       item({

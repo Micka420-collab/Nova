@@ -1,7 +1,6 @@
 // Dock (VISUAL.md §4.5): the terminal lane's panel under the workbench. Only with an open folder.
 import { IconButton, Tabs, tabPanelProps, useToast } from "@nova/ui";
 import { fr } from "../../copy/fr";
-import { errorToast } from "../../lib/errors";
 import { useApp, useAppStore, useClient } from "../../state/context";
 import { CloseIcon } from "../icons";
 import { TerminalPanel, type TerminalExplainRequest } from "../terminal/TerminalPanel";
@@ -44,7 +43,8 @@ export function Dock() {
           store={terminal}
           workspaceId={workspace.id}
           onOpenLink={(uri) => {
-            client.app.openExternal({ url: uri }).catch((error: unknown) => toast.show(errorToast(error, copy.terminal)));
+            // Main opens trusted hosts only: say so, with the real address, instead of a bare « Terminal ».
+            client.app.openExternal({ url: uri }).catch(() => toast.show({ tone: "warning", title: fr.chat.linkRefused, description: uri }));
           }}
           // N3: the redacted output goes into the conversation draft; nothing is sent without the user.
           onExplain={(request) => appStore.getState().draftIntoChat(explainPrompt(request))}
