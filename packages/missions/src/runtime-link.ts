@@ -17,7 +17,14 @@ import {
   type ToolGateway,
   type ToolRunRequest,
 } from "./index";
-import { MissionLoop, type LoopLimits } from "./loop";
+import {
+  MissionLoop,
+  type ContextPreparation,
+  type LoopContextHook,
+  type LoopContinuationHook,
+  type LoopExtensions,
+  type LoopLimits,
+} from "./loop";
 
 // ---------------------------------------------------------------------------
 // Runtime side
@@ -91,6 +98,35 @@ export function createChannelToolGateway(channel: Channel): ToolGateway {
 }
 
 /**
+ * J2-B loop hooks as seen from the runtime: thin proxies to main, which owns the logic (stored
+ * summaries, budget, rounds). A missing or failing main handler means "no change": the messages
+ * are kept as they are and no extra round starts.
+ */
+export function createChannelLoopExtensions(channel: Channel): LoopExtensions {
+  return {
+    context: {
+      async prepare(input) {
+        try {
+          return await channel.request<ContextPreparation | null>("context.prepare", input);
+        } catch {
+          return null;
+        }
+      },
+      observe: (input) => channel.notify("context.observe", input),
+    },
+    continuation: {
+      async nextRound(input) {
+        try {
+          return await channel.request<{ prompt: string } | null>("continuation.next", input);
+        } catch {
+          return null;
+        }
+      },
+    },
+  };
+}
+
+/**
  * Serves the runtime end of the port: control from main (`mission.*`), model and tool calls to
  * main, events to main. Returns the loop (for `idle()` at quit).
  */
@@ -123,6 +159,7 @@ export function serveRuntimeChannel(
     sink,
     systemPrompt: options.systemPrompt,
     ...(options.limits ? { limits: options.limits } : {}),
+    extensions: createChannelLoopExtensions(channel),
   });
   return { loop, channel };
 }
@@ -178,7 +215,38 @@ export interface MainRuntimeHandlers {
   appendEvent(event: MissionEventInput): void;
   /** Only missions main started in the runtime may act. */
   isRunning(missionId: string): boolean;
+  /** J2-B L2 (main side of the loop's context hook); absent = messages unchanged. */
+  context?: LoopContextHook;
+  /** J2-B L8 (main side of the loop's continuation hook); absent = no extra round. */
+  continuation?: LoopContinuationHook;
 }
+
+const ContextPrepareSchema = z.object({
+  missionId: z.uuid(),
+  modelId: z.string().max(200),
+  messages: z.array(z.record(z.string(), z.unknown())).max(2_000),
+});
+const ContextObserveSchema = z.object({
+  missionId: z.uuid(),
+  modelId: z.string().max(200),
+  usage: z
+    .object({
+      promptTokens: z.number().nullable(),
+      completionTokens: z.number().nullable(),
+      reasoningTokens: z.number().nullable(),
+      cachedTokens: z.number().nullable(),
+      cost: z.number().nullable(),
+    })
+    .nullable(),
+  messageCount: z.int().min(0),
+});
+const ContinuationSchema = z.object({
+  missionId: z.uuid(),
+  round: z.int().min(1).max(100),
+  open: z
+    .array(z.object({ taskId: z.string().max(200), title: z.string().max(1_000), reason: z.string().max(2_000) }))
+    .max(100),
+});
 
 export function connectRuntime(port: PortLike, handlers: MainRuntimeHandlers): RuntimeLink {
   const channel = createChannel(
@@ -197,6 +265,17 @@ export function connectRuntime(port: PortLike, handlers: MainRuntimeHandlers): R
         if (!handlers.isRunning(request.missionId)) throw new ChannelError("invalid_request", "mission not running");
         return handlers.gateway.run(request, context.signal);
       },
+      "context.prepare": async (params) => {
+        const parsed = ContextPrepareSchema.safeParse(params);
+        if (!parsed.success || !handlers.isRunning(parsed.data.missionId)) return null;
+        // The runtime's messages are its own transcript: shaped by the loop, validated for size only.
+        return (await handlers.context?.prepare(parsed.data as unknown as Parameters<LoopContextHook["prepare"]>[0])) ?? null;
+      },
+      "continuation.next": async (params) => {
+        const parsed = ContinuationSchema.safeParse(params);
+        if (!parsed.success || !handlers.isRunning(parsed.data.missionId)) return null;
+        return (await handlers.continuation?.nextRound(parsed.data)) ?? null;
+      },
     },
     {
       "event.append": (params) => {
@@ -204,6 +283,11 @@ export function connectRuntime(port: PortLike, handlers: MainRuntimeHandlers): R
         if (!event || typeof event.type !== "string" || !RUNTIME_EVENT_TYPES.has(event.type)) return;
         if (typeof event.missionId !== "string" || !handlers.isRunning(event.missionId)) return;
         handlers.appendEvent(event);
+      },
+      "context.observe": (params) => {
+        const parsed = ContextObserveSchema.safeParse(params);
+        if (!parsed.success || !handlers.isRunning(parsed.data.missionId)) return;
+        handlers.context?.observe(parsed.data);
       },
     },
   );

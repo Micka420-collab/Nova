@@ -56,6 +56,7 @@ import { createCompanionService, type CompanionService } from "./services/compan
 import { ConnectionService } from "./services/connection-service";
 import { createFilesService } from "./services/files-service";
 import { createGitService } from "./services/git-service";
+import { unavailableHarnessApi } from "./services/harness-unavailable";
 import { McpService } from "./services/mcp-service";
 import { createMissionsService, createReviewFsGate, type MissionsService } from "./services/missions-service";
 import { PermissionsService } from "./services/permissions-service";
@@ -493,6 +494,8 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
       companion: companion.api,
       checkpoints: checkpointsService.api,
     },
+    // J2-B: each lane's service replaces its group here (J2-B lane map).
+    harness: unavailableHarnessApi(),
   });
   registerIpcRoutes(buildIpcRoutes(api, logger), (frame) => isTrustedSender(frame, devOrigin), logger);
 

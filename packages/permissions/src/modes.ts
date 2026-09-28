@@ -1,6 +1,7 @@
 // Work modes (A12): what each mode may do, applied by the engine (not by the prompt).
 import {
   BUILTIN_TOOL_NAMES,
+  OPT_IN_TOOL_NAMES,
   isBuiltinToolName,
   type BuiltinToolName,
   type OperationClass,
@@ -28,7 +29,23 @@ export const BUILTIN_TOOL_OPERATIONS: Readonly<Record<BuiltinToolName, Operation
   git_commit: "git_mutation",
   web_search: "network",
   fetch_page: "network",
+  // J2-B
+  process_list: "read",
+  process_output: "read",
+  /** Kills a process the mission itself started. */
+  process_stop: "execute",
+  /** Reads an enabled skill's files; its scripts only run through run_command. */
+  skill: "read",
+  /** No effect of its own: every call of the program is evaluated on its own (L4). */
+  run_chain: "read",
+  /**
+   * No effect of its own: the child's contract is a subset of the parent's and each child call is
+   * evaluated; its writes reach the project only through a checkpointed integration (L5).
+   */
+  start_submission: "read",
 };
+
+const OPT_IN_TOOLS: ReadonlySet<BuiltinToolName> = new Set(OPT_IN_TOOL_NAMES);
 
 export function effectiveOperation(tool: ToolName, requested: OperationClass): OperationClass {
   return isBuiltinToolName(tool) ? BUILTIN_TOOL_OPERATIONS[tool] : requested;
@@ -60,6 +77,8 @@ export const MODE_OPERATIONS: Readonly<Record<WorkMode, Readonly<Record<Operatio
  */
 export function modeBuiltinTools(mode: WorkMode, webSearch: boolean): BuiltinToolName[] {
   return BUILTIN_TOOL_NAMES.filter((tool) => {
+    // Contract opt-ins (Chaîne, sub-missions) are added by `missionToolSet`, never by the mode.
+    if (OPT_IN_TOOLS.has(tool)) return false;
     const allowance = MODE_OPERATIONS[mode][BUILTIN_TOOL_OPERATIONS[tool]];
     if (allowance === "no") return false;
     if (allowance === "web") return webSearch && tool === "web_search";

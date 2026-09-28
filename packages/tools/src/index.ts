@@ -17,6 +17,7 @@
 import type { z } from "zod";
 import type {
   ContentHash,
+  MissionEvent,
   OperationClass,
   PermissionReason,
   PermissionRequest,
@@ -43,7 +44,25 @@ export interface ToolExecutionContext {
   missionHosts: readonly string[] | null;
   /** Live command output (pushed as `tool.output`, never stored). */
   onOutput?: (stream: "stdout" | "stderr", chunk: string) => void;
+  /** J2-B: journals a lane event of this mission (skill loaded, chain run, sub-mission, terminal). */
+  record?: (event: ToolRecordedEvent) => void;
+  /**
+   * L4, run_chain only: runs one call of the program through the SAME gateway pipeline (parse,
+   * mode, permission engine, approval, checkpoint, audit) with `parentCallId` = this call.
+   * run_chain and start_submission are refused inside a program (CHAIN_FORBIDDEN_TOOLS).
+   */
+  runNested?: (call: { name: string; rawArguments: string }) => Promise<ToolResult>;
 }
+
+type WithoutEnvelope<T> = T extends unknown ? Omit<T, "id" | "seq" | "at" | "missionId"> : never;
+
+/** Mission events a tool executor may journal through `ToolExecutionContext.record`. */
+export type ToolRecordedEvent = WithoutEnvelope<
+  Extract<
+    MissionEvent,
+    { type: "tool.terminal" | "process.started" | "skill.loaded" | "chain.started" | "chain.finished" | "submission.started" }
+  >
+>;
 
 export type ToolPermissionFacts = Pick<PermissionRequest, "path" | "host" | "argv">;
 
@@ -89,6 +108,13 @@ export interface ToolRegistry {
 
 export type {
   BackgroundProcess,
+  ChainApi,
+  ChainRunContext,
+  ProcessApi,
+  SkillLoadOutcome,
+  SkillsApi,
+  SubMissionStart,
+  SubmissionsApi,
   CommandOutcome,
   CommandOutputListener,
   CommandRunner,
@@ -112,6 +138,7 @@ export {
 } from "./command-runner";
 export { ToolFailure, capText, errorResult, makeResult, provenance, wrapUntrusted } from "./content";
 export { createToolRegistry, toToolFailure, type ToolRegistryOptions } from "./registry";
+export { createHarnessExecutors } from "./harness-tools";
 export { parseTestOutput, testInvocation, type ParsedTestReport } from "./test-report";
 /**
  * The zod instance of the tool schemas, shared with @nova/missions (plan and link schemas) so

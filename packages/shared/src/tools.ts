@@ -6,6 +6,10 @@ import type { RelativePath } from "./paths";
 import type { WebCitation } from "./web";
 import type { GitStatus } from "./git";
 import type { IsolationLevel } from "./permissions";
+import type { ChainRunState } from "./chain";
+import type { MissionProcess } from "./processes";
+import type { SkillRef } from "./skills";
+import type { SubMissionIntegration } from "./submissions";
 
 /** Tools built into NOVA for J2-A. Order is stable: tool lists sent to models keep it (prompt cache). */
 export const BUILTIN_TOOL_NAMES = [
@@ -24,7 +28,24 @@ export const BUILTIN_TOOL_NAMES = [
   "git_commit",
   "web_search",
   "fetch_page",
+  // J2-B (appended: the order above is part of the prompt cache).
+  /** L1: background processes of the mission. */
+  "process_list",
+  "process_output",
+  "process_stop",
+  /** L3: progressive loading of an enabled skill. */
+  "skill",
+  /** L4: mode « Chaîne » (offered only when the contract enables it). */
+  "run_chain",
+  /** L5: bounded sub-mission (offered only when the contract enables it). */
+  "start_submission",
 ] as const;
+
+/**
+ * Built-in tools offered only when the mission contract opts in (`MissionContract.harness`); the
+ * mode table alone never offers them.
+ */
+export const OPT_IN_TOOL_NAMES = ["run_chain", "start_submission"] as const satisfies readonly (typeof BUILTIN_TOOL_NAMES)[number][];
 
 export type BuiltinToolName = (typeof BUILTIN_TOOL_NAMES)[number];
 
@@ -189,7 +210,24 @@ export type ToolDisplay =
   | { kind: "git_commit"; sha: string; message: string }
   | { kind: "web_search"; query: string; citations: WebCitation[]; costUsd: number | null }
   | { kind: "web_page"; url: string; title: string | null; truncated: boolean }
-  | { kind: "mcp"; server: string; tool: string; isError: boolean; text: string };
+  | { kind: "mcp"; server: string; tool: string; isError: boolean; text: string }
+  // J2-B
+  | {
+      kind: "process";
+      action: "list" | "output" | "stop";
+      processes: MissionProcess[];
+      /** process_output only: redacted tail. */
+      outputTail: string | null;
+    }
+  | { kind: "skill"; ref: SkillRef; name: string; path: RelativePath | null; chars: number }
+  | { kind: "chain"; state: ChainRunState; toolCalls: number; durationMs: number; resultPreview: string | null }
+  | {
+      kind: "submission";
+      childMissionId: string;
+      title: string;
+      reservedUsd: number | null;
+      integration: SubMissionIntegration | null;
+    };
 
 export interface ToolResult {
   callId: string;

@@ -96,3 +96,33 @@ export {
   type WebPolicyRepo,
   type WebPolicyScopeWrite,
 } from "./web-policy";
+// J2-B "parité Harness"
+export {
+  createCompactionRepo,
+  type CompactionRepo,
+  type NewCompactionSummary,
+} from "./compaction";
+export {
+  createMissionLinkRepo,
+  type MissionLinkRepo,
+  type NewMissionLink,
+} from "./mission-links";
+export {
+  createScheduleRepo,
+  type NewSchedule,
+  type SchedulePatch,
+  type ScheduleRepo,
+} from "./schedules";
+export {
+  createSkillRepo,
+  type InstalledSkillRecord,
+  type NewInstalledSkill,
+  type SkillEnablementRecord,
+  type SkillRepo,
+} from "./skills";
+export {
+  createTimelineSearchRepo,
+  toFtsQuery,
+  type TimelineSearchRecord,
+  type TimelineSearchRepo,
+} from "./timeline";

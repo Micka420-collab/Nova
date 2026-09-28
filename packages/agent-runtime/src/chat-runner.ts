@@ -50,6 +50,18 @@ export interface ChatRunnerDeps {
    * (nothing is stored then). Absent: attachments and web are refused.
    */
   prepareTurn?: (req: ChatSendRequest) => Promise<ChatTurnContext>;
+  /**
+   * J2-B L2: the history sent to the model once the user APPLIED a compaction of this
+   * conversation (never silently): the covered messages are replaced by the summary. Absent or
+   * null = the full history.
+   */
+  historyForModel?: (conversationId: string, history: Message[]) => CompactedHistory | null;
+}
+
+/** An applied compaction: the summary (sent as labeled context) and the messages after it. */
+export interface CompactedHistory {
+  summary: string;
+  history: Message[];
 }
 
 /** What one message adds to its own request only (never stored with the message). */
@@ -359,7 +371,12 @@ export class ChatRunner {
     const messageId = run.message.id;
     this.emit({ type: "phase", ...this.ids(run), phase: "waiting" });
     if (signal.aborted) return;
-    const messages = buildProviderMessages(history);
+    const compacted = this.deps.historyForModel?.(run.conversationId, history) ?? null;
+    const messages = buildProviderMessages(compacted ? compacted.history : history);
+    if (compacted) {
+      // Right after the system prompt: what the user agreed to keep of the earlier conversation.
+      messages.splice(1, 0, { role: "system", content: `Summary of the earlier conversation (approved by the user):\n${compacted.summary}` });
+    }
     const context = run.turn?.context ?? null;
     if (context !== null) {
       // Just before the message it belongs to: the attachment is this turn's context only.

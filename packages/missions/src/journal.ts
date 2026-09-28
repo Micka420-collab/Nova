@@ -1,8 +1,9 @@
 // Mission journal (main side): appends to `mission_events`, projects the mission state, pushes
 // to the renderer. It is the last line of defense of the terminal invariant: after a terminal
-// event, only `review.decided` and `budget.updated` are accepted; a second terminal is dropped.
+// event, only AFTER_TERMINAL_MISSION_EVENTS (review, budget, process end, sub-mission update) are accepted; a second terminal is dropped.
 import { randomUUID } from "node:crypto";
 import {
+  AFTER_TERMINAL_MISSION_EVENTS,
   LIVE_ONLY_MISSION_EVENTS,
   TERMINAL_MISSION_EVENTS,
   type MissionEvent,
@@ -39,7 +40,7 @@ export interface MissionJournal {
   isTerminated(missionId: string): boolean;
 }
 
-const AFTER_TERMINAL: readonly MissionEventType[] = ["review.decided", "budget.updated"];
+const AFTER_TERMINAL: readonly MissionEventType[] = AFTER_TERMINAL_MISSION_EVENTS;
 
 const STATE_OF: Partial<Record<MissionEventType, MissionState>> = {
   "mission.started": "running",

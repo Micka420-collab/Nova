@@ -81,7 +81,7 @@ export interface NovaStoreOptions {
 const MEMORY = ":memory:";
 const DEFAULT_LIST_LIMIT = 200;
 const PREVIEW_MAX_CHARS = 120;
-const SETTINGS_KEYS = ["theme", "defaultModelId", "companion", "privacy"] as const;
+const SETTINGS_KEYS = ["theme", "defaultModelId", "companion", "privacy", "desktop", "onboarding", "display", "chat"] as const satisfies readonly (keyof AppSettings)[];
 
 /**
  * Assistant message `m` that may have been billed but has no usage record at all: interrupted
@@ -134,6 +134,19 @@ function applySettingsPatch(settings: AppSettings, patch: SettingsPatch): AppSet
     privacy: {
       providerDataCollection:
         patch.privacy?.providerDataCollection ?? settings.privacy.providerDataCollection,
+    },
+    desktop: {
+      keepRunningOnClose: patch.desktop?.keepRunningOnClose ?? settings.desktop.keepRunningOnClose,
+    },
+    onboarding: {
+      profile: patch.onboarding?.profile === undefined ? settings.onboarding.profile : patch.onboarding.profile,
+      completedAt:
+        patch.onboarding?.completedAt === undefined ? settings.onboarding.completedAt : patch.onboarding.completedAt,
+    },
+    display: { density: patch.display?.density ?? settings.display.density },
+    chat: {
+      autopilot: patch.chat?.autopilot ?? settings.chat.autopilot,
+      suggestVisionModel: patch.chat?.suggestVisionModel ?? settings.chat.suggestVisionModel,
     },
   };
 }

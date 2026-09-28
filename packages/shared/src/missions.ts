@@ -3,10 +3,16 @@
 // Invariants: exactly ONE terminal event per mission (succeeded | failed | cancelled) and one
 // `tool.finished` per `tool.requested`; no tool runs without a recorded `allow`.
 import { z } from "zod";
+import type { ChainRunSummary } from "./chain";
+import type { CompactionSummary, ContextUsage, HandoffDossier } from "./compaction";
 import type { UsageSummary } from "./domain";
 import { EntityIdSchema, HostPatternSchema, ModelIdSchema } from "./ids";
 import { RelativeEntryPathSchema, type RelativePath } from "./paths";
 import type { Approval, IsolationLevel, PermissionDecision, PermissionProfile } from "./permissions";
+import type { MissionProcess } from "./processes";
+import type { SkillRef } from "./skills";
+import { SUBMISSION_LIMITS, type MissionLink } from "./submissions";
+import { AutoContinueOptionsSchema, type ContinuationStopReason } from "./timeline";
 import { OPERATION_CLASSES, type OperationClass, type ToolDisplay, type ToolName } from "./tools";
 import type { Checkpoint } from "./workspace";
 
@@ -45,6 +51,37 @@ export interface MissionContract {
   webSearch: boolean;
   maxDurationMs: number;
   budgetUsd: number;
+  /** J2-B options (Chaîne, auto-continuation, sub-missions). Absent = DEFAULT_MISSION_HARNESS. */
+  harness?: MissionHarnessOptions;
+}
+
+/**
+ * J2-B per-mission options, all off by default and shown in the contract:
+ * - `chain` (L4): offers `run_chain` (one program chaining tools, every call gated as usual);
+ * - `autoContinue` (L8): bounded continuation rounds until the acceptance criteria are proven;
+ * - `subMissions` (L5): offers `start_submission` (depth 1, budget reserved from this mission).
+ */
+export interface MissionHarnessOptions {
+  chain: boolean;
+  autoContinue: { maxRounds: number; budgetUsd: number } | null;
+  subMissions: { maxChildren: number } | null;
+}
+
+export const DEFAULT_MISSION_HARNESS: MissionHarnessOptions = Object.freeze({
+  chain: false,
+  autoContinue: null,
+  subMissions: null,
+});
+
+export const MissionHarnessOptionsSchema = z.object({
+  chain: z.boolean(),
+  autoContinue: AutoContinueOptionsSchema.nullable(),
+  subMissions: z.object({ maxChildren: z.int().min(1).max(SUBMISSION_LIMITS.maxChildren) }).nullable(),
+});
+
+/** The contract's J2-B options, defaults filled in. */
+export function missionHarnessOf(contract: { harness?: MissionHarnessOptions }): MissionHarnessOptions {
+  return contract.harness ?? DEFAULT_MISSION_HARNESS;
 }
 
 export interface Mission {
@@ -120,6 +157,8 @@ export interface ToolCallSummary {
   path: RelativePath | null;
   host: string | null;
   argv: string[] | null;
+  /** L4: the run_chain call that issued this call from its program; absent/null = direct call. */
+  parentCallId?: string | null;
 }
 
 export type MissionSuspendReason = "budget" | "duration" | "no_progress" | "user" | "daily_budget";
@@ -173,12 +212,68 @@ export type MissionEvent =
   | Ev<"mission.succeeded", { summary: string }>
   | Ev<"mission.failed", { reason: MissionFailureReason; detail: string | null }>
   | Ev<"mission.cancelled", { by: "user" | "system" }>
-  | Ev<"review.decided", { decisions: ReviewDecision[] }>;
+  | Ev<"review.decided", { decisions: ReviewDecision[] }>
+  // J2-B ------------------------------------------------------------------
+  /** L1: the command of this call is mirrored in an agent terminal session (read-only). */
+  | Ev<"tool.terminal", { callId: string; sessionId: string }>
+  | Ev<"process.started", { process: MissionProcess }>
+  | Ev<"process.ended", { process: MissionProcess }>
+  /** L2: live only (recomputed after each model call). */
+  | Ev<"context.usage", { usage: ContextUsage }>
+  | Ev<"compaction.proposed", { summary: CompactionSummary }>
+  | Ev<"compaction.applied", { summary: CompactionSummary }>
+  | Ev<"compaction.dismissed", { summaryId: string }>
+  | Ev<"handoff.created", { dossier: HandoffDossier }>
+  | Ev<"model.switched", { fromModelId: string | null; toModelId: string; handoffSummaryId: string | null }>
+  /** L3: the model loaded a skill (or one of its files) with the `skill` tool. */
+  | Ev<"skill.loaded", { ref: SkillRef; name: string; path: RelativePath | null; chars: number }>
+  /** L4: the program of a run_chain call (preview ≤ 2 000 chars) and its outcome. */
+  | Ev<"chain.started", { callId: string; programPreview: string }>
+  | Ev<"chain.finished", { summary: ChainRunSummary }>
+  /** L5: on the PARENT mission. */
+  | Ev<"submission.started", { link: MissionLink; title: string }>
+  | Ev<"submission.updated", { link: MissionLink; childState: MissionState }>
+  /** L8. */
+  | Ev<"continuation.round", { round: number; maxRounds: number; unprovenTaskIds: string[] }>
+  | Ev<"continuation.stopped", { reason: ContinuationStopReason; rounds: number }>
+  /** L8: first event of a forked mission (after mission.created). */
+  | Ev<"mission.forked", { fromMissionId: string; fromSeq: number }>;
 
 export type MissionEventType = MissionEvent["type"];
 
+/** Event types added by J2-B (projected by the lanes' timeline views). */
+export const HARNESS_MISSION_EVENT_TYPES = [
+  "tool.terminal",
+  "process.started",
+  "process.ended",
+  "context.usage",
+  "compaction.proposed",
+  "compaction.applied",
+  "compaction.dismissed",
+  "handoff.created",
+  "model.switched",
+  "skill.loaded",
+  "chain.started",
+  "chain.finished",
+  "submission.started",
+  "submission.updated",
+  "continuation.round",
+  "continuation.stopped",
+  "mission.forked",
+] as const satisfies readonly MissionEventType[];
+export type HarnessMissionEventType = (typeof HARNESS_MISSION_EVENT_TYPES)[number];
+export type HarnessMissionEvent = Extract<MissionEvent, { type: HarnessMissionEventType }>;
+
 /** Events that are pushed live but never persisted. */
-export const LIVE_ONLY_MISSION_EVENTS: readonly MissionEventType[] = ["tool.output", "message.delta"];
+export const LIVE_ONLY_MISSION_EVENTS: readonly MissionEventType[] = ["tool.output", "message.delta", "context.usage"];
+
+/** Events the journal still accepts after the terminal one (cleanup and follow-up facts). */
+export const AFTER_TERMINAL_MISSION_EVENTS: readonly MissionEventType[] = [
+  "review.decided",
+  "budget.updated",
+  "process.ended",
+  "submission.updated",
+];
 
 export const TERMINAL_MISSION_EVENTS: readonly MissionEventType[] = [
   "mission.succeeded",
@@ -219,6 +314,8 @@ export const MissionContractInputSchema = z.object({
   webSearch: z.boolean(),
   maxDurationMs: z.int().min(10_000).max(24 * 60 * 60_000),
   budgetUsd: z.number().min(0).max(1_000),
+  /** J2-B options; absent = DEFAULT_MISSION_HARNESS. */
+  harness: MissionHarnessOptionsSchema.optional(),
 });
 export type MissionContractInput = z.infer<typeof MissionContractInputSchema>;
 

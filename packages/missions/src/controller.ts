@@ -7,6 +7,7 @@ import {
   OPERATION_CLASSES,
   isMcpToolName,
   isTerminalMissionState,
+  missionHarnessOf,
   type Checkpoint,
   type CheckpointsListRequest,
   type IsolationLevel,
@@ -143,6 +144,11 @@ export interface MissionControllerDeps {
   runtime(): Promise<RuntimeLink>;
   workspaces: { get(id: string): { id: string; permissionProfile: PermissionProfile } | null };
   facts?(workspaceId: string): Promise<WorkspaceFacts | null>;
+  /**
+   * L3: index of the skills enabled for the workspace (names + descriptions, bounded, labeled as
+   * data), appended to the mission's system prompt; null = none. Loaded in full only by `skill`.
+   */
+  skillIndex?(workspaceId: string): Promise<string | null>;
   /** Registry of one mission (built-ins over the injected APIs + enabled MCP tools snapshot). */
   tools(input: { workspaceId: string; missionId: string }): Promise<{ registry: ToolRegistry; mcpTools: readonly McpToolOffer[] }>;
   commands: Pick<CommandRunner, "stopAll"> | null;
@@ -321,6 +327,8 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
     webSearch: input?.webSearch ?? mode !== "discuss",
     maxDurationMs: input?.maxDurationMs ?? DEFAULT_MISSION_MAX_DURATION_MS,
     budgetUsd: input?.budgetUsd ?? DEFAULT_MISSION_BUDGET_USD,
+    // J2-B opt-ins travel with the journaled contract (mission.created / mission.started).
+    ...(input?.harness ? { harness: input.harness } : {}),
   });
 
   const contractRecord = (contract: MissionContract): MissionContractRecordLike => ({
@@ -501,7 +509,7 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
         tasks = deps.store.listTasks(record.id).map(({ updatedAt: _updatedAt, ...task }) => task);
       }
       const { registry, mcpTools } = await deps.tools({ workspaceId: record.workspaceId, missionId: record.id });
-      const allowedTools = missionToolSet(record.mode, { webSearch: contract.webSearch, mcpTools });
+      const allowedTools = missionToolSet(record.mode, { webSearch: contract.webSearch, mcpTools, harness: missionHarnessOf(contract) });
       const tools = registry.definitions(allowedTools);
       const lifetime = new AbortController();
       lifetimes.set(record.id, lifetime);
@@ -521,7 +529,16 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
       emitBudget(record.id);
       try {
         const runtime = await runtimeLink();
-        await runtime.start({ mission: toMission(mission(record.id)), contract, tasks, tools, planSummary: summaryOf(record.id) });
+        // A failing skill index never blocks a mission: it starts without skills.
+        const skillIndex = (await deps.skillIndex?.(record.workspaceId).catch(() => null)) ?? null;
+        await runtime.start({
+          mission: toMission(mission(record.id)),
+          contract,
+          tasks,
+          tools,
+          planSummary: summaryOf(record.id),
+          ...(skillIndex ? { skillIndex } : {}),
+        });
       } catch {
         append({ type: "mission.failed", missionId: record.id, reason: "internal", detail: "le runtime de l'agent est indisponible" });
         throw new MissionError("unavailable", "agent runtime unavailable");

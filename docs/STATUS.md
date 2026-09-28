@@ -6,6 +6,7 @@ Page de reprise : ce qui marche, ce qui a réellement été testé, ce qui ne l'
 
 - **Jalons en cours** : J0 (fondations) et J1 (vraie conversation) ; J2-A (« l'atelier s'ouvre ») intégré sur la branche `feat/j2a-atelier` (tête vérifiée : `643b286`, non poussée, CI non rejouée sur cette tête). Voir [`ROADMAP.md`](ROADMAP.md).
 - **Verdict** : non prêt pour la production. La tranche verticale du jalon 1 et les parcours J2-A (a) à (j) fonctionnent sur Linux x64 contre un faux serveur OpenRouter ; rien n'a encore été parcouru avec une vraie clé, et J2-A n'a pas tourné sur Windows ni macOS.
+- **J2-B « parité Harness », phase 0 (2026-09-28, branche `feat/j2b-parite-harness`)** : contrats partagés des huit voies (processus et terminal de l'agent, compaction et dossier de passation, skills, mode « Chaîne », sous-missions, missions planifiées, présence bureau et pilote automatique, missions « jusqu'à preuve » et chronologie), migration v6, dépôts et points d'extension (boucle, passerelle d'outils, lien runtime). Aucune fonction J2-B n'est encore visible : les huit groupes IPC répondent `unavailable` et aucun outil J2-B n'est proposé au modèle tant que sa voie n'est pas branchée.
 - **Vérification finale J2-A (2026-09-28)** : lint, types, 1 746 tests unitaires, build, suite Playwright complète 29/29 deux fois de suite et `vault-smoke` `os` au vert, sans correctif nécessaire (détail dans « Testé réellement »).
 - **Code** : commits sur `main` : `b48b9e4` (monorepo et contrat partagé), `a08ad93` (tranche verticale : application desktop, adaptateur OpenRouter, store SQLite, runtime, interface, CI, E2E), `996fd02` (logo : le concept de ruban du propriétaire redessiné en un seul tracé plein, icônes régénérées). Puis un commit de correctifs issus d'une revue adversariale (6 axes, 42 signalements, 40 confirmés par deux contre-vérificateurs, tous corrigés avec test de non-régression).
 
@@ -74,6 +75,9 @@ Environnement commun, sauf mention contraire : Linux x64, Ubuntu 26.04, Node 24.
 | 2026-09-28 | Vérification finale J2-A — `cd apps/desktop && npx electron-vite build` | Linux x64 | Build OK (13,1 s) ; seul avertissement : taille de bloc > 500 kB | Vérification finale J2-A |
 | 2026-09-28 | Vérification finale J2-A — `LD_LIBRARY_PATH=<.devdeps>/usr/lib/x86_64-linux-gnu timeout 1800 xvfb-run -a -s "-screen 0 1440x900x24" npx playwright test` (dans `apps/desktop`), lancé deux fois de suite | Linux x64, Electron 44.4.5, Xvfb 1440×900 | Passage 1 : 29/29 (2,5 min) ; passage 2 : 29/29 (2,4 min). `atelier-foundations` 3, `atelier-wiring` 3, `bridge-security` 7, `j2a-budget-crash` 2, `j2a-mcp` 1, `j2a-mission` 1, `j2a-permissions` 2, `j2a-terminal` 1, `j2a-web-nomi` 2, `j2a-workspace` 1, `ui-journey` 6 ; aucune relance | Vérification finale J2-A |
 | 2026-09-28 | Vérification finale J2-A — `NOVA_KEYRING_ROOT=<.devdeps> dbus-run-session -- bash e2e/run-with-keyring.sh xvfb-run -a node e2e/vault-smoke.mjs --expect os` | Linux x64, trousseau gnome-keyring privé | Code 0 : `level=os backend=gnome_libsecret expected=os` | Vérification finale J2-A |
+| 2026-09-28 | J2-B phase 0 — `pnpm lint`, `pnpm typecheck` | Linux x64 | Code 0, aucun avertissement ni erreur | Architecte J2-B |
+| 2026-09-28 | J2-B phase 0 — `pnpm test` | Linux x64, Vitest 5.0.2 | 145 fichiers réussis, 1 ignoré ; 1 788 tests réussis, 2 ignorés (contrats J2-B, migration v6 et dépôts, crochets de boucle, appels imbriqués de la passerelle, tranches de la vue mission) | Architecte J2-B |
+| 2026-09-28 | J2-B phase 0 — `npx electron-vite build` puis `xvfb-run -a npx playwright test` (dans `apps/desktop`) | Linux x64, Electron 44.4.5, Xvfb 1440×900 | Build OK ; 29/29 réussis (pont exposé : 27 groupes, dont les 8 groupes J2-B) | Architecte J2-B |
 | en attente | Scénario 1 manuel avec un vrai compte OpenRouter (réponse en continu réelle) | | à faire : demande une clé avec crédit | |
 
 ## Non vérifié
@@ -142,6 +146,7 @@ Format attendu d'une cellule remplie : « Oui — 2026-mm-jj, commande ou run CI
 
 ## Historique de cette page
 
+- 2026-09-28 — J2-B phase 0 : contrats, migration v6 (skills, plannings, liens de missions, résumés de compaction, recherche FTS du journal, parent des appels d'une chaîne), points d'extension, stubs `unavailable`.
 - 2026-09-28 — vérification finale J2-A sur `643b286` : lint, types, tests unitaires, build, Playwright 29/29 ×2, `vault-smoke` `os`.
 - 2026-09-27 — squelette initial.
 - 2026-09-27 — J2-A phase 0 (socle) : dépendances, contrat partagé, migrations v2–v5, workers, nonce CSP.

@@ -1,5 +1,6 @@
 // Domain types shared by the desktop main process, the runtime packages and the renderer.
 // Timestamps are epoch milliseconds. Unknown values are `null`, never guessed.
+import type { DetailDensity, OnboardingProfile } from "./desktop";
 
 export type ProviderId = "openrouter";
 
@@ -214,6 +215,27 @@ export interface AppSettings {
     /** OpenRouter `provider.data_collection`: `deny` routes only to providers that do not retain/train on prompts. */
     providerDataCollection: "deny" | "allow";
   };
+  /** J2-B L7: desktop presence. */
+  desktop: {
+    /** Opt-in: closing the window keeps missions, terminals and schedules running (tray). */
+    keepRunningOnClose: boolean;
+  };
+  /** J2-B L7: first-run choices; `profile` null = onboarding not done yet. */
+  onboarding: {
+    profile: OnboardingProfile | null;
+    completedAt: number | null;
+  };
+  /** J2-B L7: how much of a mission the cards show (display only). */
+  display: {
+    density: DetailDensity;
+  };
+  /** J2-B L7: Discuter helpers. */
+  chat: {
+    /** Autopilot: a classifier call picks reasoning effort and web per message (shown, overridable). */
+    autopilot: boolean;
+    /** Suggest a vision-capable model of the catalog when an image is pasted. */
+    suggestVisionModel: boolean;
+  };
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -221,6 +243,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultModelId: null,
   companion: { visible: true, motion: "system" },
   privacy: { providerDataCollection: "deny" },
+  desktop: { keepRunningOnClose: false },
+  onboarding: { profile: null, completedAt: null },
+  display: { density: "key_steps" },
+  chat: { autopilot: false, suggestVisionModel: true },
 };
 
 export interface AppInfo {

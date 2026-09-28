@@ -21,6 +21,8 @@ export interface ToolCallRecord {
   requestedAt: number;
   startedAt: number | null;
   finishedAt: number | null;
+  /** L4: the run_chain call that issued this call; null = direct call. */
+  parentCallId: string | null;
 }
 
 export interface NewToolCall {
@@ -29,6 +31,7 @@ export interface NewToolCall {
   tool: string;
   operation: OperationClassValue;
   arguments: unknown;
+  parentCallId?: string | null;
 }
 
 export interface ToolCallRepo {
@@ -56,6 +59,7 @@ function toToolCall(row: Row): ToolCallRecord {
     requestedAt: readNumber(row, "requested_at"),
     startedAt: readNumberOrNull(row, "started_at"),
     finishedAt: readNumberOrNull(row, "finished_at"),
+    parentCallId: readTextOrNull(row, "parent_call_id"),
   };
 }
 
@@ -67,9 +71,9 @@ export function createToolCallRepo(db: DatabaseSync, now: () => number = Date.no
   return {
     insert(input) {
       db.prepare(
-        `INSERT INTO tool_calls (id, mission_id, tool, operation, arguments_json, state, requested_at)
-         VALUES (?, ?, ?, ?, ?, 'requested', ?)`,
-      ).run(input.id, input.missionId, input.tool, input.operation, JSON.stringify(input.arguments ?? null), now());
+        `INSERT INTO tool_calls (id, mission_id, tool, operation, arguments_json, state, requested_at, parent_call_id)
+         VALUES (?, ?, ?, ?, ?, 'requested', ?, ?)`,
+      ).run(input.id, input.missionId, input.tool, input.operation, JSON.stringify(input.arguments ?? null), now(), input.parentCallId ?? null);
       const created = get(input.id);
       if (!created) throw new Error("Created tool call not found");
       return created;

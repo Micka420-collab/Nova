@@ -4,6 +4,7 @@ export {
   sourcesBlock,
   type ChatRunnerDeps,
   type ChatTurnContext,
+  type CompactedHistory,
   type RuntimeErrorCode,
   type RuntimeLogger,
 } from "./chat-runner";

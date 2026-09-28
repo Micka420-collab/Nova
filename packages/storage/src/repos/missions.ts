@@ -123,6 +123,8 @@ export interface MissionRepo {
   /** Updates the state; `startedAt`/`endedAt` are set once (first value wins). */
   setState(id: string, state: MissionStateValue, stamps?: { startedAt?: number; endedAt?: number }): MissionRecord | null;
   updateContract(id: string, contract: Omit<MissionContractRecord, "createdAt">): void;
+  /** A15: the model of the mission after a handoff; returns null for an unknown mission. */
+  setModel(id: string, modelId: string): MissionRecord | null;
   /** Most recently updated first; `workspaceId` null = every workspace. */
   list(workspaceId: string | null, limit: number): { items: MissionRecord[]; hasMore: boolean };
   /** Missions left in a non-terminal, non-ready state (for recovery after a restart). */
@@ -281,6 +283,11 @@ export function createMissionRepo(db: DatabaseSync, now: () => number = Date.now
            started_at = coalesce(started_at, ?), ended_at = coalesce(ended_at, ?)
          WHERE id = ?`,
       ).run(state, now(), stamps.startedAt ?? null, stamps.endedAt ?? null, id);
+      return get(id);
+    },
+
+    setModel(id, modelId) {
+      db.prepare("UPDATE missions SET model_id = ?, updated_at = ? WHERE id = ?").run(modelId, now(), id);
       return get(id);
     },
 

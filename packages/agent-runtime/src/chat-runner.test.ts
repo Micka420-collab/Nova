@@ -829,3 +829,31 @@ describe("ChatRunner attachments and web (C6/W1)", () => {
     expect(refusing.store.listConversations({}).items).toEqual([]);
   });
 });
+
+describe("ChatRunner applied compaction (J2-B L2 hook)", () => {
+  it("sends the applied summary instead of the history it covers, and nothing else changes", async () => {
+    const seen: number[] = [];
+    const { provider, runner, store } = setup({
+      historyForModel: (_conversationId, history) => {
+        seen.push(history.length);
+        // Pretend everything but the latest question was compacted by the user.
+        return history.length > 1 ? { summary: "Le panier a été corrigé.", history: history.slice(-1) } : null;
+      },
+    });
+    provider.push(answer("Premier."));
+    const first = await runner.send(fresh("Corrige le panier"));
+    await runner.idle();
+    expect(provider.calls[0]?.request.messages.map((message) => message.role)).toEqual(["system", "user"]);
+
+    provider.push(answer("Second."));
+    await runner.send({ conversationId: first.conversation.id, content: "Et la facture ?", modelId: MODEL });
+    await runner.idle();
+    expect(provider.calls[1]?.request.messages.slice(1)).toEqual([
+      { role: "system", content: "Summary of the earlier conversation (approved by the user):\nLe panier a été corrigé." },
+      { role: "user", content: "Et la facture ?" },
+    ]);
+    // Stored history is untouched: compaction changes what is sent, never what is kept.
+    expect(store.listMessages(first.conversation.id)).toHaveLength(4);
+    expect(seen).toEqual([1, 3]);
+  });
+});
