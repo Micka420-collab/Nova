@@ -77,9 +77,17 @@ test("(e) terminal: a command runs in the project folder, Ctrl+C stops a running
   await page.keyboard.press("Control+c");
   await expect.poll(() => alive(spawnedPid ?? 0), { timeout: 10_000 }).toBe(false);
 
-  // The shell survived the interrupt and still runs commands.
-  await runNode(page, "require('fs').writeFileSync('after.txt', 'ok')");
-  await expect.poll(() => existsSync(join(project, "after.txt"))).toBe(true);
+  // The shell survived the interrupt and still runs commands. Keys typed while it redraws its
+  // prompt after the interrupt can be lost (pwsh then waits on a half line): like a user, clear the
+  // line with Ctrl+C and type the command again.
+  const after = join(project, "after.txt");
+  for (let attempt = 0; attempt < 3 && !existsSync(after); attempt += 1) {
+    if (attempt > 0) await page.keyboard.press("Control+c");
+    await page.waitForTimeout(500);
+    await runNode(page, "require('fs').writeFileSync('after.txt', 'ok')");
+    await expect.poll(() => existsSync(after), { timeout: 5_000 }).toBe(true).catch(() => undefined);
+  }
+  expect(existsSync(after)).toBe(true);
   await expect(panel.getByRole("tab", { name: /En cours/ }).first()).toBeVisible();
   await shot(page, "j2a-15-terminal-interrupted");
 });
