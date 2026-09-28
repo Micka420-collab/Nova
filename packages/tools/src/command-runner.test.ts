@@ -81,6 +81,20 @@ describe("process command runner", { timeout: 30_000 }, () => {
     expect(runner.list("m")).toEqual([]);
   });
 
+  it.skipIf(process.platform === "win32")("stopEverything kills background and in-flight runs of every mission, then refuses launches", async () => {
+    const own = createProcessCommandRunner({ resolveCwd: async () => root, killGraceMs: 200, backgroundSettleMs: 20_000 });
+    const server = await own.startBackground(spec([node, "-e", "console.log('ready'); setInterval(()=>{},1000)"]));
+    const other = await own.startBackground({ ...spec([node, "-e", "console.log('ready'); setInterval(()=>{},1000)"]), missionId: "other" });
+    const foreground = own.run(spec([node, "-e", "setInterval(()=>{},1000)"], { timeoutMs: 60_000 }), new AbortController().signal);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await own.stopEverything();
+    expect(alive(server.process.pid ?? -1)).toBe(false);
+    expect(alive(other.process.pid ?? -1)).toBe(false);
+    expect((await foreground).signal).not.toBeNull();
+    expect(own.list("m")).toEqual([]);
+    await expect(own.run(spec([node, "-e", ""]), new AbortController().signal)).rejects.toMatchObject({ code: "cancelled" });
+  });
+
   // Simulated on POSIX: a fake ComSpec prints the argv it receives, one per line.
   it.skipIf(process.platform === "win32")("starts a Windows batch shim (pnpm.cmd) through cmd.exe with escaped arguments", async () => {
     const bin = join(root, "win-bin");

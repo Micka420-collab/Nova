@@ -121,14 +121,28 @@ const ISOLATION: IsolationLevel = "L0";
 /** Quiet time after the first output of a background process before startBackground returns. */
 const BACKGROUND_QUIET_MS = 150;
 
-export function createProcessCommandRunner(options: ProcessCommandRunnerOptions): CommandRunner {
+/** The main-process runner: its owner also stops every process it started when the app quits. */
+export interface ProcessCommandRunner extends CommandRunner {
+  /**
+   * Kills every process tree still running (background AND in-flight foreground runs, all
+   * missions) and refuses new launches. Detached POSIX groups get no SIGHUP when NOVA exits, so
+   * without this a dev server started by a mission outlives the app.
+   */
+  stopEverything(): Promise<void>;
+}
+
+export function createProcessCommandRunner(options: ProcessCommandRunnerOptions): ProcessCommandRunner {
   const platform = options.platform ?? process.platform;
   const maxOutput = options.maxOutputBytes ?? TOOL_LIMITS.commandOutputMaxBytes;
   const killGraceMs = options.killGraceMs ?? 2_000;
   const settleMs = options.backgroundSettleMs ?? 5_000;
   const background = new Map<string, { info: BackgroundProcess; running: Running }>();
+  /** Every live child (foreground and background), for stopEverything. */
+  const live = new Set<Running>();
+  let stopped = false;
 
   async function launch(spec: CommandSpec): Promise<Running> {
+    if (stopped) throw new ToolFailure("cancelled", "NOVA is shutting down");
     const [program, ...args] = spec.argv;
     if (!program) throw new ToolFailure("invalid_arguments", "argv is empty");
     const cwd = await options.resolveCwd(spec.workspaceId, spec.cwd);
@@ -161,7 +175,12 @@ export function createProcessCommandRunner(options: ProcessCommandRunnerOptions)
       child.once("spawn", () => resolve());
       exited.catch(reject);
     });
-    return { child, exited };
+    const running = { child, exited };
+    live.add(running);
+    void exited.catch(() => undefined).finally(() => live.delete(running));
+    // Launched while stopEverything was already running: it would not see this child.
+    if (stopped) void killTree(running);
+    return running;
   }
 
   async function killTree(running: Running): Promise<void> {
@@ -300,6 +319,12 @@ export function createProcessCommandRunner(options: ProcessCommandRunnerOptions)
     async stopAll(missionId) {
       const ids = [...background.values()].filter((entry) => entry.info.missionId === missionId).map((entry) => entry.info.id);
       await Promise.all(ids.map((id) => this.stop(id)));
+    },
+
+    async stopEverything() {
+      stopped = true;
+      await Promise.all([...live].map((running) => killTree(running)));
+      background.clear();
     },
   };
 }

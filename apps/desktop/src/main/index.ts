@@ -476,9 +476,14 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
     shutdown ??= (async () => {
       runner.stopAll();
       companion?.dispose();
-      await mcp.shutdown().catch((error: unknown) => logger.warn("mcp shutdown failed", { error: describeError(error) }));
-      workers.stopAll();
       const timeout = new Promise<void>((resolve) => setTimeout(resolve, QUIT_IDLE_TIMEOUT_MS));
+      // Agent processes run in detached groups: nothing else kills them once NOVA exits.
+      const commandsStopped = commandRunner
+        .stopEverything()
+        .catch((error: unknown) => logger.warn("agent processes stop failed", { error: describeError(error) }));
+      await mcp.shutdown().catch((error: unknown) => logger.warn("mcp shutdown failed", { error: describeError(error) }));
+      await Promise.race([commandsStopped, timeout]);
+      workers.stopAll();
       await Promise.race([runner.idle(), timeout]);
       store.close();
       logger.info("stopped");

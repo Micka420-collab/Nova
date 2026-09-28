@@ -107,6 +107,7 @@ export { parseToolArguments } from "./args";
 export {
   createProcessCommandRunner,
   scrubCommandEnv,
+  type ProcessCommandRunner,
   type ProcessCommandRunnerOptions,
 } from "./command-runner";
 export { ToolFailure, capText, errorResult, makeResult, provenance, wrapUntrusted } from "./content";
