@@ -67,4 +67,10 @@ describe("ripgrep search", () => {
     expect(match).toEqual({ path: "a.txt", line: 3, lineText: "ééx", ranges: [{ start: 2, end: 3 }] });
     expect(toSearchMatch({ path: { text: "../x" }, lines: { text: "a" }, line_number: 1 })).toBeNull();
   });
+
+  it("reads the Windows form of ripgrep paths (`.\\src\\cart.ts`)", () => {
+    const match = toSearchMatch({ path: { text: ".\\src\\cart.ts" }, lines: { text: "return items.length;\r\n" }, line_number: 2 });
+    expect(match).toEqual({ path: "src/cart.ts", line: 2, lineText: "return items.length;", ranges: [] });
+    expect(toSearchMatch({ path: { text: ".\\..\\x" }, lines: { text: "a" }, line_number: 1 })).toBeNull();
+  });
 });

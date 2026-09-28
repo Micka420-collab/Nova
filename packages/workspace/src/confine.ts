@@ -24,11 +24,14 @@ export async function canonicalRoot(folder: string): Promise<string> {
   return real;
 }
 
-/** True when `absolute` is `root` itself or below it (both already canonical). */
+/**
+ * True when `absolute` is `root` itself or below it (both already canonical). "Itself" is decided
+ * by `relative`, not string equality: chokidar hands its root back as `C:/w` for a root `C:\w`, or
+ * with a trailing separator, and treating that as outside ignored the whole watched tree.
+ */
 export function isInsideRoot(root: string, absolute: string): boolean {
-  if (absolute === root) return true;
   const rel = relative(root, absolute);
-  return rel !== "" && !rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel);
+  return rel === "" || (!rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel));
 }
 
 /** Canonical workspace-relative form of an absolute path, or null when it is outside the root. */

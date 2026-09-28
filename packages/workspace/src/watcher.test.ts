@@ -1,5 +1,6 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, sep } from "node:path";
+import { atomicWrite } from "./files";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createIgnoreMatcher } from "./ignore-rules";
 import { makeTempDir, type TempDir } from "./test-support";
@@ -29,6 +30,22 @@ async function until(predicate: () => boolean, timeoutMs = 4_000): Promise<void>
 }
 
 describe("workspace watcher", () => {
+  it("watches the tree when chokidar spells the root differently from the workspace root", async () => {
+    await workspace.write("src/cart.js", "a\n");
+    const batches: WatchBatch[] = [];
+    // chokidar normalizes the root it hands back to `ignored` (`C:/w` for `C:\\w` on Windows; here
+    // `/w` for `/w/.`): the watcher must not take it for a path outside the workspace.
+    watcher = await watchWorkspace(`${workspace.path}${sep}.`, createIgnoreMatcher(workspace.path), (batch) => batches.push(batch), {
+      debounceMs: 30,
+    });
+    await watcher.ready;
+    // An editor save (temp file renamed over the target) is reported as a change of the file.
+    await atomicWrite(join(workspace.path, "src", "cart.js"), "b\n");
+    const seen = (): string[] => batches.flatMap((batch) => (batch.type === "changes" ? batch.changes.map((c) => `${c.kind}:${c.path}`) : []));
+    await until(() => seen().includes("changed:src/cart.js")).catch(() => undefined);
+    expect(seen()).toContain("changed:src/cart.js");
+  });
+
   it("reports created and deleted files in debounced batches, skipping ignored folders", async () => {
     const batches: WatchBatch[] = [];
     watcher = await watchWorkspace(workspace.path, createIgnoreMatcher(workspace.path), (batch) => batches.push(batch), {
