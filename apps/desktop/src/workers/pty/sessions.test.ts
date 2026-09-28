@@ -310,6 +310,20 @@ describe("PtySessions rules", () => {
     expect(pty.written).toEqual(["fresh"]);
   });
 
+  it("a reattach while output is pending sends it once, inside the replay", async () => {
+    const pty = new FakePty();
+    const { sessions } = fakeSessions(pty, { coalesceMs: 10_000 });
+    const session = await sessions.create(params(), new FakePort());
+    pty.emit("earlier\r\n");
+    const second = new FakePort();
+    sessions.attach(session.id, second);
+    pty.emit("later");
+    const third = new FakePort();
+    sessions.attach(session.id, third);
+    expect(third.messages).toEqual([{ type: "replay", data: "earlier\r\nlater" }]);
+    expect(second.messages).toEqual([{ type: "replay", data: "earlier\r\n" }, { type: "output", data: "later" }]);
+  });
+
   it("reports a signal death with an unknown exit code", async () => {
     const pty = new FakePty();
     const { sessions, exits } = fakeSessions(pty);

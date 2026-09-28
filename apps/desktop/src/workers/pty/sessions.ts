@@ -237,10 +237,12 @@ export class PtySessions {
   }
 
   private bindPort(session: Session, port: HostPort): void {
+    // Pending output joins the scrollback (and the old viewer) first: the replay below carries it,
+    // so posting it again to the new port would print it twice.
+    this.flush(session);
     const previous = session.port;
     session.port = port;
     previous?.close();
-    this.flush(session);
     port.on("message", (event) => this.onClientMessage(session, port, event.data));
     port.on("close", () => {
       if (session.port !== port) return;
