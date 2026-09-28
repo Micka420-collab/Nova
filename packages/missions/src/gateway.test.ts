@@ -222,6 +222,22 @@ describe("tool gateway", () => {
     });
   });
 
+  it("never journals nor proves a secret carried by a command line or its output", async () => {
+    const SECRET = "sk-or-v1-abcdefghijklmnopqrst0123";
+    const runner = fakeTestRunner();
+    const h = setup({
+      deps: {
+        commands: { ...runner, run: async (spec, signal) => ({ ...(await runner.run(spec, signal)), output: `token=${SECRET}\n` }) },
+      },
+    });
+    const result = await h.call("run_command", { argv: ["curl", "-H", `Authorization: Bearer ${SECRET}`, "https://api.example.com"] }).result;
+    expect(result).toMatchObject({ ok: true, display: { kind: "command" } });
+    const persisted = h.events.filter((event) => event.type === "tool.requested" || event.type === "tool.finished" || event.type === "proof.recorded");
+    expect(persisted.map((event) => event.type)).toEqual(["tool.requested", "proof.recorded", "tool.finished"]);
+    expect(JSON.stringify(persisted)).not.toContain(SECRET);
+    expect(JSON.stringify(result.display)).not.toContain(SECRET);
+  });
+
   it("stops forwarding live output once the call has finished", async () => {
     let late: ((stream: "stdout" | "stderr", chunk: string) => void) | undefined;
     const runner = fakeTestRunner();

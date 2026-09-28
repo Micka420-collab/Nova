@@ -144,6 +144,21 @@ function preview(raw: string): string {
   return text.length > 2_000 ? `${text.slice(0, 2_000)}…` : text;
 }
 
+/**
+ * What is journaled, stored as a proof and pushed to the renderer never holds a secret: a command
+ * line or its output may carry a token (`-H "Authorization: Bearer …"`). Idempotent.
+ */
+function redactDisplay(display: ToolDisplay): ToolDisplay {
+  switch (display.kind) {
+    case "command":
+      return { ...display, argv: display.argv.map(redactSecrets), outputTail: redactSecrets(display.outputTail) };
+    case "error":
+      return { ...display, message: redactSecrets(display.message) };
+    default:
+      return display;
+  }
+}
+
 function finishedState(result: ToolResult): "succeeded" | "failed" | "cancelled" {
   if (result.ok) return "succeeded";
   return result.display.kind === "error" && result.display.code === "cancelled" ? "cancelled" : "failed";
@@ -245,7 +260,7 @@ export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
         argumentsPreview: preview(request.rawArguments),
         path: first.path ?? null,
         host: first.host ?? null,
-        argv: first.argv ?? null,
+        argv: first.argv?.map(redactSecrets) ?? null,
       };
       const started = now();
       const missionHosts = missionHostsOf(context.contract);
@@ -253,9 +268,10 @@ export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
       deps.journal.append({ type: "tool.requested", missionId: context.missionId, call: summary, taskId: null });
 
       let finished = false;
-      const finish = (state: "succeeded" | "failed" | "cancelled" | "denied", result: ToolResult): ToolResult => {
-        if (finished) return result;
+      const finish = (state: "succeeded" | "failed" | "cancelled" | "denied", raw: ToolResult): ToolResult => {
+        if (finished) return raw;
         finished = true;
+        const result = { ...raw, display: redactDisplay(raw.display) };
         deps.toolCalls.finish(request.id, state, { exitCode: exitCodeOf(result.display), resultSummary: summaryOf(result) });
         deps.journal.append({
           type: "tool.finished",
@@ -409,6 +425,8 @@ export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
           },
         });
         if (result.provenance.untrusted) context.tainted = true;
+        // Redacted once here: the proof, the journal and the evidence all see the same argv.
+        result = { ...result, display: redactDisplay(result.display), ...(result.argv ? { argv: result.argv.map(redactSecrets) } : {}) };
         result = recordProof(deps, context.missionId, request.id, result);
         const { argv: _argv, ...forModel } = result;
         finish(finishedState(result), result);
