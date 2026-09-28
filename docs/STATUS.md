@@ -72,6 +72,7 @@ Environnement commun, sauf mention contraire : Linux x64, Ubuntu 26.04, Node 24.
   - inspecteur de contexte exact (`chat.previewContext`) et mentions transmises au plan de mission (`MissionPlanRequest.mentions`) ; « Relancer » repart sans les pièces jointes ;
   - recherche projet en flux (MessagePort), lecture paginée des fichiers de 5 à 50 Mo et aperçu hexadécimal ; `truncated` sur `files.list` ;
   - relancer directement une réponse échouée depuis la bulle de Nomi (elle ouvre la conversation) ; commandes de Nomi une à une dans la palette (la palette ouvre le menu de Nomi, Ctrl+Maj+N) ;
+  - commandes de l'agent dans le terminal (E13, partie agent) : `run_command` / `run_tests` s'exécutent dans main (`child_process`, L0), jamais dans le pty-host ; les sessions d'agent en lecture seule et « Prendre la main » existent dans le pty-host et le panneau, mais aucune mission n'en crée (`createAgentSession` n'a pas d'appelant) : le dock ne montre donc jamais de commande de l'agent ;
   - vue scindée du terminal, blocs OSC 133 ; editorconfig, minimap ; profils Vim/Emacs ; panneaux Ctrl+1…9 ;
   - jetons de l'atelier encore dans `packages/ui/src/styles/agent.css` (à déplacer dans `tokens.css` avec tests de contraste) ; contraste de `--nv-match-bg` en sombre (3,72:1) à corriger dans VISUAL.md.
 - Avis de licence (OFL, ISC) présents dans le paquet.

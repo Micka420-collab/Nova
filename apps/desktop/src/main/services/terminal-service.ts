@@ -3,8 +3,9 @@
 // - the data channel: for `create` and `attach`, a MessageChannelMain whose first port goes to the
 //   pty-host and whose second port is sent to the window through the port relay (IPC_CHANNELS
 //   .portTransfer). Terminal data then flows renderer <-> pty-host without crossing ipcMain;
-// - who may type: user sessions come from the renderer, agent sessions only from the mission
-//   runtime (`createAgentSession`), read-only until `takeOver`.
+// - who may type: user sessions come from the renderer; agent sessions (read-only until `takeOver`)
+//   only from `createAgentSession`, which NO mission calls yet: run_command/run_tests run in main
+//   through @nova/tools' process runner, so the dock shows no agent command (docs/STATUS.md).
 import { randomUUID } from "node:crypto";
 import type { MessagePortMain } from "electron";
 import type { NovaPortEnvelope, TerminalEvent, TerminalSession } from "@nova/shared";

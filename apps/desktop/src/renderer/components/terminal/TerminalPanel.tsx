@@ -1,6 +1,7 @@
 // Dock terminal panel (FEATURES E13, VISUAL §4.5 and §5.6): session tabs, one xterm per session
 // (all kept mounted so switching tabs keeps their screen), status line with the exit code,
-// "Expliquer" actions, search, agent sessions read-only until "Prendre la main".
+// "Expliquer" actions, search. Agent sessions (read-only until "Prendre la main") are rendered if
+// main creates one, but no mission does yet (docs/STATUS.md, E13 agent part not delivered).
 // Data never goes through invoke: each view gets its session's MessagePort from the port registry
 // (a fresh `create` sends one; otherwise `terminal.attach` asks main for a new one + replay).
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
