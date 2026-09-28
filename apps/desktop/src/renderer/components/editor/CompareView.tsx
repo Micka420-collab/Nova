@@ -1,11 +1,11 @@
 // Side-by-side comparison of the disk version and the user's buffer (@codemirror/merge), opened
 // from the conflict banner. The user's side stays editable; margin arrows copy a disk block into it.
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MergeView } from "@codemirror/merge";
 import { syntaxHighlighting } from "@codemirror/language";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, lineNumbers } from "@codemirror/view";
-import { Button } from "@nova/ui";
+import { Button, Callout } from "@nova/ui";
 import { styleNonce } from "../../lib/csp-nonce";
 import { novaHighlighter } from "./codemirror/highlight";
 import { loadLanguage } from "./codemirror/languages";
@@ -37,6 +37,9 @@ function sideExtensions(label: string, language: Compartment, readOnly: boolean)
 export function CompareView({ path, diskText, mineText, onApply, onCancel }: CompareViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<MergeView | null>(null);
+  // Initial texts only: the view is built once per file, the user's merge lives in side B.
+  const initial = useRef({ diskText, mineText });
+  const [diskMoved, setDiskMoved] = useState(false);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -44,8 +47,8 @@ export function CompareView({ path, diskText, mineText, onApply, onCancel }: Com
     const languageA = new Compartment();
     const languageB = new Compartment();
     const view = new MergeView({
-      a: { doc: diskText, extensions: sideExtensions(editorCopy.compareDisk, languageA, true) },
-      b: { doc: mineText, extensions: sideExtensions(editorCopy.compareMine, languageB, false) },
+      a: { doc: initial.current.diskText, extensions: sideExtensions(editorCopy.compareDisk, languageA, true) },
+      b: { doc: initial.current.mineText, extensions: sideExtensions(editorCopy.compareMine, languageB, false) },
       parent: host,
       revertControls: "a-to-b",
       highlightChanges: true,
@@ -64,7 +67,16 @@ export function CompareView({ path, diskText, mineText, onApply, onCancel }: Com
       viewRef.current = null;
       view.destroy();
     };
-  }, [path, diskText, mineText]);
+  }, [path]);
+
+  // The disk changed again while merging: show its new version on side A, keep side B (the
+  // user's work) untouched, and say so. The result then applies over this newest disk version.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || view.a.state.doc.toString() === diskText) return;
+    view.a.dispatch({ changes: { from: 0, to: view.a.state.doc.length, insert: diskText } });
+    setDiskMoved(true);
+  }, [diskText]);
 
   return (
     <section className="nv-compare" aria-label={editorCopy.compareLabel}>
@@ -72,6 +84,7 @@ export function CompareView({ path, diskText, mineText, onApply, onCancel }: Com
         <span className="nv-compare__side">{editorCopy.compareDisk}</span>
         <span className="nv-compare__side">{editorCopy.compareMine}</span>
       </div>
+      {diskMoved ? <Callout tone="warning">{editorCopy.compareDiskMoved}</Callout> : null}
       <div ref={hostRef} className="nv-compare__body" />
       <div className="nv-compare__footer">
         <p className="nv-compare__hint">{editorCopy.compareHint}</p>

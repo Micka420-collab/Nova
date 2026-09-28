@@ -62,6 +62,7 @@ export const editorCopy = {
   compareApply: "Utiliser ce résultat",
   compareCancel: "Fermer la comparaison",
   compareHint: "Les flèches de la marge copient un bloc du disque dans ta version.",
+  compareDiskMoved: "Le disque a encore changé : « Sur le disque » montre sa nouvelle version. Ta version est conservée.",
 
   closeDirtyTitle: (name: string) => `Enregistrer les modifications de ${name} ?`,
   closeDirtyDetail: "Si tu fermes sans enregistrer, tes modifications seront perdues.",
