@@ -140,8 +140,13 @@ describe("PermissionsService", () => {
       const read = (path: string): PermissionRequest => ({ workspaceId, missionId, tool: "read_file", operation: "read", path, mode: "fix" });
       expect(await onDisk.evaluateOnDisk(read("lien/temoin.txt"), { toolCallId: null })).toMatchObject({ decision: "deny", reason: "outside_workspace" });
       expect(await onDisk.evaluateOnDisk(read("src/new.ts"), { toolCallId: null })).toMatchObject({ decision: "allow" });
+      // A symlink staying inside is judged at its target: an innocent name cannot reach `.env`.
+      writeFileSync(join(root, ".env"), "TOKEN=x");
+      symlinkSync(".env", join(root, "notes.txt"));
+      expect(await onDisk.evaluateOnDisk(read("notes.txt"), { toolCallId: null })).toMatchObject({ decision: "deny", reason: "excluded_path" });
       const rows = audit.list({ action: "permission.decision" });
       expect(rows.map((row) => [row.decision, row.target, row.dataSummary?.["reason"]])).toEqual([
+        ["deny", ".env", "excluded_path"],
         ["allow", "src/new.ts", "profile_allows"],
         ["deny", "lien/temoin.txt", "outside_workspace"],
       ]);

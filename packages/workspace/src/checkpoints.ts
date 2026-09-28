@@ -45,13 +45,22 @@ export interface CheckpointIndex {
   referencedHashes(): Set<ContentHash>;
 }
 
+/**
+ * Largest file a checkpoint captures. Above it a change the agent cannot undo is refused rather
+ * than recorded: its bytes would be read, hashed and compressed in main, and restoring needs them.
+ */
+export const CHECKPOINT_FILE_MAX_BYTES = 50 * 1024 * 1024;
+
 export interface PendingSnapshot {
   readonly checkpointId: string;
   readonly path: RelativePath;
   /** null = the file did not exist before the write. */
   readonly beforeHash: ContentHash | null;
-  /** Records the row once the write happened (`null` = the change deleted the file). */
-  commit(after: Uint8Array | string | null): Promise<CheckpointFile>;
+  /**
+   * Records the row once the write happened (`null` = the change deleted the file; `{ moved }` = the
+   * file now holds the bytes another snapshot captured, e.g. the source of a move, not reread).
+   */
+  commit(after: Uint8Array | string | null | { moved: PendingSnapshot }): Promise<CheckpointFile>;
   /** The write did not happen: nothing is recorded. */
   discard(): void;
 }
@@ -142,7 +151,12 @@ export function createCheckpointStore(deps: CheckpointStoreDeps): CheckpointStor
 
     async snapshotBeforeWrite({ checkpointId, root, path, seenHash }) {
       requireCheckpoint(checkpointId);
-      const bytes = await readBytesOrNull(root, path);
+      const bytes = await readBytesOrNull(root, path, CHECKPOINT_FILE_MAX_BYTES).catch((error: unknown) => {
+        if (error instanceof WorkspaceError && error.code === "too_large") {
+          throw new WorkspaceError("too_large", `${error.message}: too large for a restore point, so it cannot be changed here (the user can)`);
+        }
+        throw error;
+      });
       const beforeHash = bytes === null ? null : await objects.put(bytes);
       if (beforeHash) hold(beforeHash);
       const userHashSeen = seenHash !== undefined && seenHash !== beforeHash ? beforeHash : null;
@@ -157,7 +171,8 @@ export function createCheckpointStore(deps: CheckpointStoreDeps): CheckpointStor
         path,
         beforeHash,
         async commit(after) {
-          const afterHash = after === null ? null : await objects.put(toBytes(after));
+          const afterHash =
+            after === null ? null : typeof after === "object" && "moved" in after ? after.moved.beforeHash : await objects.put(toBytes(after));
           settle();
           const file: CheckpointFile = { checkpointId, path, beforeHash, afterHash, userHashSeen };
           index.upsertFile(file);

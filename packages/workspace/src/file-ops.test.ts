@@ -1,7 +1,8 @@
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, rename, symlink, truncate, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createCheckpointStore, type CheckpointStore } from "./checkpoints";
+import { CHECKPOINT_FILE_MAX_BYTES, createCheckpointStore, type CheckpointStore } from "./checkpoints";
 import { createWorkspaceFileOps, type WorkspaceFileOps } from "./file-ops";
 import { sha256 } from "./hash";
 import { createIgnoreMatcher } from "./ignore-rules";
@@ -143,5 +144,75 @@ describe("agent file operations", () => {
     const restored = await checkpoints.restoreAll({ checkpointId, root: workspace.path });
     expect(restored.results.every((result) => result.status === "restored")).toBe(true);
     expect(await read("src/one.ts")).toBe("export const one = 1;\n");
+  });
+
+  it("applies C8 to what a symlink inside the workspace leads to (reads, writes, moves, trash)", async () => {
+    await workspace.write(".env", "TOKEN=x");
+    await workspace.write("docs/readme.md", "r");
+    await mkdir(join(workspace.path, ".git", "hooks"), { recursive: true });
+    await symlink(".env", join(workspace.path, "notes.txt"));
+    await symlink(".git", join(workspace.path, "gitlink"));
+    await expect(ops.readFile("notes.txt")).rejects.toMatchObject({ code: "excluded_path" });
+    await expect(ops.list("gitlink")).rejects.toMatchObject({ code: "excluded_path" });
+    await expect(
+      ops.writeFile("gitlink/hooks/pre-commit", "#!/bin/sh\n", { expectedHash: null, checkpointId }),
+    ).rejects.toMatchObject({ code: "excluded_path" });
+    await expect(ops.writeFile("gitlink/new/dir/x", "x", { expectedHash: null, checkpointId })).rejects.toMatchObject({
+      code: "excluded_path",
+    });
+    await expect(ops.move("docs/readme.md", "gitlink/hooks/post-checkout", { checkpointId })).rejects.toMatchObject({
+      code: "excluded_path",
+    });
+    expect(existsSync(join(workspace.path, ".git", "hooks", "pre-commit"))).toBe(false);
+    expect(existsSync(join(workspace.path, ".git", "new"))).toBe(false);
+    expect(await read("docs/readme.md")).toBe("r");
+  });
+
+  it("follows .novaignore changes without a restart, and never lets the agent rewrite it", async () => {
+    await workspace.write("private/notes.txt", "secret plans");
+    expect((await ops.readFile("private/notes.txt")).content).toBe("secret plans");
+    await writeFile(join(workspace.path, ".novaignore"), "private/\n");
+    await expect(ops.readFile("private/notes.txt")).rejects.toMatchObject({ code: "excluded_path" });
+    expect((await ops.readFile(".novaignore")).content).toBe("private/");
+    await expect(ops.writeFile(".novaignore", "", { expectedHash: sha256("private/\n"), checkpointId })).rejects.toMatchObject({
+      code: "excluded_path",
+    });
+    await expect(ops.trash(".novaignore", { checkpointId })).rejects.toMatchObject({ code: "excluded_path" });
+    expect(await read(".novaignore")).toBe("private/\n");
+  });
+
+  it("checkpoints every file of a moved or trashed folder, restorably, and refuses folders holding excluded files", async () => {
+    await workspace.write("src/legacy/a.ts", "a");
+    await workspace.write("src/legacy/deep/b.ts", "b");
+    await workspace.write("tools/c.ts", "c");
+    await ops.trash("src/legacy", { checkpointId });
+    await ops.move("tools", "lib", { checkpointId });
+    const files = checkpoints.get(checkpointId)?.files ?? [];
+    expect(files.map((file) => [file.path, file.beforeHash, file.afterHash])).toEqual([
+      ["lib/c.ts", null, sha256("c")],
+      ["src/legacy/a.ts", sha256("a"), null],
+      ["src/legacy/deep/b.ts", sha256("b"), null],
+      ["tools/c.ts", sha256("c"), null],
+    ]);
+    const restored = await checkpoints.restoreAll({ checkpointId, root: workspace.path });
+    expect(restored.results.every((result) => result.status === "restored")).toBe(true);
+    expect([await read("src/legacy/a.ts"), await read("src/legacy/deep/b.ts"), await read("tools/c.ts")]).toEqual(["a", "b", "c"]);
+    expect(existsSync(join(workspace.path, "lib", "c.ts"))).toBe(false);
+
+    await workspace.write("app/.env", "TOKEN=x");
+    await expect(ops.trash("app", { checkpointId })).rejects.toMatchObject({ code: "excluded_path" });
+    await expect(ops.move("app", "app2", { checkpointId })).rejects.toMatchObject({ code: "excluded_path" });
+    expect(trashed).toEqual([join(workspace.path, "src", "legacy")]);
+    expect(await read("app/.env")).toBe("TOKEN=x");
+  });
+
+  it("refuses to move or trash a file too large for a restore point, from its size alone", async () => {
+    await workspace.write("data/big.bin", "");
+    await truncate(join(workspace.path, "data", "big.bin"), CHECKPOINT_FILE_MAX_BYTES + 1);
+    await expect(ops.trash("data/big.bin", { checkpointId })).rejects.toMatchObject({ code: "too_large" });
+    await expect(ops.move("data/big.bin", "data/moved.bin", { checkpointId })).rejects.toMatchObject({ code: "too_large" });
+    expect(trashed).toEqual([]);
+    expect(existsSync(join(workspace.path, "data", "big.bin"))).toBe(true);
+    expect(checkpoints.get(checkpointId)?.files).toEqual([]);
   });
 });

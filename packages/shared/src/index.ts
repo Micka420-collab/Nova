@@ -1,5 +1,6 @@
 export * from "./companion";
 export * from "./domain";
+export * from "./env";
 export * from "./git";
 export * from "./ids";
 export * from "./ipc";

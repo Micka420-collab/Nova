@@ -2,16 +2,20 @@
 // write_file, edit_file, move_path, delete_path. Runs wherever the tools execute (main); it is
 // NOT a permission check (main evaluates permissions before calling), but it enforces the hard
 // guarantees every tool relies on:
-// - confinement (S2) and C8 exclusions on every path (`excluded_path`, never read nor written);
+// - confinement (S2) and C8 exclusions on every path (`excluded_path`, never read nor written),
+//   judged on every spelling of what the call touches: a symlink inside the workspace does not
+//   make `.env` or `.git/hooks` reachable under another name. `.novaignore` is read-only here;
 // - optimistic concurrency: writes take the hash the agent last saw (null = must not exist) and
 //   return `conflict` without writing on mismatch;
-// - a checkpoint row for every changed file (A10), taken before the change;
+// - a checkpoint row for every changed file (A10), taken before the change, including each file
+//   of a folder moved or trashed (the review and "restore all" see them);
 // - writes to the same path are serialized.
-import { matchesGlob } from "node:path";
-import { lstat } from "node:fs/promises";
+import { lstat, readdir } from "node:fs/promises";
+import { join, matchesGlob } from "node:path";
 import { diffLines } from "diff";
 import {
   FILE_EDIT_MAX_BYTES,
+  joinRelativePath,
   TOOL_LIMITS,
   type ContentHash,
   type FileEntry,
@@ -20,8 +24,8 @@ import {
   type SearchQuery,
   type SearchResult,
 } from "@nova/shared";
-import type { CheckpointStore } from "./checkpoints";
-import { resolveEntry, resolveExisting } from "./confine";
+import { CHECKPOINT_FILE_MAX_BYTES, type CheckpointStore, type PendingSnapshot } from "./checkpoints";
+import { resolvedSpellings, resolveEntry, resolveExisting } from "./confine";
 import { WorkspaceError } from "./errors";
 import { FileIndex } from "./file-index";
 import { ensureParentDirectories, listDirectory, moveEntry, readBytesOrNull, writeWorkspaceFile } from "./files";
@@ -101,6 +105,11 @@ export interface WorkspaceFileOps {
 }
 
 const EXCERPT_CONTEXT = 3;
+/** Folder moves and trashes checkpoint every file inside; above these bounds they are refused. */
+export const DIRECTORY_CHECKPOINT_MAX_FILES = 2_000;
+const DIRECTORY_CHECKPOINT_MAX_BYTES = 200 * 1024 * 1024;
+/** The user's exclusion file (C8): the agent may read it, never change it. */
+const NOVAIGNORE = ".novaignore";
 
 function countLines(text: string): number {
   if (text === "") return 0;
@@ -161,9 +170,60 @@ export function createWorkspaceFileOps(deps: FileOpsDeps): WorkspaceFileOps {
     return run;
   };
 
-  const assertAllowed = async (path: RelativePath): Promise<void> => {
+  /** C8 for every spelling of what a call on `path` touches (see `resolvedSpellings`). */
+  const assertAllowed = async (path: RelativePath, access: "read" | "write"): Promise<void> => {
     await matcher.load("");
-    if (matcher.isExcluded(path)) throw new WorkspaceError("excluded_path", `${path} is excluded (sensitive or .novaignore)`);
+    for (const spelling of await resolvedSpellings(root, path)) {
+      if (matcher.isExcluded(spelling)) {
+        const via = spelling === path ? "" : ` (it leads to ${spelling})`;
+        throw new WorkspaceError("excluded_path", `${path} is excluded (sensitive or .novaignore)${via}`);
+      }
+      if (access === "write" && spelling === NOVAIGNORE) {
+        throw new WorkspaceError("excluded_path", `${NOVAIGNORE} holds the user's exclusions: only the user changes it`);
+      }
+    }
+  };
+
+  /**
+   * Every file under a folder about to be moved or trashed, each to get its checkpoint row. Refused
+   * when the folder holds an excluded path (it would move or vanish unseen) or is too big to record.
+   * Symlinks inside go along as links and are not recorded; empty folders are not restored.
+   */
+  const filesUnder = async (dir: RelativePath): Promise<RelativePath[]> => {
+    const files: RelativePath[] = [];
+    let bytes = 0;
+    const queue: RelativePath[] = [dir];
+    while (queue.length > 0) {
+      const current = queue.shift() as RelativePath;
+      const absolute = await resolveExisting(root, current);
+      for (const entry of await readdir(absolute, { withFileTypes: true })) {
+        const path = joinRelativePath(current, entry.name);
+        if (matcher.isExcluded(path)) {
+          throw new WorkspaceError("excluded_path", `${dir} contains ${path}, which is excluded (sensitive or .novaignore): ask the user to handle this folder`);
+        }
+        if (entry.isDirectory()) queue.push(path);
+        else if (entry.isFile()) {
+          files.push(path);
+          bytes += (await lstat(join(absolute, entry.name))).size;
+        }
+        if (files.length > DIRECTORY_CHECKPOINT_MAX_FILES || bytes > DIRECTORY_CHECKPOINT_MAX_BYTES) {
+          throw new WorkspaceError("too_large", `${dir} is too large to record in a restore point (over ${DIRECTORY_CHECKPOINT_MAX_FILES} files or 200 MB): ask the user`);
+        }
+      }
+    }
+    return files;
+  };
+
+  /** Snapshots `paths` in order; on any failure the ones taken are discarded. */
+  const snapshotAll = async (paths: readonly RelativePath[], checkpointId: string): Promise<PendingSnapshot[]> => {
+    const pending: PendingSnapshot[] = [];
+    try {
+      for (const path of paths) pending.push(await checkpoints.snapshotBeforeWrite({ checkpointId, root, path }));
+      return pending;
+    } catch (error) {
+      for (const snapshot of pending) snapshot.discard();
+      throw error;
+    }
   };
 
   /** Checkpointed write of `next` over a file whose current bytes are `before` (null = absent). */
@@ -208,9 +268,8 @@ export function createWorkspaceFileOps(deps: FileOpsDeps): WorkspaceFileOps {
   };
 
   const readText = async (path: RelativePath): Promise<{ text: string; hash: ContentHash } | null> => {
-    const bytes = await readBytesOrNull(root, path);
+    const bytes = await readBytesOrNull(root, path, FILE_EDIT_MAX_BYTES);
     if (bytes === null) return null;
-    if (bytes.byteLength > FILE_EDIT_MAX_BYTES) throw new WorkspaceError("too_large", `${path} is larger than 5 MB`);
     const text = decodeText(bytes);
     if (text === null) throw new WorkspaceError("binary", `${path} is a binary file`);
     return { text, hash: sha256(bytes) };
@@ -218,7 +277,7 @@ export function createWorkspaceFileOps(deps: FileOpsDeps): WorkspaceFileOps {
 
   return {
     async readFile(path, range = {}) {
-      await assertAllowed(path);
+      await assertAllowed(path, "read");
       const file = await readText(path);
       if (!file) throw new WorkspaceError("not_found", `${path} not found`);
       const lines = file.text.split("\n");
@@ -232,7 +291,7 @@ export function createWorkspaceFileOps(deps: FileOpsDeps): WorkspaceFileOps {
     },
 
     async list(path) {
-      if (path !== "") await assertAllowed(path);
+      if (path !== "") await assertAllowed(path, "read");
       return listDirectory(root, matcher, path);
     },
 
@@ -263,8 +322,8 @@ export function createWorkspaceFileOps(deps: FileOpsDeps): WorkspaceFileOps {
 
     writeFile(path, content, { expectedHash, checkpointId }) {
       return withLock(path, async () => {
-        await assertAllowed(path);
-        const before = await readBytesOrNull(root, path);
+        await assertAllowed(path, "write");
+        const before = await readBytesOrNull(root, path, CHECKPOINT_FILE_MAX_BYTES);
         const beforeText = before === null ? null : decodeText(before);
         return commitWrite(path, beforeText ?? (before === null ? null : ""), content, expectedHash, checkpointId);
       });
@@ -272,7 +331,7 @@ export function createWorkspaceFileOps(deps: FileOpsDeps): WorkspaceFileOps {
 
     editFile(path, edits, { expectedHash, checkpointId }) {
       return withLock(path, async () => {
-        await assertAllowed(path);
+        await assertAllowed(path, "write");
         if (edits.length === 0) throw new WorkspaceError("invalid_argument", "no edit given");
         const file = await readText(path);
         if (!file) throw new WorkspaceError("not_found", `${path} not found`);
@@ -304,48 +363,56 @@ export function createWorkspaceFileOps(deps: FileOpsDeps): WorkspaceFileOps {
       const [first, second] = from < to ? [from, to] : [to, from];
       return withLock(first, () =>
         withLock(second, async () => {
-          await assertAllowed(from);
-          await assertAllowed(to);
-          const isFile = (await lstat(await resolveEntry(root, from)).catch(() => null))?.isFile() ?? false;
-          const bytes = isFile ? await readBytesOrNull(root, from) : null;
-          // Files are checkpointed as "deleted at from, created at to"; folders are not (moving
-          // them back is the undo, and their content is untouched).
-          const source = isFile ? await checkpoints.snapshotBeforeWrite({ checkpointId, root, path: from }) : null;
-          const target = isFile ? await checkpoints.snapshotBeforeWrite({ checkpointId, root, path: to }) : null;
+          await assertAllowed(from, "write");
+          await assertAllowed(to, "write");
+          const info = await lstat(await resolveEntry(root, from)).catch(() => null);
+          // Each file is checkpointed as "deleted at its old path, created at its new one" (a
+          // folder: every file inside); the new copy reuses the captured bytes, never rereads them.
+          const sources = info?.isFile() ? [from] : info?.isDirectory() ? await filesUnder(from) : [];
+          const before = await snapshotAll(sources, checkpointId);
+          let after: PendingSnapshot[];
           try {
-            const entry = await moveEntry(root, matcher, from, to);
-            await source?.commit(null);
-            if (bytes) await target?.commit(bytes);
-            return entry;
+            after = await snapshotAll(
+              sources.map((path) => `${to}${path.slice(from.length)}`),
+              checkpointId,
+            );
           } catch (error) {
-            source?.discard();
-            target?.discard();
+            for (const snapshot of before) snapshot.discard();
             throw error;
           }
+          let entry: FileEntry;
+          try {
+            entry = await moveEntry(root, matcher, from, to);
+          } catch (error) {
+            for (const snapshot of [...before, ...after]) snapshot.discard();
+            throw error;
+          }
+          for (const [position, source] of before.entries()) {
+            await source.commit(null);
+            await (after[position] as PendingSnapshot).commit({ moved: source });
+          }
+          return entry;
         }),
       );
     },
 
     trash(path, { checkpointId }) {
       return withLock(path, async () => {
-        await assertAllowed(path);
+        await assertAllowed(path, "write");
         const absolute = await resolveEntry(root, path);
         const info = await lstat(absolute).catch(() => null);
         if (!info) throw new WorkspaceError("not_found", `${path} not found`);
-        if (info.isFile()) {
-          // Checkpoint the real file behind the path (confined), then trash the entry itself.
-          await resolveExisting(root, path);
-          const pending = await checkpoints.snapshotBeforeWrite({ checkpointId, root, path });
-          try {
-            await deps.trash(absolute);
-          } catch (error) {
-            pending.discard();
-            throw error;
-          }
-          await pending.commit(null);
-          return;
+        // The content goes into the checkpoint first (a folder: every file inside), then the entry
+        // itself is trashed; a symlink is trashed as a link, its target untouched and unrecorded.
+        const files = info.isFile() ? [path] : info.isDirectory() ? await filesUnder(path) : [];
+        const pending = await snapshotAll(files, checkpointId);
+        try {
+          await deps.trash(absolute);
+        } catch (error) {
+          for (const snapshot of pending) snapshot.discard();
+          throw error;
         }
-        await deps.trash(absolute);
+        for (const snapshot of pending) await snapshot.commit(null);
       });
     },
   };

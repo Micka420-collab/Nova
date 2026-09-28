@@ -382,7 +382,7 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
     }),
     diffFs: {
       readObject: (hash) => objects.get(hash),
-      readCurrent: async (workspaceId, path) => readBytesOrNull(await workspaceService.rootOf(workspaceId), path),
+      readCurrent: async (workspaceId, path, maxBytes) => readBytesOrNull(await workspaceService.rootOf(workspaceId), path, maxBytes),
     },
     isolationLevel: () => permissions.isolationLevel,
     audit: (entry) => audit.recordToolExecution(entry),

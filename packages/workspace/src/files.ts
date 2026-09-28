@@ -125,11 +125,18 @@ export async function readWorkspaceFile(root: string, path: RelativePath): Promi
   };
 }
 
-/** Bytes of a file inside the root, or null when it does not exist. */
-export async function readBytesOrNull(root: string, path: RelativePath): Promise<Buffer | null> {
+/**
+ * Bytes of a file inside the root, or null when it does not exist. `maxBytes`: a larger file is
+ * refused (`too_large`) from its size, before anything is read.
+ */
+export async function readBytesOrNull(root: string, path: RelativePath, maxBytes?: number): Promise<Buffer | null> {
   try {
     const absolute = await resolveExisting(root, path);
-    if (!(await stat(absolute)).isFile()) throw new WorkspaceError("not_a_file", `${path} is not a file`);
+    const info = await stat(absolute);
+    if (!info.isFile()) throw new WorkspaceError("not_a_file", `${path} is not a file`);
+    if (maxBytes !== undefined && info.size > maxBytes) {
+      throw new WorkspaceError("too_large", `${path} is larger than ${Math.floor(maxBytes / (1024 * 1024))} MB`);
+    }
     return await readFile(absolute);
   } catch (error) {
     if (error instanceof WorkspaceError && error.code === "not_found") return null;

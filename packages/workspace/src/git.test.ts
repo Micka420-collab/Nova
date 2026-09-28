@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { delimiter, dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createGitClient, parsePorcelainV2 } from "./git";
+import { createGitClient, findGitExecutable, parsePorcelainV2 } from "./git";
+import { createIgnoreMatcher } from "./ignore-rules";
 import { makeTempDir, type TempDir } from "./test-support";
 
 let repo: TempDir;
@@ -54,11 +55,11 @@ describe("git client", () => {
   it("commits selected paths, reports nothing-to-commit, and gives the branch", async () => {
     await repo.write("tracked.txt", "two\n");
     await repo.write("other.txt", "not committed");
-    const commit = await client.commit(repo.path, { message: "  Met à jour le fichier  ", paths: ["tracked.txt"] });
+    const commit = await client.commit(repo.path, { message: "  Met à jour le fichier  ", paths: ["tracked.txt"], isExcluded: () => false });
     expect(commit.message).toBe("Met à jour le fichier");
     expect(git("rev-parse", "HEAD").trim()).toBe(commit.sha);
     expect(git("show", "--name-only", "--format=", "HEAD").trim()).toBe("tracked.txt");
-    await expect(client.commit(repo.path, { message: "vide", paths: [] })).rejects.toMatchObject({ code: "conflict" });
+    await expect(client.commit(repo.path, { message: "vide", paths: [], isExcluded: () => false })).rejects.toMatchObject({ code: "conflict" });
     expect(await client.branch(repo.path)).toBe("main");
   });
 
@@ -72,6 +73,67 @@ describe("git client", () => {
     git("config", "core.fsmonitor", `touch '${marker}'; false`);
     await client.status(repo.path);
     expect(existsSync(marker)).toBe(false);
+  });
+
+  it("never runs repository-configured filter drivers on status or diff", async () => {
+    const marker = join(repo.path, "pwned");
+    git("config", "filter.x.clean", `touch '${marker}'; cat`);
+    git("config", "filter.x.process", `touch '${marker}'`);
+    git("config", "filter.x.required", "true");
+    writeFileSync(join(repo.path, ".git", "info", "attributes"), "* filter=x\n");
+    await repo.write("tracked.txt", "two\n");
+    const status = await client.status(repo.path);
+    expect(status.available && status.entries.some((entry) => entry.path === "tracked.txt")).toBe(true);
+    expect((await client.diff(repo.path, { path: "tracked.txt", staged: false })).patch).toContain("+two");
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it("gives git and its hooks the scrubbed environment", async () => {
+    const dump = join(repo.path, "hook-env.txt");
+    const hook = join(repo.path, ".git", "hooks", "pre-commit");
+    writeFileSync(hook, `#!/bin/sh\nenv > '${dump}'\n`);
+    chmodSync(hook, 0o755);
+    const secretive = createGitClient({ env: { ...env, GITHUB_TOKEN: "ghp_leak", NODE_OPTIONS: "--require /x.js" } });
+    await repo.write("tracked.txt", "two\n");
+    await secretive.commit(repo.path, { message: "m", paths: ["tracked.txt"], isExcluded: () => false });
+    const seen = readFileSync(dump, "utf8");
+    expect(seen).toContain("PATH=");
+    expect(seen).not.toContain("ghp_leak");
+    expect(seen).not.toContain("NODE_OPTIONS");
+  });
+
+  it("never runs a git executable found through the workspace (relative PATH entry or inside the root)", async () => {
+    const marker = join(repo.path, "pwned");
+    const fake = join(repo.path, "git");
+    writeFileSync(fake, `#!/bin/sh\ncase "$*" in *--version*) echo "git version 9";; *) touch '${marker}';; esac\n`);
+    chmodSync(fake, 0o755);
+    const realGit = await findGitExecutable(process.env);
+    expect(realGit).not.toBeNull();
+    const viaCwd = createGitClient({ env: { ...env, PATH: `.${delimiter}${dirname(realGit as string)}` } });
+    expect(await viaCwd.status(repo.path)).toMatchObject({ available: true, branch: "main" });
+    const inside = createGitClient({ env, gitPath: fake });
+    expect(await inside.status(repo.path)).toEqual({ available: false });
+    await expect(inside.commit(repo.path, { message: "m", paths: "all", isExcluded: () => false })).rejects.toMatchObject({ code: "unavailable" });
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it("refuses a commit that would include C8-excluded files (defaults or .novaignore) before staging", async () => {
+    await repo.write(".novaignore", "secrets/\n");
+    git("add", ".novaignore");
+    git("commit", "-q", "-m", "rules");
+    await repo.write(".env", "TOKEN=x");
+    await repo.write("secrets/prod.json", "{}");
+    await repo.write("tracked.txt", "two\n");
+    const matcher = createIgnoreMatcher(repo.path);
+    await matcher.load("");
+    const isExcluded = (path: string): boolean => matcher.isExcluded(path);
+    await expect(client.commit(repo.path, { message: "all", paths: "all", isExcluded })).rejects.toMatchObject({ code: "excluded_path" });
+    await expect(client.commit(repo.path, { message: "one", paths: ["secrets/prod.json"], isExcluded })).rejects.toMatchObject({
+      code: "excluded_path",
+    });
+    expect(git("diff", "--cached", "--name-only").trim()).toBe("");
+    const ok = await client.commit(repo.path, { message: "tracked only", paths: ["tracked.txt"], isExcluded });
+    expect(git("show", "--name-only", "--format=", ok.sha).trim()).toBe("tracked.txt");
   });
 
   it("reports git missing as unavailable", async () => {

@@ -7,7 +7,7 @@
 // - `isExcluded` (C8): never read, written or sent for the agent. Sources: `.novaignore`, the
 //   sensitive defaults below (env files, keys, credentials) and `.git` / `node_modules`.
 //   `.gitignore` alone does NOT exclude (build outputs are fine to read).
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import ignore, { type Ignore } from "ignore";
 import { isSensitivePath, SENSITIVE_PATH_PATTERNS, type RelativePath } from "@nova/shared";
@@ -19,7 +19,10 @@ export const ALWAYS_IGNORED_DIRS = [".git", "node_modules"] as const;
 export const SENSITIVE_DEFAULT_PATTERNS: readonly string[] = SENSITIVE_PATH_PATTERNS;
 
 export interface IgnoreMatcher {
-  /** Loads the `.gitignore` of `dir` and of its ancestors (idempotent, cached). */
+  /**
+   * Loads the `.gitignore` of `dir` and of its ancestors (cached), and rereads `.novaignore` when it
+   * changed on disk since the last load (C8 exclusions are never stale, watcher or not).
+   */
   load(dir: RelativePath): Promise<void>;
   /** Drops cached rules (after a `.gitignore` / `.novaignore` change) so the next load rereads them. */
   invalidate(): void;
@@ -47,13 +50,19 @@ export function createIgnoreMatcher(root: string): IgnoreMatcher {
   // dir → rules of that dir's .gitignore (null = none). Paths are tested relative to their dir.
   let gitignores = new Map<RelativePath, Ignore | null>();
   let novaignore: Ignore | null = null;
-  let rootLoaded = false;
+  // Version of `.novaignore` last read (null = never read). One stat per load keeps the agent's
+  // exclusions current without a watcher (main has none); a rewrite keeping size, mtime and ctime
+  // identical is not detected (accepted).
+  let novaignoreStamp: string | null = null;
 
   const loadRoot = async (): Promise<void> => {
-    if (rootLoaded) return;
-    const text = await readRules(join(root, ".novaignore"));
+    const file = join(root, ".novaignore");
+    const info = await stat(file).catch(() => null);
+    const stamp = info ? `${info.size}:${info.mtimeMs}:${info.ctimeMs}:${info.ino}` : "absent";
+    if (stamp === novaignoreStamp) return;
+    const text = info ? await readRules(file) : null;
     novaignore = text === null ? null : ignore().add(text);
-    rootLoaded = true;
+    novaignoreStamp = stamp;
   };
 
   const test = (rules: Ignore, path: string, isDirectory: boolean): boolean =>
@@ -72,7 +81,7 @@ export function createIgnoreMatcher(root: string): IgnoreMatcher {
 
     invalidate() {
       gitignores = new Map();
-      rootLoaded = false;
+      novaignoreStamp = null;
     },
 
     isIgnored(path, isDirectory) {

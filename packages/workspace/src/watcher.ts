@@ -1,10 +1,12 @@
-// Workspace watcher (E1): chokidar 5 (no native module), ignored folders skipped, changes coalesced
+// Workspace watcher (E1): chokidar 5 (no native module), ignored FOLDERS skipped (`dist/`, `.git`,
+// `node_modules`: the cost is in their trees), ignored FILES of watched folders still reported (a
+// gitignored `.env` or `debug.log` open in a tab must not go stale). Changes coalesced
 // per path and emitted in debounced batches; a batch above `maxBatch` becomes a single `overflow`
 // (the renderer re-lists what it shows instead of replaying thousands of events).
 import { watch, type FSWatcher } from "chokidar";
 import type { FileChange } from "@nova/shared";
 import { toRelativePath } from "./confine";
-import type { IgnoreMatcher } from "./ignore-rules";
+import { ALWAYS_IGNORED_DIRS, type IgnoreMatcher } from "./ignore-rules";
 
 export type WatchBatch = { type: "changes"; changes: FileChange[] } | { type: "overflow" };
 
@@ -69,11 +71,14 @@ export async function watchWorkspace(
   const watcher: FSWatcher = watch(root, {
     ignoreInitial: true,
     followSymlinks: false,
+    // Called without `stats` first, then again once the entry is stat'ed: only then is a folder
+    // known to be one. Files are never skipped (their folder is watched anyway).
     ignored: (absolute, stats) => {
       const path = toRelativePath(root, absolute);
       if (path === null) return true;
       if (path === "") return false;
-      return matcher.isIgnored(path, stats?.isDirectory() ?? false);
+      if (path.split("/").some((segment) => (ALWAYS_IGNORED_DIRS as readonly string[]).includes(segment))) return true;
+      return stats?.isDirectory() === true && matcher.isIgnored(path, true);
     },
   });
   watcher

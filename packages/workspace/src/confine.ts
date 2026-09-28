@@ -106,6 +106,44 @@ export async function resolveWriteTarget(root: string, path: RelativePath): Prom
   }
 }
 
+/** realpath of the deepest existing ancestor of `absolute`, with the missing tail appended. */
+async function realpathOfExistingPrefix(absolute: string): Promise<string> {
+  const tail: string[] = [];
+  let current = absolute;
+  for (;;) {
+    try {
+      return join(await realpath(current), ...tail.reverse());
+    } catch (error) {
+      const code = errnoCode(error);
+      const parent = dirname(current);
+      if ((code !== "ENOENT" && code !== "ENOTDIR") || parent === current) throw error;
+      tail.push(basename(current));
+      current = parent;
+    }
+  }
+}
+
+/**
+ * Every workspace-relative spelling of what an operation on `path` really touches, for C8 checks
+ * (an exclusion holds for the file, whatever name leads to it): `path` itself, the entry with its
+ * folders resolved (`gitlink/hooks/x` → `.git/hooks/x`, missing folders kept as named) and, when
+ * the entry exists, its final target (`notes.txt` → `.env`). Spellings outside the root are left
+ * out: confinement refuses those.
+ */
+export async function resolvedSpellings(root: string, path: RelativePath): Promise<RelativePath[]> {
+  const lexical = lexicalPath(root, path);
+  const spellings = new Set<RelativePath>([path]);
+  if (path === "") return [path];
+  const entry = toRelativePath(root, join(await realpathOfExistingPrefix(dirname(lexical)), basename(lexical)));
+  if (entry !== null) spellings.add(entry);
+  const target = await realpath(lexical).then(
+    (real) => toRelativePath(root, real),
+    () => null,
+  );
+  if (target !== null) spellings.add(target);
+  return [...spellings];
+}
+
 /** Result of classifying a symlink found while listing: its target kind, or outside/dangling. */
 export async function classifySymlink(
   root: string,

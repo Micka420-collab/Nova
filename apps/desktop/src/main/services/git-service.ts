@@ -1,7 +1,7 @@
 // git.* in main (A5): status and diff for the Git panel, plus commit/branch for the agent tools.
 // Uses the system `git` (no push, fetch or stash, ever); `available: false` hides the panel.
 import type { RelativePath } from "@nova/shared";
-import type { GitClient, GitCommitResult } from "@nova/workspace";
+import { createIgnoreMatcher, type GitClient, type GitCommitResult } from "@nova/workspace";
 import type { AtelierApi } from "../api";
 import { asService, type WorkspaceService } from "./workspace-service";
 
@@ -21,6 +21,12 @@ export function createGitService(deps: { workspaces: Pick<WorkspaceService, "roo
       diff: async ({ workspaceId, path, staged }) => asService(git.diff(await root(workspaceId), { path, staged })),
     },
     branch: async (workspaceId) => asService(git.branch(await root(workspaceId))),
-    commit: async (workspaceId, request) => asService(git.commit(await root(workspaceId), request)),
+    async commit(workspaceId, request) {
+      const workspaceRoot = await root(workspaceId);
+      // C8 (`.novaignore` read now, defaults always): excluded files never enter a commit.
+      const matcher = createIgnoreMatcher(workspaceRoot);
+      await asService(matcher.load(""));
+      return asService(git.commit(workspaceRoot, { ...request, isExcluded: (path) => matcher.isExcluded(path) }));
+    },
   };
 }

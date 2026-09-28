@@ -136,7 +136,7 @@ function build(options: { hang?: boolean } = {}): void {
     }),
     diffFs: {
       readObject: (hash) => objects.get(hash),
-      readCurrent: (_workspaceId, path) => readBytesOrNull(root, path),
+      readCurrent: (_workspaceId, path, maxBytes) => readBytesOrNull(root, path, maxBytes),
     },
     isolationLevel: () => "L0",
     audit: (entry) => audit.recordToolExecution(entry),

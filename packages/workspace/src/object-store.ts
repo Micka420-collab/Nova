@@ -1,6 +1,8 @@
 // Content-addressed object store for checkpoints (A10): dataDir/checkpoints/objects/<sha256>,
-// gzip-compressed, written atomically, deduplicated by hash, verified on read.
-import { gunzipSync, gzipSync } from "node:zlib";
+// gzip-compressed, written atomically, deduplicated by hash, verified on read. Compression runs on
+// the libuv threadpool (async zlib): the store lives in Electron main, whose loop must not stall.
+import { promisify } from "node:util";
+import { gunzip, gzip } from "node:zlib";
 import { mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { ContentHash } from "@nova/shared";
@@ -9,6 +11,8 @@ import { atomicWrite } from "./files";
 import { sha256 } from "./hash";
 
 const HASH = /^[0-9a-f]{64}$/;
+const gzipAsync = promisify(gzip);
+const gunzipAsync = promisify(gunzip);
 
 export interface StoredObject {
   hash: ContentHash;
@@ -39,7 +43,7 @@ export function createObjectStore(dir: string): ObjectStore {
     async put(bytes) {
       await ready;
       const hash = sha256(bytes);
-      if (!(await store.has(hash))) await atomicWrite(pathOf(hash), gzipSync(bytes));
+      if (!(await store.has(hash))) await atomicWrite(pathOf(hash), await gzipAsync(bytes));
       return hash;
     },
     async get(hash) {
@@ -52,7 +56,7 @@ export function createObjectStore(dir: string): ObjectStore {
       }
       let bytes: Buffer;
       try {
-        bytes = gunzipSync(compressed);
+        bytes = await gunzipAsync(compressed);
       } catch {
         throw new WorkspaceError("failed", "checkpoint object corrupt");
       }

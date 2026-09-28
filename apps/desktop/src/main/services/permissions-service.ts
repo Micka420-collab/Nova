@@ -140,11 +140,14 @@ export class PermissionsService {
   /**
    * `evaluate` for agent tools, whose paths come from the model: a canonical path that a symlink
    * (even dangling) leads outside the workspace is refused HERE as `outside_workspace` and audited
-   * so, instead of being allowed and only stopped later by the file API.
+   * so, instead of being allowed and only stopped later by the file API. A path a symlink leads
+   * elsewhere INSIDE the workspace is decided at its real target: rules and C8 exclusions judge
+   * what the call touches (`notes.txt -> .env`, `docs/ci -> ../.github/workflows`), not its name.
    */
   async evaluateOnDisk(request: PermissionRequest, options: EvaluateOptions = {}): Promise<EngineDecision> {
     const root = request.path === undefined ? null : await this.deps.rootOf?.(request.workspaceId);
     const resolved = root && request.path !== undefined ? await resolveInWorkspace(root, request.path) : null;
-    return this.evaluate(request, { ...options, pathEscapes: resolved?.ok === false && resolved.reason === "outside_workspace" });
+    const target = resolved?.ok === true ? { ...request, path: resolved.relativePath } : request;
+    return this.evaluate(target, { ...options, pathEscapes: resolved?.ok === false && resolved.reason === "outside_workspace" });
   }
 }

@@ -44,6 +44,24 @@ describe("workspace watcher", () => {
     expect(seen().some((entry) => entry.includes("dist/"))).toBe(false);
   });
 
+  it("reports changes to gitignored files of watched folders (an open .env tab stays current)", async () => {
+    await workspace.write(".gitignore", "dist/\n.env\n*.log\n");
+    await workspace.write(".env", "A=1");
+    const batches: WatchBatch[] = [];
+    watcher = await watchWorkspace(workspace.path, createIgnoreMatcher(workspace.path), (batch) => batches.push(batch), {
+      debounceMs: 30,
+    });
+    await watcher.ready;
+    await writeFile(join(workspace.path, ".env"), "A=2");
+    await writeFile(join(workspace.path, "src", "debug.log"), "x");
+    const seen = (): string[] => batches.flatMap((batch) => (batch.type === "changes" ? batch.changes.map((c) => `${c.kind}:${c.path}`) : []));
+    await until(() => seen().includes("changed:.env") && seen().includes("created:src/debug.log"));
+    await writeFile(join(workspace.path, "dist", "bundle.js"), "x");
+    await rm(join(workspace.path, ".env"));
+    await until(() => seen().includes("deleted:.env"));
+    expect(seen().some((entry) => entry.includes("dist/"))).toBe(false);
+  });
+
   it("collapses a burst above the batch limit into one overflow", async () => {
     const batches: WatchBatch[] = [];
     watcher = await watchWorkspace(workspace.path, createIgnoreMatcher(workspace.path), (batch) => batches.push(batch), {

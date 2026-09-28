@@ -36,7 +36,7 @@ import {
 } from "@nova/shared";
 import { createMissionRepo, createWorkspaceRepo, type NovaStore } from "@nova/storage";
 import { createToolRegistry, type McpToolOffer, type ToolDeps, type WorkspaceFileApi } from "@nova/tools";
-import { decodeText, readBytesOrNull, sha256 } from "@nova/workspace";
+import { decodeText, isWorkspaceError, readBytesOrNull, sha256 } from "@nova/workspace";
 import type { MainApi } from "../api";
 import { ServiceError } from "../service-error";
 import { createProviderProxyHost, type ProviderProxyHost } from "./provider-proxy";
@@ -85,8 +85,8 @@ export interface MissionsService {
 export interface MissionDiffFs {
   /** Bytes of a checkpoint object (content before the mission). */
   readObject(hash: string): Promise<Uint8Array>;
-  /** Current bytes of a workspace file; null when absent. */
-  readCurrent(workspaceId: string, path: RelativePath): Promise<Uint8Array | null>;
+  /** Current bytes of a workspace file; null when absent; `too_large` (unread) above `maxBytes`. */
+  readCurrent(workspaceId: string, path: RelativePath, maxBytes: number): Promise<Uint8Array | null>;
 }
 
 /** Above this, a file's diff is not computed (the review offers the whole-file decision). */
@@ -104,10 +104,12 @@ async function missionFileDiff(
   let before: Uint8Array | null;
   let current: Uint8Array | null;
   try {
+    // The current file is sized before it is read: a big one is never loaded just to be skipped.
+    current = await fs.readCurrent(workspaceId, file.path, DIFF_MAX_BYTES);
     before = file.beforeHash === null ? null : await fs.readObject(file.beforeHash);
-    current = await fs.readCurrent(workspaceId, file.path);
-  } catch {
-    return { path: file.path, change: "modified", beforeHash: file.beforeHash, currentHash: null, patch: null, missing: "unreadable" };
+  } catch (error) {
+    const missing = isWorkspaceError(error) && error.code === "too_large" ? "too_large" : "unreadable";
+    return { path: file.path, change: "modified", beforeHash: file.beforeHash, currentHash: null, patch: null, missing };
   }
   const currentHash = current === null ? null : sha256(current);
   const change = before === null ? "created" : current === null ? "deleted" : "modified";
@@ -248,7 +250,9 @@ export function createMissionsService(deps: MissionsServiceDeps): MissionsServic
         const fs = deps.diffFs;
         if (!fs) return { missionId, files: [] };
         const review = await ready.reviewModel(missionId);
-        const files = await Promise.all(review.files.map((file) => missionFileDiff(fs, record.workspaceId, file)));
+        // One file at a time: each may hold up to two DIFF_MAX_BYTES buffers plus its diff.
+        const files: MissionDiffFile[] = [];
+        for (const file of review.files) files.push(await missionFileDiff(fs, record.workspaceId, file));
         return { missionId, files };
       }),
     },

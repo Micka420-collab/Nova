@@ -11,7 +11,15 @@
 // - Checkpoints: bytes in dataDir/checkpoints/objects/<sha256> (gzip), rows via `CheckpointIndex`;
 //   restore never overwrites a file the user changed since (`conflict` + `proposeMerge`).
 // - Facts: marker files only; unknown stays null.
-export { canonicalRoot, isInsideRoot, resolveEntry, resolveExisting, resolveWriteTarget, toRelativePath } from "./confine";
+export {
+  canonicalRoot,
+  isInsideRoot,
+  resolvedSpellings,
+  resolveEntry,
+  resolveExisting,
+  resolveWriteTarget,
+  toRelativePath,
+} from "./confine";
 export { WorkspaceError, isWorkspaceError, type WorkspaceErrorCode } from "./errors";
 export { decodeText, detectEol, hashFile, sha256 } from "./hash";
 export {
@@ -38,6 +46,7 @@ export { FILE_INDEX_MAX, FileIndex, fuzzyScore, rankPaths, walkFiles } from "./f
 export { INSTRUCTION_FILES, detectWorkspaceFacts, type FactsDetectorOptions } from "./facts";
 export { createObjectStore, type ObjectStore, type StoredObject } from "./object-store";
 export {
+  CHECKPOINT_FILE_MAX_BYTES,
   createCheckpointStore,
   type CheckpointIndex,
   type CheckpointStore,
@@ -51,9 +60,11 @@ export {
   GIT_DIFF_MAX_BYTES,
   GIT_STATUS_MAX_ENTRIES,
   createGitClient,
+  findGitExecutable,
   parsePorcelainV2,
   type GitClient,
   type GitClientOptions,
+  type GitCommitRequest,
   type GitCommitResult,
 } from "./git";
 export {
@@ -65,6 +76,7 @@ export {
   type SecretKind,
 } from "./sensitive";
 export {
+  DIRECTORY_CHECKPOINT_MAX_FILES,
   createWorkspaceFileOps,
   type FileChangeOutcome,
   type FileChangeSummary,

@@ -4,32 +4,18 @@
 // `taskkill /T`). Host-agnostic: main or the pty-host instantiates it.
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { TOOL_LIMITS, type IsolationLevel } from "@nova/shared";
+import { SECRET_ENV_NAME, scrubChildEnv, TOOL_LIMITS, type IsolationLevel } from "@nova/shared";
 import type { BackgroundProcess, CommandOutcome, CommandOutputListener, CommandRunner, CommandSpec } from "./apis";
 import { ToolFailure } from "./content";
-
-const ENV_ALLOWLIST: ReadonlySet<string> = new Set([
-  "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LANGUAGE", "TERM", "TMPDIR", "TMP", "TEMP", "TZ",
-  "Path", "PATHEXT", "SystemRoot", "SystemDrive", "windir", "ComSpec", "USERPROFILE", "USERNAME",
-  "APPDATA", "LOCALAPPDATA", "ProgramData", "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432",
-  "CommonProgramFiles", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "OS",
-]);
-const ENV_PREFIX_ALLOWLIST = ["LC_"];
-const SECRET_NAME = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|COOKIE|SESSION)/i;
 
 /** Allowlisted, credential-free environment for project commands (no NOVA_*, ELECTRON_*, NODE_OPTIONS). */
 export function scrubCommandEnv(
   env: Readonly<Record<string, string | undefined>>,
   extra: Readonly<Record<string, string>> = {},
 ): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (const [name, value] of Object.entries(env)) {
-    if (value === undefined) continue;
-    const allowed = ENV_ALLOWLIST.has(name) || ENV_PREFIX_ALLOWLIST.some((prefix) => name.startsWith(prefix));
-    if (allowed && !SECRET_NAME.test(name)) result[name] = value;
-  }
+  const result = scrubChildEnv(env);
   for (const [name, value] of Object.entries(extra)) {
-    if (SECRET_NAME.test(name)) throw new ToolFailure("invalid_arguments", `environment variable ${name} is not allowed`);
+    if (SECRET_ENV_NAME.test(name)) throw new ToolFailure("invalid_arguments", `environment variable ${name} is not allowed`);
     result[name] = value;
   }
   return result;
