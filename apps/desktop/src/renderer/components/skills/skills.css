@@ -1,0 +1,128 @@
+/* L3 — Extensions › Skills and the skill preview; tokens only (--nv-*). */
+
+.nova-skills {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nv-space-4);
+  padding: var(--nv-panel-pad, var(--nv-space-4));
+  min-height: 0;
+  overflow: auto;
+}
+
+.nova-skills__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nv-space-3);
+}
+
+.nova-skills__title {
+  margin: 0;
+  font-size: var(--nv-text-lg);
+  font-weight: var(--nv-weight-bold);
+}
+
+.nova-skills__subheading,
+.nova-skill-preview__heading {
+  margin: 0 0 var(--nv-space-2);
+  font-size: var(--nv-text-sm);
+  font-weight: var(--nv-weight-bold);
+  color: var(--nv-text-secondary);
+}
+
+.nova-skills__loading,
+.nova-skills__list {
+  display: grid;
+  gap: var(--nv-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nova-skill-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--nv-space-3);
+  padding: var(--nv-space-3);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-md, 10px);
+}
+
+.nova-skill-row__main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-2);
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+.nova-skill-row__name {
+  font-weight: var(--nv-weight-bold);
+}
+
+.nova-skill-row__description,
+.nova-skill-row__meta {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--nv-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.nova-skill-row__meta {
+  font-size: var(--nv-text-xs);
+}
+
+.nova-skill-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-2);
+}
+
+.nova-skill-preview {
+  display: grid;
+  gap: var(--nv-space-3);
+}
+
+.nova-skill-preview__meta,
+.nova-skill-preview__description {
+  margin: 0;
+}
+
+.nova-skill-preview__description {
+  color: var(--nv-text-secondary);
+}
+
+.nova-skill-preview__chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--nv-space-1);
+}
+
+.nova-skill-preview__warnings,
+.nova-skill-preview__files {
+  margin: 0;
+  padding-left: var(--nv-space-4);
+}
+
+.nova-skill-preview__content {
+  max-height: 320px;
+  margin: 0;
+  padding: var(--nv-space-3);
+  overflow: auto;
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-sm);
+  background: var(--nv-editor-bg, var(--nv-bg));
+  font-family: var(--nv-font-mono);
+  font-size: var(--nv-text-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.nova-mission-skills {
+  margin: 0;
+  padding-left: var(--nv-space-4);
+}
