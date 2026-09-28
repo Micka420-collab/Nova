@@ -4,13 +4,24 @@
 //   pty-host and whose second port is sent to the window through the port relay (IPC_CHANNELS
 //   .portTransfer). Terminal data then flows renderer <-> pty-host without crossing ipcMain;
 // - who may type: user sessions come from the renderer; agent sessions (read-only until `takeOver`)
-//   only from `createAgentSession`, which NO mission calls yet: run_command/run_tests run in main
-//   through @nova/tools' process runner, so the dock shows no agent command (docs/STATUS.md).
+//   only from main (J2-B L1, through the processes service):
+//   - `startAgentProcess`: a mission's background program (run_command `background: true`) runs
+//     in the session; its output is also streamed here for the process output ring;
+//   - `openMirror` / `writeMirror` / `closeMirror`: a process-less session where main shows the
+//     structured commands (run_command, run_tests) it runs for a mission; never taken over.
 import { randomUUID } from "node:crypto";
 import type { MessagePortMain } from "electron";
 import type { NovaPortEnvelope, TerminalEvent, TerminalSession } from "@nova/shared";
 import type { WorkerNotify } from "../../workers/protocol";
-import { PTY_EVENTS, PTY_METHODS, type PtyCommand, type PtyCreateParams } from "../../workers/pty/protocol";
+import {
+  PTY_EVENTS,
+  PTY_METHODS,
+  type PtyAgentStarted,
+  type PtyCommand,
+  type PtyCreateParams,
+  type PtyDataNotice,
+  type PtyExitNotice,
+} from "../../workers/pty/protocol";
 import type { MainApi } from "../api";
 import { ServiceError } from "../service-error";
 
@@ -44,19 +55,48 @@ export interface TerminalServiceDeps {
   newId?(): string;
 }
 
-export interface AgentSessionRequest {
+export interface AgentProcessStart {
   workspaceId: string;
   missionId: string;
   cwd: string;
-  command: PtyCommand;
+  /** Resolved program (no shell); `verbatim` = exact Windows command line in `args`. */
+  command: PtyCommand & { verbatim: boolean };
+  /** Checked, non-secret extras over the scrubbed environment. */
+  env: Record<string, string>;
   title: string;
-  cols?: number;
-  rows?: number;
 }
 
+export interface AgentProcessWatch {
+  /** Raw output (escapes included), coalesced by the host. */
+  onData(data: string): void;
+  /** Once: the program ended, the user closed its session, or the host died (then all null). */
+  onExit(exitCode: number | null, signal: string | null): void;
+}
+
+export interface MirrorOpenRequest {
+  workspaceId: string;
+  missionId: string;
+  cwd: string;
+  title: string;
+}
+
+const AGENT_COLS = 120;
+const AGENT_ROWS = 30;
+
 export interface TerminalService extends TerminalApi {
-  /** Mission runtime only: a session whose input is refused until the user takes it over. */
-  createAgentSession(req: AgentSessionRequest): Promise<TerminalSession>;
+  /**
+   * A mission's background program in a read-only agent session (input refused until the user
+   * takes it over). The watch is registered before the start, so no output is missed.
+   * null = the pty is unavailable here (node-pty failed to load or to spawn).
+   */
+  startAgentProcess(req: AgentProcessStart, watch: AgentProcessWatch): Promise<{ session: TerminalSession; pid: number } | null>;
+  /** Ends a session's process tree; the session stays listed (ended). Idempotent. */
+  stopSession(sessionId: string): Promise<void>;
+  /** A read-only session showing the structured commands main runs for a mission. */
+  openMirror(req: MirrorOpenRequest): Promise<TerminalSession>;
+  /** false = the session is gone (closed by the user). */
+  writeMirror(sessionId: string, data: string): Promise<boolean>;
+  closeMirror(sessionId: string, exitCode: number | null): Promise<void>;
   /** "Prendre la main": the agent session becomes the user's. */
   takeOver(req: { sessionId: string }): Promise<TerminalSession>;
   /**
@@ -83,8 +123,16 @@ export function createTerminalService(deps: TerminalServiceDeps): TerminalServic
     else live.delete(session.id);
     return session;
   };
-  const ended = (session: TerminalSession, outputTail: string): void => {
+  /** Agent programs whose output and end feed the processes service. */
+  const watches = new Map<string, AgentProcessWatch>();
+  const endWatch = (sessionId: string, exitCode: number | null, signal: string | null): void => {
+    const watch = watches.get(sessionId);
+    watches.delete(sessionId);
+    watch?.onExit(exitCode, signal);
+  };
+  const ended = (session: TerminalSession, outputTail: string, signal: string | null = null): void => {
     live.delete(session.id);
+    endWatch(session.id, session.exitCode, signal);
     for (const listener of exitListeners) listener(session, outputTail);
     publish({ type: "session.exited", session });
   };
@@ -95,9 +143,14 @@ export function createTerminalService(deps: TerminalServiceDeps): TerminalServic
       subscribed = current;
       current.onNotify((event) => {
         if (event.method === PTY_EVENTS.update) publish({ type: "session.updated", session: track(event.params as TerminalSession) });
+        if (event.method === PTY_EVENTS.data) {
+          const { sessionId, data } = event.params as PtyDataNotice;
+          watches.get(sessionId)?.onData(data);
+          return;
+        }
         if (event.method !== PTY_EVENTS.exit) return;
-        const { outputTail, ...session } = event.params as TerminalSession & { outputTail?: string };
-        ended(session, outputTail ?? "");
+        const { outputTail, signal, ...session } = event.params as PtyExitNotice;
+        ended(session, outputTail, signal ?? null);
       });
       // Every shell died with the host: each tab ends (no exit code) instead of looking alive.
       current.onExit(() => {
@@ -148,22 +201,61 @@ export function createTerminalService(deps: TerminalServiceDeps): TerminalServic
     kill: async (req) => {
       await worker().request(PTY_METHODS.kill, req);
       live.delete(req.sessionId);
+      // A program closed with its tab may be forgotten before its exit was reported: its end is unknown.
+      endWatch(req.sessionId, null, null);
     },
-    // No port: the window discovers the session with `list` and attaches when it shows it.
-    createAgentSession: async (req) => {
-      const params = await createParams({
-        workspaceId: req.workspaceId,
-        cwd: req.cwd,
-        cols: req.cols ?? 120,
-        rows: req.rows ?? 30,
-        owner: "agent",
-        missionId: req.missionId,
-        title: req.title,
-        command: req.command,
-      });
-      const session = track(await worker().request<TerminalSession>(PTY_METHODS.create, params));
+    // No port: the window discovers the session with `session.created` and attaches when it shows it.
+    startAgentProcess: async (req, watch) => {
+      const root = await rootOf(req.workspaceId);
+      const id = newId();
+      watches.set(id, watch);
+      let started: PtyAgentStarted;
+      try {
+        started = await worker().request<PtyAgentStarted>(PTY_METHODS.startAgent, {
+          id,
+          workspaceId: req.workspaceId,
+          root,
+          cwd: req.cwd,
+          cols: AGENT_COLS,
+          rows: AGENT_ROWS,
+          missionId: req.missionId,
+          title: req.title,
+          command: req.command,
+          env: req.env,
+        });
+      } catch (error) {
+        watches.delete(id);
+        if (error instanceof ServiceError && error.code === "unavailable") return null;
+        throw error;
+      }
+      const session = track(started.session);
+      publish({ type: "session.created", session });
+      return { session, pid: started.pid };
+    },
+    stopSession: async (sessionId) => {
+      await worker().request(PTY_METHODS.stop, { sessionId });
+    },
+    openMirror: async (req) => {
+      const root = await rootOf(req.workspaceId);
+      const params = { id: newId(), workspaceId: req.workspaceId, root, cwd: req.cwd, cols: AGENT_COLS, rows: AGENT_ROWS, missionId: req.missionId, title: req.title };
+      const session = track(await worker().request<TerminalSession>(PTY_METHODS.mirrorOpen, params));
       publish({ type: "session.created", session });
       return session;
+    },
+    writeMirror: async (sessionId, data) => {
+      try {
+        await worker().request(PTY_METHODS.mirrorWrite, { sessionId, data });
+        return true;
+      } catch (error) {
+        if (error instanceof ServiceError && error.code === "not_found") return false;
+        throw error;
+      }
+    },
+    closeMirror: async (sessionId, exitCode) => {
+      await worker().request(PTY_METHODS.mirrorClose, { sessionId, exitCode }).catch((error: unknown) => {
+        // Already closed by the user: nothing left to end.
+        if (!(error instanceof ServiceError && error.code === "not_found")) throw error;
+      });
     },
     takeOver: async (req) => track(await worker().request<TerminalSession>(PTY_METHODS.takeOver, req)),
     onExit: (listener) => {

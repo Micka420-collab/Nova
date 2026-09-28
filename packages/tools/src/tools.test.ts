@@ -348,3 +348,40 @@ describe("test reports", () => {
   });
 });
 
+
+describe("background commands (J2-B L1)", () => {
+  const PROC = "55555555-5555-4555-8555-555555555555";
+  const record = {
+    id: PROC, missionId: "m", workspaceId: WS, argv: ["pnpm", "dev"], cwd: "", pid: 7, state: "running" as const,
+    exitCode: null, signal: null, startedAt: 1, endedAt: null, terminalSessionId: "term-1", outputChars: 5,
+  };
+  const backgroundRunner = (): CommandRunner => ({
+    ...testRunner({}),
+    startBackground: async (spec) => ({
+      process: { id: PROC, missionId: spec.missionId, argv: spec.argv, cwd: spec.cwd, pid: 7, startedAt: 1, state: "running", exitCode: null },
+      initialOutput: "ready",
+      isolationLevel: "L0",
+    }),
+  });
+
+  it("journals the agent terminal and the tracker's process record, and points the model to the process tools", async () => {
+    const events: unknown[] = [];
+    const processes = { list: () => [record], output: () => null, stop: async () => null };
+    const { run } = setup({}, { commands: backgroundRunner(), processes });
+    const result = await run("run_command", { argv: ["pnpm", "dev"], background: true }, context({ record: (event) => events.push(event) }));
+    expect(result.ok).toBe(true);
+    expect(events).toEqual([
+      { type: "tool.terminal", callId: "c", sessionId: "term-1" },
+      { type: "process.started", process: record },
+    ]);
+    expect(result.content).toContain("process_output");
+  });
+
+  it("journals nothing and names no process tool while the tracker is not wired", async () => {
+    const events: unknown[] = [];
+    const { run } = setup({}, { commands: backgroundRunner() });
+    const result = await run("run_command", { argv: ["pnpm", "dev"], background: true }, context({ record: (event) => events.push(event) }));
+    expect(events).toEqual([]);
+    expect(result.content).not.toContain("process_output");
+  });
+});

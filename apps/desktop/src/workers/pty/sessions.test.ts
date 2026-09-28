@@ -8,9 +8,9 @@ import { spawn as ptySpawn } from "node-pty";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TerminalHostMessage } from "@nova/shared";
 import { resolveConfinedCwd } from "./cwd";
-import { buildPtyEnv } from "./env";
+import { buildAgentPtyEnv, buildPtyEnv } from "./env";
 import { defaultKillTreeDeps, killTree } from "./kill-tree";
-import type { PtyCreateParams } from "./protocol";
+import type { PtyAgentStartParams, PtyCreateParams, PtyMirrorOpenParams } from "./protocol";
 import { Scrollback } from "./scrollback";
 import { PtySessions, type HostPort, type PtyProcess, type PtySessionsDeps } from "./sessions";
 import type { ShellChoice } from "./shell";
@@ -70,6 +70,7 @@ function realSessions(shell: ShellChoice, overrides: Partial<PtySessionsDeps> = 
     resolveCwd: resolveConfinedCwd,
     shell: () => shell,
     env: () => buildPtyEnv(process.env),
+    agentEnv: (extra) => buildAgentPtyEnv(process.env, extra),
     killTree: (pty) => killTree(pty.pid, { ...defaultKillTreeDeps, graceMs: 200 }),
     ...overrides,
   });
@@ -250,6 +251,7 @@ function fakeSessions(pty: FakePty, overrides: Partial<PtySessionsDeps> = {}) {
     resolveCwd: async () => root,
     shell: () => ({ file: "/bin/zsh", args: [], name: "zsh" }),
     env: () => ({}),
+    agentEnv: (extra) => ({ ...extra }),
     killTree: async () => pty.exit(0, 1),
     onExit: (session) => exits.push(session),
     onUpdate: (session) => updates.push(session),
@@ -332,6 +334,123 @@ describe("PtySessions rules", () => {
     pty.exit(0, 9);
     expect(port.exit()).toEqual({ type: "exit", exitCode: null, signal: 9 });
     expect(exits).toEqual([expect.objectContaining({ state: "exited", exitCode: null })]);
+  });
+});
+
+function agentParams(overrides: Partial<PtyAgentStartParams> = {}): PtyAgentStartParams {
+  return {
+    id: randomUUID(),
+    workspaceId: randomUUID(),
+    root,
+    cwd: "",
+    cols: 80,
+    rows: 24,
+    missionId: randomUUID(),
+    title: "pnpm dev",
+    command: { file: "/usr/bin/pnpm", args: ["dev"], verbatim: false },
+    env: { CI: "1" },
+    ...overrides,
+  };
+}
+
+function mirrorParams(overrides: Partial<PtyMirrorOpenParams> = {}): PtyMirrorOpenParams {
+  return { id: randomUUID(), workspaceId: randomUUID(), root, cwd: "", cols: 80, rows: 24, missionId: randomUUID(), title: "Commandes", ...overrides };
+}
+
+describe("agent program sessions (J2-B L1)", () => {
+  it("streams the output to main, stays read-only until taken over, and stop keeps it listed", async () => {
+    const pty = new FakePty();
+    const data: [string, string][] = [];
+    const killed = vi.fn<PtySessionsDeps["killTree"]>(async () => pty.exit(0, 15));
+    const exits: unknown[][] = [];
+    const { sessions } = fakeSessions(pty, {
+      onData: (id, chunk) => data.push([id, chunk]),
+      killTree: killed,
+      onExit: (...args) => exits.push(args),
+      coalesceMs: 1,
+    });
+    const request = agentParams();
+    const { session, pid } = await sessions.startAgent(request);
+    expect(session).toMatchObject({ owner: "agent", shell: "pnpm", title: "pnpm dev", missionId: request.missionId });
+    expect(pid).toBe(pty.pid);
+    pty.emit("ready\r\n");
+    await vi.waitFor(() => expect(data).toEqual([[request.id, "ready\r\n"]]));
+    const port = new FakePort();
+    sessions.attach(request.id, port);
+    port.send({ type: "input", data: "q" });
+    expect(pty.written).toEqual([]);
+    sessions.takeOver(request.id);
+    port.send({ type: "input", data: "q" });
+    expect(pty.written).toEqual(["q"]);
+    await sessions.stop(request.id);
+    expect(killed).toHaveBeenCalledOnce();
+    expect(sessions.list(null)).toMatchObject([{ id: request.id, state: "exited", exitCode: null }]);
+    expect(exits[0]?.[2]).toBe(15);
+  });
+
+  it("passes a verbatim Windows command line as one string, and argv everywhere else", async () => {
+    const spawned: unknown[] = [];
+    const pty = new FakePty();
+    const windows = fakeSessions(pty, { platform: "win32", spawn: (_file, args) => (spawned.push(args), pty) }).sessions;
+    await windows.startAgent(agentParams({ command: { file: "C:\\Windows\\cmd.exe", args: ["/d", "/s", "/c", '"a ^"b^""'], verbatim: true } }));
+    const posixHost = fakeSessions(pty, { platform: "linux", spawn: (_file, args) => (spawned.push(args), pty) }).sessions;
+    await posixHost.startAgent(agentParams({ command: { file: "/usr/bin/node", args: ["a b"], verbatim: true } }));
+    expect(spawned).toEqual(['/d /s /c "a ^"b^""', ["a b"]]);
+  });
+
+  it.runIf(posix)("runs the program without a shell, with the structured-command environment", async () => {
+    const data: string[] = [];
+    const sessions = realSessions(sh(""), { onData: (_id, chunk) => data.push(chunk) });
+    const previous = process.env["OPENROUTER_API_KEY"];
+    process.env["OPENROUTER_API_KEY"] = "sk-or-v1-leak";
+    try {
+      const script = "console.log([process.env.CI, process.env.OPENROUTER_API_KEY ?? 'nokey', process.env.TERM, process.argv[1]].join('|'))";
+      await sessions.startAgent(agentParams({ command: { file: process.execPath, args: ["-e", script, "$HOME;x"], verbatim: false } }));
+      await vi.waitFor(() => expect(data.join("")).toContain("1|nokey|xterm-256color|$HOME;x"), { timeout: 5_000 });
+    } finally {
+      if (previous === undefined) delete process.env["OPENROUTER_API_KEY"];
+      else process.env["OPENROUTER_API_KEY"] = previous;
+      await sessions.killAll();
+    }
+  });
+});
+
+describe("mirror sessions (J2-B L1)", () => {
+  it("shows what main writes, refuses input and takeover, and ends with the given code without killing anything", async () => {
+    const pty = new FakePty();
+    const killed = vi.fn<PtySessionsDeps["killTree"]>(async () => undefined);
+    const exits: unknown[][] = [];
+    const { sessions } = fakeSessions(pty, { killTree: killed, onExit: (...args) => exits.push(args), coalesceMs: 1 });
+    const request = mirrorParams();
+    const session = await sessions.openMirror(request);
+    expect(session).toMatchObject({ owner: "agent", shell: "nova", title: "Commandes", state: "running" });
+    const port = new FakePort();
+    sessions.attach(request.id, port);
+    sessions.writeMirror(request.id, "$ pnpm test\r\n");
+    await vi.waitFor(() => expect(port.output()).toBe("$ pnpm test\r\n"));
+    port.send({ type: "input", data: "x" });
+    expect(() => sessions.takeOver(request.id)).toThrow(expect.objectContaining({ reason: "invalid" }));
+    sessions.closeMirror(request.id, 3);
+    expect(port.exit()).toEqual({ type: "exit", exitCode: 3, signal: null });
+    expect(exits[0]?.[0]).toMatchObject({ id: request.id, exitCode: 3 });
+    // Ending an ended mirror, or killing it, never signals a process (a mirror's pid is 0).
+    await sessions.kill(request.id);
+    expect(killed).not.toHaveBeenCalled();
+    expect(() => sessions.writeMirror(request.id, "late")).toThrow(expect.objectContaining({ reason: "not_found" }));
+  });
+
+  it("a stopped mirror ends with an unknown code; writing to a program session is refused", async () => {
+    const pty = new FakePty();
+    const killed = vi.fn<PtySessionsDeps["killTree"]>(async () => undefined);
+    const { sessions } = fakeSessions(pty, { killTree: killed });
+    const mirror = mirrorParams();
+    await sessions.openMirror(mirror);
+    await sessions.stop(mirror.id);
+    expect(sessions.list(null)).toMatchObject([{ id: mirror.id, state: "exited", exitCode: null }]);
+    expect(killed).not.toHaveBeenCalled();
+    const program = agentParams();
+    await sessions.startAgent(program);
+    expect(() => sessions.writeMirror(program.id, "x")).toThrow(expect.objectContaining({ reason: "invalid" }));
   });
 });
 

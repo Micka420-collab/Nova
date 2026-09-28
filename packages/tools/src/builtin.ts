@@ -403,11 +403,18 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
         const { process, initialOutput, isolationLevel } = await runner.startBackground(spec, context.onOutput);
         const running = process.state === "running";
         seenText.record(initialOutput);
+        // L1: the tracker's record (workspace, redacted argv, agent terminal) is the journaled fact.
+        const tracked = deps.processes?.list(context.missionId).find((item) => item.id === process.id) ?? null;
+        if (tracked) {
+          if (tracked.terminalSessionId !== null) context.record?.({ type: "tool.terminal", callId: context.callId, sessionId: tracked.terminalSessionId });
+          context.record?.({ type: "process.started", process: tracked });
+        }
+        const next = tracked && running ? "\nRead its latest output with process_output; stop it with process_stop when it is no longer needed." : "";
         return {
           ...makeResult({
             callId: context.callId,
             ok: running,
-            content: `${running ? "Started in the background" : `Exited immediately (code ${String(process.exitCode)})`}: ${args.argv.join(" ")} [process ${process.id}]\nFirst output:\n${initialOutput || "(none yet)"}`,
+            content: `${running ? "Started in the background" : `Exited immediately (code ${String(process.exitCode)})`}: ${args.argv.join(" ")} [process ${process.id}]\nFirst output:\n${initialOutput || "(none yet)"}${next}`,
             display: {
               kind: "command", argv: args.argv, cwd: args.cwd, exitCode: process.exitCode, signal: null,
               durationMs: Date.now() - started, outputTail: tail(initialOutput, 4_000), outputArtifactId: null, isolationLevel,

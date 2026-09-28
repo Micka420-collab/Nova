@@ -20,6 +20,8 @@ export interface TerminalSliceActions {
   markExited(sessionId: string, exitCode: number | null): void;
   removeSession(sessionId: string): void;
   select(sessionId: string | null): void;
+  /** « Voir le terminal »: selects the session and opens the dock. */
+  reveal(sessionId: string): void;
   /** Toggles, or forces with `open`. */
   toggleDock(open?: boolean): void;
   setStatus(status: TerminalSliceState["status"], error?: string | null): void;
@@ -67,6 +69,7 @@ export function createTerminalStore(initial: Partial<TerminalSliceState> = {}): 
         return { sessions, activeId: next?.id ?? null };
       }),
     select: (activeId) => set({ activeId }),
+    reveal: (activeId) => set({ activeId, dockOpen: true }),
     toggleDock: (open) => set((state) => ({ dockOpen: open ?? !state.dockOpen })),
     setStatus: (status, error = null) => set({ status, error }),
   }));

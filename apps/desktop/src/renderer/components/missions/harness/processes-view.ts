@@ -15,10 +15,20 @@ export function initialProcessesView(): ProcessesView {
   return { processes: [], terminals: {} };
 }
 
+/**
+ * Latest state of a process. An end is final: `process.started` can be journaled after
+ * `process.ended` (a process that exits at once ends before its start is recorded), and must not
+ * bring it back to "running".
+ */
+export function mergeProcess(known: MissionProcess | undefined, incoming: MissionProcess): MissionProcess {
+  if (known && known.endedAt !== null && incoming.endedAt === null) return known;
+  return incoming;
+}
+
 function upsert(processes: MissionProcess[], process: MissionProcess): MissionProcess[] {
   const index = processes.findIndex((item) => item.id === process.id);
   if (index === -1) return [...processes, process];
-  return processes.map((item, at) => (at === index ? process : item));
+  return processes.map((item, at) => (at === index ? mergeProcess(item, process) : item));
 }
 
 export function reduceProcessesEvent(view: ProcessesView, event: ProcessesEvent): ProcessesView {

@@ -13,7 +13,7 @@ function fakePort(name: string) {
   return { name, close: vi.fn<() => void>() } as unknown as MessagePortMain & { name: string; close: ReturnType<typeof vi.fn<() => void>> };
 }
 
-function setup(options: { fail?: boolean; windowOpen?: boolean } = {}) {
+function setup(options: { fail?: boolean; windowOpen?: boolean; gone?: boolean } = {}) {
   const calls: { method: string; params: unknown; transfer: MessagePortMain[] }[] = [];
   const listeners: ((event: WorkerNotify) => void)[] = [];
   const hostExits: (() => void)[] = [];
@@ -38,6 +38,10 @@ function setup(options: { fail?: boolean; windowOpen?: boolean } = {}) {
       calls.push({ method, params, transfer });
       if (options.fail) throw new ServiceError("unavailable", "pty-host: node-pty could not be loaded");
       if (method === PTY_METHODS.list) return [] as T;
+      if (method === PTY_METHODS.startAgent) return { session: { ...session(params as Record<string, unknown>), owner: "agent" }, pid: 99 } as T;
+      if (options.gone && (method === PTY_METHODS.mirrorWrite || method === PTY_METHODS.mirrorClose)) {
+        throw new ServiceError("not_found", "pty-host: unknown terminal session");
+      }
       return session(params as Record<string, unknown>) as T;
     },
     onNotify: (listener) => {
@@ -124,24 +128,72 @@ describe("terminal service", () => {
     expect(channels).toHaveLength(1);
   });
 
-  it("agent sessions carry the mission command and no port; takeOver goes to the host", async () => {
-    const { service, calls, sent } = setup();
+  it("starts an agent program session with no port, streams its output to the watch, and reports its end once", async () => {
+    const { service, calls, sent, listeners } = setup();
     const missionId = "5c6d7e8f-1111-4222-8333-444455556666";
-    await service.createAgentSession({
-      workspaceId: WORKSPACE,
-      missionId,
-      cwd: "",
-      command: { file: "pnpm", args: ["test"] },
-      title: "pnpm test",
-    });
+    const events: unknown[] = [];
+    service.onEvent((event) => events.push(event));
+    const data: string[] = [];
+    const ends: unknown[] = [];
+    const started = await service.startAgentProcess(
+      { workspaceId: WORKSPACE, missionId, cwd: "", command: { file: "/usr/bin/pnpm", args: ["dev"], verbatim: false }, env: { CI: "1" }, title: "pnpm dev" },
+      { onData: (chunk) => data.push(chunk), onExit: (code, signal) => ends.push([code, signal]) },
+    );
+    expect(started).toMatchObject({ pid: 99, session: { id: SESSION, owner: "agent" } });
     expect(calls[0]).toMatchObject({
-      method: PTY_METHODS.create,
-      params: { owner: "agent", missionId, command: { file: "pnpm", args: ["test"] }, title: "pnpm test" },
+      method: PTY_METHODS.startAgent,
+      params: { id: SESSION, root: "/home/u/projet", missionId, title: "pnpm dev", env: { CI: "1" }, command: { file: "/usr/bin/pnpm", verbatim: false } },
       transfer: [],
     });
     expect(sent).toEqual([]);
+    expect(events).toEqual([{ type: "session.created", session: expect.objectContaining({ id: SESSION, owner: "agent" }) }]);
+    for (const listener of listeners) listener({ kind: "notify", method: PTY_EVENTS.data, params: { sessionId: SESSION, data: "ready" } });
+    for (const listener of listeners) listener({ kind: "notify", method: PTY_EVENTS.data, params: { sessionId: "someone-else", data: "x" } });
+    expect(data).toEqual(["ready"]);
+    const exited = { ...started?.session, state: "exited", exitCode: null, outputTail: "", signal: "SIGTERM" };
+    for (const listener of listeners) listener({ kind: "notify", method: PTY_EVENTS.exit, params: exited });
+    await service.kill({ sessionId: SESSION });
+    expect(ends).toEqual([[null, "SIGTERM"]]);
+    await service.stopSession(SESSION);
+    expect(calls.at(-1)).toMatchObject({ method: PTY_METHODS.stop, params: { sessionId: SESSION } });
     await service.takeOver({ sessionId: SESSION });
-    expect(calls[1]).toMatchObject({ method: PTY_METHODS.takeOver, params: { sessionId: SESSION } });
+    expect(calls.at(-1)).toMatchObject({ method: PTY_METHODS.takeOver, params: { sessionId: SESSION } });
+  });
+
+  it("an agent program ends (unknown code) when its tab is closed or the host dies before reporting", async () => {
+    const closed = setup();
+    const ends: unknown[] = [];
+    const request = { workspaceId: WORKSPACE, missionId: SESSION, cwd: "", command: { file: "/bin/x", args: [], verbatim: false }, env: {}, title: "x" };
+    await closed.service.startAgentProcess(request, { onData: () => {}, onExit: (code) => ends.push(code) });
+    await closed.service.kill({ sessionId: SESSION });
+    expect(ends).toEqual([null]);
+
+    const dead = setup();
+    const deadEnds: unknown[] = [];
+    await dead.service.startAgentProcess(request, { onData: () => {}, onExit: (code) => deadEnds.push(code) });
+    for (const listener of dead.hostExits) listener();
+    expect(deadEnds).toEqual([null]);
+  });
+
+  it("answers null (use a plain process) when the pty is unavailable", async () => {
+    const { service } = setup({ fail: true });
+    const request = { workspaceId: WORKSPACE, missionId: SESSION, cwd: "", command: { file: "/bin/x", args: [], verbatim: false }, env: {}, title: "x" };
+    await expect(service.startAgentProcess(request, { onData: () => {}, onExit: () => {} })).resolves.toBeNull();
+  });
+
+  it("opens, writes and closes a mirror session; a session closed by the user reads as gone", async () => {
+    const { service, calls } = setup();
+    const missionId = "5c6d7e8f-1111-4222-8333-444455556666";
+    const mirror = await service.openMirror({ workspaceId: WORKSPACE, missionId, cwd: "", title: "Commandes de Nomi" });
+    expect(mirror.id).toBe(SESSION);
+    expect(calls[0]).toMatchObject({ method: PTY_METHODS.mirrorOpen, params: { id: SESSION, missionId, title: "Commandes de Nomi", root: "/home/u/projet" } });
+    await expect(service.writeMirror(SESSION, "$ pnpm test\r\n")).resolves.toBe(true);
+    await service.closeMirror(SESSION, 0);
+    expect(calls.at(-1)).toMatchObject({ method: PTY_METHODS.mirrorClose, params: { sessionId: SESSION, exitCode: 0 } });
+
+    const gone = setup({ gone: true });
+    await expect(gone.service.writeMirror(SESSION, "x")).resolves.toBe(false);
+    await expect(gone.service.closeMirror(SESSION, null)).resolves.toBeUndefined();
   });
 
   it("forwards exits to listeners; registering does not start the pty-host", async () => {

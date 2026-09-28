@@ -9,12 +9,19 @@ export function ProcessDisplay({ display }: { display: Extract<ToolDisplay, { ki
     state === "running" ? copy.running : state === "stopped" ? copy.stoppedState : copy.exited(exitCode);
   return (
     <>
-      <p className="nova-tool__fact">{display.action === "stop" ? copy.stopped : copy.list(display.processes.length)}</p>
+      <p className="nova-tool__fact">
+        {display.action === "stop"
+          ? display.processes[0]?.state === "stopped"
+            ? copy.stopped
+            : copy.alreadyEnded
+          : copy.list(display.processes.length)}
+      </p>
       {display.processes.length > 0 ? (
         <ul className="nova-tool__list">
           {display.processes.map((process) => (
             <li key={process.id}>
               <code>{process.argv.join(" ")}</code> · {stateLabel(process.state, process.exitCode)}
+              {process.cwd !== "" ? <> · {process.cwd}</> : null}
             </li>
           ))}
         </ul>

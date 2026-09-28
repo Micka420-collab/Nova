@@ -1,7 +1,8 @@
 // Dock terminal panel (FEATURES E13, VISUAL §4.5 and §5.6): session tabs, one xterm per session
 // (all kept mounted so switching tabs keeps their screen), status line with the exit code,
-// "Expliquer" actions, search. Agent sessions (read-only until "Prendre la main") are rendered if
-// main creates one, but no mission does yet (docs/STATUS.md, E13 agent part not delivered).
+// "Expliquer" actions, search. Agent sessions (J2-B L1) are read-only: a mission's background
+// program can be taken over ("Prendre la main"); a mirror of the structured commands cannot, so
+// `canTakeOver` (fed by the processes slice) decides where the button appears.
 // Data never goes through invoke: each view gets its session's MessagePort from the port registry
 // (a fresh `create` sends one; otherwise `terminal.attach` asks main for a new one + replay).
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
@@ -9,6 +10,7 @@ import { useStore } from "zustand";
 import { Button, Callout, EmptyState, IconButton, OrbitIndicator, StatusPill } from "@nova/ui";
 import { redactSecrets, type NovaApi, type NovaPortRegistry, type TerminalSession } from "@nova/shared";
 import type { TerminalStore } from "../../state/terminal-slice";
+import { processesCopy } from "../../copy/fr-processes";
 import { terminalCopy as copy } from "./copy";
 import type { TerminalExit } from "./terminal-client";
 import { documentColorScheme, type TerminalColorScheme } from "./terminal-theme";
@@ -40,6 +42,11 @@ export interface TerminalPanelProps {
   screenReaderMode?: boolean;
   highContrast?: boolean;
   reducedMotion?: boolean;
+  /**
+   * Running agent sessions whose program accepts input once taken over (background processes:
+   * `interactiveAgentSessions` of the processes slice). Default: every running agent session.
+   */
+  canTakeOver?(session: TerminalSession): boolean;
 }
 
 const EXPLAIN_LINES = 200;
@@ -219,6 +226,7 @@ export function TerminalPanel(props: TerminalPanelProps) {
   }, [findOpen]);
 
   const active = sessions.find((s) => s.id === activeId) ?? null;
+  const takeOverable = (session: TerminalSession): boolean => props.canTakeOver?.(session) ?? true;
 
   if (status === "error" && sessions.length === 0) {
     return (
@@ -335,14 +343,14 @@ export function TerminalPanel(props: TerminalPanelProps) {
           tone="info"
           className="nv-terminal-notice"
           action={
-            active.state === "running" ? (
+            active.state === "running" && takeOverable(active) ? (
               <Button size="sm" onClick={() => void takeOver(active.id)}>
                 {copy.takeOver}
               </Button>
             ) : undefined
           }
         >
-          {copy.agentReadOnly}
+          {active.state === "running" && !takeOverable(active) ? processesCopy.terminal.mirrorNote : copy.agentReadOnly}
         </Callout>
       ) : null}
 

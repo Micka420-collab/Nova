@@ -2,7 +2,15 @@ import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { createProcessCommandRunner, scrubCommandEnv } from "./command-runner";
+import { PROCESS_LIMITS, type ProcessEvent } from "@nova/shared";
+import {
+  createProcessCommandRunner,
+  plainTerminalText,
+  scrubCommandEnv,
+  type AgentProcessHandlers,
+  type AgentProcessRequest,
+  type AgentTerminalHost,
+} from "./command-runner";
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "nova-cmd-")));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -118,5 +126,169 @@ describe("process command runner", { timeout: 30_000 }, () => {
   it("refuses secret-looking extra variables", () => {
     expect(() => scrubCommandEnv({}, { GITHUB_TOKEN: "x" })).toThrow(/not allowed/);
     expect(scrubCommandEnv({ PATH: "/bin", AWS_SECRET_ACCESS_KEY: "x", LC_ALL: "C" })).toEqual({ PATH: "/bin", LC_ALL: "C" });
+  });
+});
+
+/** In-memory agent terminal: records what the runner asks, lets the test drive output and exits. */
+function fakeHost(options: { unavailable?: boolean; mirrorGone?: boolean } = {}) {
+  const started: { request: AgentProcessRequest; handlers: AgentProcessHandlers; sessionId: string }[] = [];
+  const stopped: string[] = [];
+  const mirrors: { sessionId: string; missionId: string; data: string; closed: number | null | undefined }[] = [];
+  let next = 0;
+  const host: AgentTerminalHost = {
+    async startProcess(request, handlers) {
+      if (options.unavailable) return null;
+      const sessionId = `session-${++next}`;
+      started.push({ request, handlers, sessionId });
+      return { sessionId, pid: 1000 + next };
+    },
+    async stopProcess(sessionId) {
+      stopped.push(sessionId);
+      const entry = started.find((item) => item.sessionId === sessionId);
+      entry?.handlers.onExit({ exitCode: null, signal: "SIGTERM" });
+    },
+    async openMirror(request) {
+      const sessionId = `mirror-${++next}`;
+      mirrors.push({ sessionId, missionId: request.missionId, data: "", closed: undefined });
+      return sessionId;
+    },
+    async writeMirror(sessionId, data) {
+      const mirror = mirrors.find((item) => item.sessionId === sessionId);
+      if (!mirror || options.mirrorGone) return false;
+      mirror.data += data;
+      return true;
+    },
+    async closeMirror(sessionId, exitCode) {
+      const mirror = mirrors.find((item) => item.sessionId === sessionId);
+      if (mirror) mirror.closed = exitCode;
+    },
+  };
+  return { host, started, stopped, mirrors };
+}
+
+const sleeper = [node, "-e", "console.log('ready'); setInterval(()=>{},1000)"];
+
+describe("mission processes (J2-B L1)", { timeout: 30_000 }, () => {
+  it("tracks a background process as a MissionProcess: workspace, redacted argv, events, stopped state", async () => {
+    const own = createProcessCommandRunner({ resolveCwd: async () => root, killGraceMs: 200, backgroundSettleMs: 20_000 });
+    const events: ProcessEvent[] = [];
+    own.onProcessEvent((event) => events.push(event));
+    const started = await own.startBackground({ ...spec([...sleeper, "sk-or-v1-abcdefghijklmnop"]), workspaceId: "ws-1" });
+    const record = own.process(started.process.id);
+    expect(record).toMatchObject({ missionId: "m", workspaceId: "ws-1", state: "running", terminalSessionId: null, endedAt: null });
+    expect(record?.argv.join(" ")).not.toContain("sk-or-v1-abcdefghijklmnop");
+    expect(record?.outputChars).toBeGreaterThan(0);
+    await own.stop(started.process.id);
+    expect(own.process(started.process.id)).toMatchObject({ state: "stopped", exitCode: null });
+    expect(alive(started.process.pid ?? -1)).toBe(false);
+    expect(events.map((event) => `${event.type}:${event.process.state}`)).toEqual(["process.started:running", "process.ended:stopped"]);
+    // Kept listed (with its output) for the mission view; CommandRunner.list only shows live ones.
+    expect(own.processes({ workspaceId: "ws-1", missionId: null }).map((item) => item.id)).toEqual([started.process.id]);
+    expect(own.processes({ workspaceId: "other", missionId: null })).toEqual([]);
+    expect(own.list("m")).toEqual([]);
+  });
+
+  it("bounds and redacts the output tail, and says when older output was dropped", async () => {
+    const own = createProcessCommandRunner({ resolveCwd: async () => root, killGraceMs: 200 });
+    const script = `process.stdout.write('y'.repeat(${PROCESS_LIMITS.outputRingChars + 50_000})); console.log(' key=sk-or-v1-abcdefghijklmnopqrst done')`;
+    const started = await own.startBackground(spec([node, "-e", script]));
+    const id = started.process.id;
+    await expect.poll(() => own.process(id)?.state, { timeout: 10_000 }).toBe("exited");
+    const output = own.output(id, 200);
+    expect(output?.text.length).toBeLessThanOrEqual(200);
+    expect(output?.text).toContain("done");
+    expect(output?.text).not.toContain("sk-or-v1-abcdefghijklmnopqrst");
+    expect(output).toMatchObject({ truncated: true, state: "exited", totalChars: PROCESS_LIMITS.outputRingChars + 50_000 + 40 });
+    // The API cap applies whatever the caller asks.
+    expect(own.output(id, 1_000_000)?.text.length).toBeLessThanOrEqual(PROCESS_LIMITS.outputTailMaxChars);
+    expect(own.output("unknown", 10)).toBeNull();
+  });
+
+  it("refuses more than maxRunningPerMission background processes for one mission", async () => {
+    const { host } = fakeHost();
+    const own = createProcessCommandRunner({ resolveCwd: async () => root, terminal: host, backgroundSettleMs: 1 });
+    for (let index = 0; index < PROCESS_LIMITS.maxRunningPerMission; index += 1) await own.startBackground(spec(sleeper));
+    await expect(own.startBackground(spec(sleeper))).rejects.toMatchObject({ code: "too_large" });
+    // Another mission has its own allowance.
+    await expect(own.startBackground({ ...spec(sleeper), missionId: "other" })).resolves.toBeDefined();
+    const first = own.processes({ workspaceId: null, missionId: "m" })[0];
+    await own.stop(first?.id ?? "");
+    await expect(own.startBackground(spec(sleeper))).resolves.toBeDefined();
+  });
+
+  it("runs a background process in an agent terminal session: resolved program, scrubbed extras, ring fed by the session", async () => {
+    const { host, started, stopped } = fakeHost();
+    const own = createProcessCommandRunner({
+      resolveCwd: async () => root,
+      env: { PATH: process.env["PATH"] },
+      terminal: host,
+      backgroundSettleMs: 20_000,
+    });
+    const events: ProcessEvent[] = [];
+    own.onProcessEvent((event) => events.push(event));
+    const pending = own.startBackground(spec(["node", "server.js"]));
+    await expect.poll(() => started.length).toBe(1);
+    const [session] = started;
+    expect(session?.request).toMatchObject({ missionId: "m", cwd: "", env: { CI: "1" }, title: "node server.js" });
+    expect(session?.request.program.file).toMatch(/node(\.exe)?$/);
+    expect(session?.request.program.args).toEqual(["server.js"]);
+    session?.handlers.onData("\u001b[32mready\u001b[0m on :3000\r\n");
+    const result = await pending;
+    expect(result.initialOutput).toBe("ready on :3000\n");
+    expect(own.process(result.process.id)).toMatchObject({ terminalSessionId: "session-1", pid: 1001, state: "running" });
+    expect(own.output(result.process.id, 100)?.text).toBe("ready on :3000\n");
+    await own.stop(result.process.id);
+    expect(stopped).toEqual(["session-1"]);
+    expect(own.process(result.process.id)).toMatchObject({ state: "stopped", signal: "SIGTERM" });
+    expect(events.map((event) => event.type)).toEqual(["process.started", "process.ended"]);
+    await expect(own.startBackground(spec(["nova-no-such-program-xyz"]))).rejects.toMatchObject({ code: "not_found" });
+    await expect(own.startBackground({ ...spec(sleeper), env: { API_TOKEN: "x" } })).rejects.toMatchObject({ code: "invalid_arguments" });
+  });
+
+  it("reports an unobserved end as unknown, and falls back to a plain child process without a terminal", async () => {
+    const { host, started } = fakeHost();
+    const own = createProcessCommandRunner({ resolveCwd: async () => root, terminal: host, backgroundSettleMs: 1 });
+    const hosted = await own.startBackground(spec(sleeper));
+    started[0]?.handlers.onExit({ exitCode: null, signal: null });
+    expect(own.process(hosted.process.id)).toMatchObject({ state: "exited", exitCode: null, signal: null });
+
+    const plain = createProcessCommandRunner({ resolveCwd: async () => root, terminal: fakeHost({ unavailable: true }).host, killGraceMs: 200, backgroundSettleMs: 20_000 });
+    const child = await plain.startBackground(spec(sleeper));
+    expect(child.initialOutput).toContain("ready");
+    expect(plain.process(child.process.id)).toMatchObject({ terminalSessionId: null, state: "running" });
+    await plain.stopAll("m");
+    expect(alive(child.process.pid ?? -1)).toBe(false);
+  });
+
+  it("mirrors foreground runs read-only in one agent session per mission, then closes it with the mission", async () => {
+    const { host, mirrors } = fakeHost();
+    const own = createProcessCommandRunner({ resolveCwd: async () => root, terminal: host });
+    const sessions: string[] = [];
+    await own.run(spec([node, "-e", "console.log('line one'); console.log('Bearer abcdefghijklmnopqrstuvwxyz')"]), new AbortController().signal, undefined, (id) => sessions.push(id));
+    await own.run(spec([node, "-e", "process.exit(3)"]), new AbortController().signal, undefined, (id) => sessions.push(id));
+    await expect.poll(() => mirrors[0]?.data ?? "").toContain("[code 3");
+    expect(mirrors).toHaveLength(1);
+    expect(sessions).toEqual(["mirror-1", "mirror-1"]);
+    const text = plainTerminalText(mirrors[0]?.data ?? "");
+    expect(text).toContain("$ ");
+    expect(text).toContain("line one\n");
+    expect(text).not.toContain("abcdefghijklmnopqrstuvwxyz");
+    // A bare LF would leave the cursor in its column: the mirror writes CRLF.
+    expect(mirrors[0]?.data).not.toMatch(/[^\r]\n/);
+    await own.stopAll("m");
+    expect(mirrors[0]?.closed).toBe(3);
+    // The next command of the mission opens a fresh session.
+    await own.run(spec([node, "-e", ""]), new AbortController().signal);
+    expect(mirrors).toHaveLength(2);
+  });
+
+  it("reopens the mirror when the user closed its session", async () => {
+    const gone = fakeHost({ mirrorGone: true });
+    const own = createProcessCommandRunner({ resolveCwd: async () => root, terminal: gone.host });
+    await own.run(spec([node, "-e", "console.log(1)"]), new AbortController().signal);
+    await expect.poll(() => gone.mirrors.length).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await own.run(spec([node, "-e", "console.log(2)"]), new AbortController().signal);
+    await expect.poll(() => gone.mirrors.length).toBe(2);
   });
 });

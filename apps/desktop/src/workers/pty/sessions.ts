@@ -7,13 +7,16 @@
 //   Without a port nothing is waiting for acks: the pty runs and only the scrollback keeps output.
 // - agent sessions are read-only: renderer input is dropped here (not only hidden in the UI) until
 //   `takeOver` hands the session to the user.
+// - J2-B L1: an agent PROGRAM session (`startAgent`) also streams its output to main (`onData`,
+//   coalesced like the port output) for the process output ring; a MIRROR session has no process:
+//   main writes the structured commands it runs into it, and it never accepts input or a takeover.
 import {
   TERMINAL_FLOW,
   type TerminalClientMessage,
   type TerminalHostMessage,
   type TerminalSession,
 } from "@nova/shared";
-import type { PtyCreateParams, PtyResizeParams } from "./protocol";
+import type { PtyAgentStartParams, PtyCreateParams, PtyMirrorOpenParams, PtyResizeParams } from "./protocol";
 import { Scrollback } from "./scrollback";
 
 /** Output kept with an exit report (P5): enough for a test runner's summary. */
@@ -44,7 +47,8 @@ export interface PtySpawnOptions {
   env: Record<string, string>;
 }
 
-export type PtySpawn = (file: string, args: string[], options: PtySpawnOptions) => PtyProcess;
+/** `args` as one string = an exact Windows command line (node-pty passes it through unquoted). */
+export type PtySpawn = (file: string, args: string[] | string, options: PtySpawnOptions) => PtyProcess;
 
 /** Electron's MessagePortMain shape (what the host needs of it). */
 export interface HostPort {
@@ -73,10 +77,18 @@ export interface PtySessionsDeps {
   resolveCwd(root: string, cwd: string): Promise<string>;
   shell(): ShellChoice;
   env(): Record<string, string>;
+  /** Environment of an agent program: scrubbed like structured commands, plus checked extras. */
+  agentEnv(extra: Readonly<Record<string, string>>): Record<string, string>;
   /** Ends the whole process tree of a session; resolves when every process was signalled. */
   killTree(pty: PtyProcess): Promise<void>;
-  /** `outputTail`: plain end of the output (≤ 8 KB, not redacted: the receiver redacts). */
-  onExit?(session: TerminalSession, outputTail: string): void;
+  /**
+   * `outputTail`: plain end of the output (≤ 8 KB, not redacted: the receiver redacts); `signal`:
+   * the signal number that killed the process, or null.
+   */
+  onExit?(session: TerminalSession, outputTail: string, signal: number | null): void;
+  /** Output of streamed agent program sessions only (raw, not redacted: main redacts). */
+  onData?(sessionId: string, data: string): void;
+  platform?: NodeJS.Platform;
   onUpdate?(session: TerminalSession): void;
   now?(): number;
   highWatermark?: number;
@@ -90,9 +102,50 @@ export interface PtySessionsDeps {
   maxInputChars?: number;
 }
 
+/** A process-less pty: main writes into it; `kill` ends it (never a real process to signal). */
+class MirrorProcess implements PtyProcess {
+  readonly pid = 0;
+  private readonly dataListeners = new Set<(data: string) => void>();
+  private readonly exitListeners = new Set<(event: { exitCode: number; signal?: number }) => void>();
+  exitCode: number | null = null;
+  private ended = false;
+
+  onData(listener: (data: string) => void): Disposable {
+    this.dataListeners.add(listener);
+    return { dispose: () => this.dataListeners.delete(listener) };
+  }
+  onExit(listener: (event: { exitCode: number; signal?: number }) => void): Disposable {
+    this.exitListeners.add(listener);
+    return { dispose: () => this.exitListeners.delete(listener) };
+  }
+  write(): void {}
+  resize(): void {}
+  pause(): void {}
+  resume(): void {}
+  kill(): void {
+    this.end(null);
+  }
+  emit(data: string): void {
+    if (this.ended) return;
+    for (const listener of this.dataListeners) listener(data);
+  }
+  /** Unknown code = ended "by a signal" for the session (exit code null). */
+  end(exitCode: number | null): void {
+    if (this.ended) return;
+    this.ended = true;
+    this.exitCode = exitCode;
+    for (const listener of this.exitListeners) listener({ exitCode: exitCode ?? 0, signal: exitCode === null ? 1 : 0 });
+  }
+}
+
+type SessionKind = "shell" | "program" | "mirror";
+
 interface Session {
   info: TerminalSession;
   pty: PtyProcess;
+  kind: SessionKind;
+  /** Output also goes to main (agent program sessions). */
+  stream: boolean;
   scrollback: Scrollback;
   port: HostPort | null;
   unacked: number;
@@ -125,31 +178,71 @@ export class PtySessions {
     if (this.sessions.has(params.id)) throw new PtyHostError("invalid", "session id already used");
     if (params.owner === "agent" && !params.command) throw new PtyHostError("invalid", "agent sessions need a command");
     if (params.owner === "user" && params.command) throw new PtyHostError("invalid", "user sessions run the user's shell");
-    const cwd = await this.deps.resolveCwd(params.root, params.cwd).catch((error: unknown) => {
+    const cwd = await this.confinedCwd(params.root, params.cwd);
+    const choice: ShellChoice = params.command ? { ...params.command, name: shellName(params.command.file) } : this.deps.shell();
+    const env = params.owner === "agent" ? this.deps.agentEnv({}) : this.deps.env();
+    const pty = this.spawn(choice.file, choice.args, choice.name, params, cwd, env);
+    return this.open(params, pty, { kind: params.command ? "program" : "shell", stream: false, shell: choice.name }, port);
+  }
+
+  /** A mission's background program in a read-only session streamed to main. Returns its pid. */
+  async startAgent(params: PtyAgentStartParams): Promise<{ session: TerminalSession; pid: number }> {
+    if (this.sessions.has(params.id)) throw new PtyHostError("invalid", "session id already used");
+    const cwd = await this.confinedCwd(params.root, params.cwd);
+    const { file, args, verbatim } = params.command;
+    const windowsLine = verbatim && (this.deps.platform ?? process.platform) === "win32";
+    const name = shellName(file);
+    const pty = this.spawn(file, windowsLine ? args.join(" ") : args, name, params, cwd, this.deps.agentEnv(params.env));
+    const session = this.open({ ...params, owner: "agent" }, pty, { kind: "program", stream: true, shell: name }, null);
+    return { session, pid: pty.pid };
+  }
+
+  /** A process-less agent session showing the structured commands main runs for a mission. */
+  async openMirror(params: PtyMirrorOpenParams): Promise<TerminalSession> {
+    if (this.sessions.has(params.id)) throw new PtyHostError("invalid", "session id already used");
+    await this.confinedCwd(params.root, params.cwd);
+    return this.open({ ...params, owner: "agent" }, new MirrorProcess(), { kind: "mirror", stream: false, shell: "nova" }, null);
+  }
+
+  writeMirror(sessionId: string, data: string): void {
+    const session = this.get(sessionId);
+    if (session.kind !== "mirror" || !(session.pty instanceof MirrorProcess)) throw new PtyHostError("invalid", "not a mirror session");
+    session.pty.emit(data);
+  }
+
+  closeMirror(sessionId: string, exitCode: number | null): void {
+    const session = this.get(sessionId);
+    if (!(session.pty instanceof MirrorProcess)) throw new PtyHostError("invalid", "not a mirror session");
+    session.pty.end(exitCode);
+  }
+
+  private async confinedCwd(root: string, cwd: string): Promise<string> {
+    return this.deps.resolveCwd(root, cwd).catch((error: unknown) => {
       throw new PtyHostError("invalid", error instanceof Error ? error.message : "invalid working directory");
     });
-    const { file, args, name }: ShellChoice = params.command
-      ? { ...params.command, name: shellName(params.command.file) }
-      : this.deps.shell();
-    let pty: PtyProcess;
+  }
+
+  private spawn(file: string, args: string[] | string, name: string, params: { cols: number; rows: number }, cwd: string, env: Record<string, string>): PtyProcess {
     try {
-      pty = this.deps.spawn(file, args, {
-        name: "xterm-256color",
-        cols: params.cols,
-        rows: params.rows,
-        cwd,
-        env: this.deps.env(),
-      });
+      return this.deps.spawn(file, args, { name: "xterm-256color", cols: params.cols, rows: params.rows, cwd, env });
     } catch {
       throw new PtyHostError("failed", `could not start ${name}`);
     }
+  }
+
+  private open(
+    params: Pick<PtyCreateParams, "id" | "workspaceId" | "cwd" | "cols" | "rows" | "owner" | "missionId" | "title">,
+    pty: PtyProcess,
+    options: { kind: SessionKind; stream: boolean; shell: string },
+    port: HostPort | null,
+  ): TerminalSession {
     const session: Session = {
       info: {
         id: params.id,
         workspaceId: params.workspaceId,
         cwd: params.cwd,
-        shell: name,
-        title: params.title ?? name,
+        shell: options.shell,
+        title: params.title ?? options.shell,
         owner: params.owner,
         missionId: params.missionId,
         cols: params.cols,
@@ -159,6 +252,8 @@ export class PtySessions {
         createdAt: (this.deps.now ?? Date.now)(),
       },
       pty,
+      kind: options.kind,
+      stream: options.stream,
       scrollback: new Scrollback(this.deps.scrollbackChars ?? TERMINAL_FLOW.replayMaxChars),
       port: null,
       unacked: 0,
@@ -207,6 +302,7 @@ export class PtySessions {
   /** "Prendre la main": an agent session becomes the user's (input accepted from now on). */
   takeOver(sessionId: string): TerminalSession {
     const session = this.get(sessionId);
+    if (session.kind === "mirror") throw new PtyHostError("invalid", "this session shows the commands NOVA runs; it takes no input");
     if (session.info.owner !== "user") {
       session.info.owner = "user";
       this.deps.onUpdate?.({ ...session.info });
@@ -221,8 +317,21 @@ export class PtySessions {
   async kill(sessionId: string): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session) return;
-    if (session.info.state === "running") await this.deps.killTree(session.pty);
+    await this.endProcess(session);
     this.forget(session);
+  }
+
+  /** Ends the session's process tree but keeps the session listed with its exit (process_stop). */
+  async stop(sessionId: string): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (session) await this.endProcess(session);
+  }
+
+  private async endProcess(session: Session): Promise<void> {
+    if (session.info.state !== "running") return;
+    // A mirror has no process: signalling its pid (0) would hit the host's own process group.
+    if (session.pty instanceof MirrorProcess) session.pty.end(null);
+    else await this.deps.killTree(session.pty);
   }
 
   /** Worker shutdown: every process tree is killed. */
@@ -284,6 +393,7 @@ export class PtySessions {
     if (data.length === 0) return;
     session.pending = "";
     session.scrollback.push(data);
+    if (session.stream) this.deps.onData?.(session.info.id, data);
     if (!session.port) return;
     session.port.postMessage({ type: "output", data });
     this.setUnacked(session, session.unacked + data.length);
@@ -315,7 +425,7 @@ export class PtySessions {
     session.exitMessage = { type: "exit", exitCode: session.info.exitCode, signal: signal || null };
     session.port?.postMessage(session.exitMessage);
     if (this.sessions.get(session.info.id) === session) {
-      this.deps.onExit?.({ ...session.info }, session.scrollback.plainTail(EXIT_TAIL_CHARS));
+      this.deps.onExit?.({ ...session.info }, session.scrollback.plainTail(EXIT_TAIL_CHARS), signal || null);
     }
     this.pruneExited();
   }
