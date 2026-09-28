@@ -308,7 +308,7 @@ function LoadedReview({ view }: { view: MissionView }) {
     <div className="nova-diff" ref={root}>
       <header className="nova-diff__header">
         <h2 className="nova-diff__title">{copy.header(files.length, additions, deletions, view.mission.title)}</h2>
-        <p className="nova-diff__summary">{copy.summaryCreate(facts.created, facts.modified, facts.deleted)}</p>
+        <p className="nova-diff__summary">{copy.summaryCreate(facts.created, facts.modified, facts.deleted, facts.moved)}</p>
         <div className="nova-diff__actions">
           {showHunks ? (
             <SegmentedControl

@@ -5,7 +5,7 @@ import { fr } from "../../copy/fr";
 import { ACCEPTANCE_LABELS, FAILURE_REASON_COPY, TASK_STATE_LABELS } from "../../copy/fr-atelier";
 import { formatCost, formatInteger } from "../../lib/format";
 import { useApp } from "../../state/context";
-import { missionFacts, type MissionOutcome, type MissionView } from "../missions/timeline";
+import { missionFacts, type MissionFacts, type MissionOutcome, type MissionView } from "../missions/timeline";
 import { formatEstimate } from "./ContractSheet";
 
 const copy = fr.atelier.end;
@@ -26,6 +26,14 @@ export function observedCostLine(view: MissionView): string {
   if (!budget) return fr.context.costUnknown;
   const spent = formatCost(budget.spentUsd) ?? fr.app.unknown;
   return budget.unknownCostCalls > 0 ? copy.costAtLeast(spent, budget.unknownCostCalls) : copy.costObserved(spent);
+}
+
+/** Unknown stays unknown: searches without a reported cost make the sum a lower bound, or unknown. */
+function webCostLine(facts: MissionFacts) {
+  if (facts.webSearchCostUsd > 0) {
+    return <span>{copy.webCost(formatCost(facts.webSearchCostUsd) ?? "", facts.webSearchesWithoutCost > 0)}</span>;
+  }
+  return facts.webSearchesWithoutCost > 0 ? <span>{copy.webCostUnknown}</span> : null;
 }
 
 export function EndCard({ view }: { view: MissionView }) {
@@ -57,7 +65,7 @@ export function EndCard({ view }: { view: MissionView }) {
         </Callout>
       ) : null}
       <p className="nova-endcard__counts">
-        {changed ? copy.counts(facts.created, facts.modified, facts.deleted) : copy.noChanges}
+        {changed ? copy.counts(facts.created, facts.modified, facts.deleted, facts.moved) : copy.noChanges}
         {facts.commands > 0 ? ` · ${copy.commands(facts.commands)}` : ""}
       </p>
       <div className="nova-endcard__proofs">
@@ -100,9 +108,9 @@ export function EndCard({ view }: { view: MissionView }) {
           <span>{observedCostLine(view)}</span>
           <span>{estimateText ? copy.costEstimate(estimateText) : copy.costUnknownEstimate}</span>
           {facts.tokensIn + facts.tokensOut > 0 ? (
-            <span>{copy.tokens(formatInteger(facts.tokensIn), formatInteger(facts.tokensOut))}</span>
+            <span>{copy.tokens(formatInteger(facts.tokensIn), formatInteger(facts.tokensOut), facts.messagesWithoutUsage > 0)}</span>
           ) : null}
-          {facts.webSearchCostUsd > 0 ? <span>{copy.webCost(formatCost(facts.webSearchCostUsd) ?? "")}</span> : null}
+          {webCostLine(facts)}
           {facts.approvalsAsked > 0 ? <span>{copy.approvals(facts.approvalsAsked, facts.approvalsDenied)}</span> : null}
         </dd>
       </dl>

@@ -453,8 +453,8 @@ export const atelierCopy = {
     failed: "Mission échouée",
     cancelled: "Mission arrêtée",
     cancelledBy: { user: "arrêtée par toi", system: "arrêtée par NOVA" },
-    counts: (created: number, modified: number, deleted: number) =>
-      `${plural(created, "fichier créé", "fichiers créés")}, ${plural(modified, "modifié", "modifiés")}, ${plural(deleted, "supprimé", "supprimés")}`,
+    counts: (created: number, modified: number, deleted: number, moved: number) =>
+      `${plural(created, "fichier créé", "fichiers créés")}, ${plural(modified, "modifié", "modifiés")}, ${plural(deleted, "supprimé", "supprimés")}${moved > 0 ? `, ${plural(moved, "déplacé", "déplacés")}` : ""}`,
     commands: (count: number) => plural(count, "commande lancée", "commandes lancées"),
     verified: "Vérifié",
     unverified: "Non vérifié",
@@ -471,8 +471,10 @@ export const atelierCopy = {
     noChanges: "Aucun fichier modifié.",
     approvals: (asked: number, denied: number) =>
       `${plural(asked, "confirmation demandée", "confirmations demandées")} · ${plural(denied, "refusée", "refusées")}`,
-    tokens: (sent: string, received: string) => `${sent} jetons envoyés · ${received} reçus`,
-    webCost: (cost: string) => `recherche Web : ${cost}`,
+    tokens: (sent: string, received: string, lowerBound: boolean) =>
+      `${lowerBound ? "au moins " : ""}${sent} jetons envoyés · ${received} reçus`,
+    webCost: (cost: string, lowerBound: boolean) => `recherche Web : ${lowerBound ? "au moins " : ""}${cost}`,
+    webCostUnknown: "recherche Web : coût inconnu",
     reportTitle: "Coût de la mission",
   },
   budget: {

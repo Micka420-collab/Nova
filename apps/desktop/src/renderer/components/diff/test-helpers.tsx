@@ -11,7 +11,7 @@ import { createAppStore, type DisplayMode } from "../../state/store";
 
 export interface FileEdit {
   path: string;
-  change: "created" | "modified" | "deleted";
+  change: "created" | "modified" | "moved" | "deleted";
   additions: number;
   deletions: number;
 }

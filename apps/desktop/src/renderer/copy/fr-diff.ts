@@ -16,8 +16,8 @@ export const diffCopy = {
     label: "Relecture des changements",
     header: (files: number, additions: number, deletions: number, mission: string) =>
       `Diff — ${plural(files, "fichier", "fichiers")} · +${additions} −${deletions} · mission « ${mission} »`,
-    summaryCreate: (created: number, modified: number, deleted: number) =>
-      `${plural(modified, "fichier modifié", "fichiers modifiés")} · ${plural(created, "créé", "créés")} · ${plural(deleted, "supprimé", "supprimés")}`,
+    summaryCreate: (created: number, modified: number, deleted: number, moved: number) =>
+      `${plural(modified, "fichier modifié", "fichiers modifiés")} · ${plural(created, "créé", "créés")} · ${plural(deleted, "supprimé", "supprimés")}${moved > 0 ? ` · ${plural(moved, "déplacé", "déplacés")}` : ""}`,
     keepAll: "Tout garder",
     revertAll: "Tout annuler",
     revertAllTitle: "Annuler tous les changements de la mission ?",
