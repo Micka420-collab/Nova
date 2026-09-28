@@ -35,10 +35,12 @@ import {
 } from "@nova/shared";
 import type { CommandRunner, McpToolOffer, ToolRegistry } from "@nova/tools";
 import { estimateMission, type PricingLike } from "./budget";
+import { ChannelError } from "./channel";
 import { createToolGateway, type ApprovalGate, type CheckpointGate, type MissionToolContext, type PermissionGate, type ToolGatewayDeps } from "./gateway";
 import { missionToolSet } from "./tool-set";
 import type { MissionEventInput, ProviderProxy, ToolGateway } from "./index";
 import { createMissionJournal, eventFromRecord, type MissionEventRecordLike, type MissionJournal } from "./journal";
+import { DEFAULT_LOOP_LIMITS } from "./loop";
 import { planMission } from "./planner";
 import { applyReview, buildReview, type ReviewFsGate, type ReviewModel } from "./review";
 import type { MainRuntimeHandlers, RuntimeLink } from "./runtime-link";
@@ -642,7 +644,19 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
 
     runtimeHandlers(streamModel) {
       return {
-        streamModel,
+        // The runtime can ask, never decide: the model, web search and output cap are the mission's.
+        async streamModel(request, signal, emit) {
+          const context = running.get(request.missionId);
+          const modelId = deps.store.get(request.missionId)?.modelId ?? null;
+          if (!context || modelId === null || request.modelId !== modelId) throw new ChannelError("invalid_request", "model not allowed for this mission");
+          const bound = {
+            ...request,
+            webSearch: request.webSearch && context.contract.webSearch,
+            maxTokens: Math.min(request.maxTokens, DEFAULT_LOOP_LIMITS.maxTokensPerCall),
+            purpose: "step" as const,
+          };
+          await streamModel(bound, signal, emit);
+        },
         gateway,
         appendEvent: (event) => void append(event),
         isRunning: (missionId) => running.has(missionId),

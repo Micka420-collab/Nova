@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildMissionSystemPrompt } from "@nova/agent-runtime";
-import { createPortPair, diffHunks, serveRuntimeChannel, type PortLike } from "@nova/missions";
+import { DEFAULT_LOOP_LIMITS, createPortPair, diffHunks, serveRuntimeChannel, type PortLike, type ProxyStreamRequest } from "@nova/missions";
 import type { ProviderStreamEvent, StreamChatRequest } from "@nova/providers";
 import type { MissionEvent, WorkspaceFacts } from "@nova/shared";
 import {
@@ -366,6 +366,27 @@ describe("missions service (main + runtime over a port)", () => {
     const first = (await service.controller.reviewModel(missionId)).files.find((file) => file.path === "src/first.ts");
     expect(first).toMatchObject({ beforeHash: A, afterHash: C, chained: true });
     expect(first?.checkpointIds).toHaveLength(2);
+  });
+
+  it("binds the runtime's model requests to the mission: its model, its web search, the loop's output cap", async () => {
+    build();
+    turns = [
+      { text: PLAN },
+      { calls: [{ name: "write_file", args: { path: "src/new.ts", content: "export const x = 1;\n" } }] },
+    ];
+    const plan = await service.api.plan({ workspaceId, conversationId: null, goal: "Ajoute x", mode: "build", modelId: MODEL, contract: null });
+    await service.api.start({ missionId: plan.mission.id, tasks: null, contract: CONTRACT });
+    await until(() => stored("approval.requested").length === 1);
+    const seen: ProxyStreamRequest[] = [];
+    const handlers = service.controller.runtimeHandlers(async (request) => void seen.push(request));
+    const request: ProxyStreamRequest = {
+      missionId: plan.mission.id, modelId: MODEL, messages: [], tools: [], webSearch: true, maxTokens: 200_000, purpose: "plan",
+    };
+    const signal = new AbortController().signal;
+    await expect(handlers.streamModel({ ...request, modelId: "acme/unpriced" }, signal, () => undefined)).rejects.toThrow(/not allowed/);
+    await handlers.streamModel(request, signal, () => undefined);
+    expect(seen).toEqual([{ ...request, webSearch: false, maxTokens: DEFAULT_LOOP_LIMITS.maxTokensPerCall, purpose: "step" }]);
+    await service.api.stop({ missionId: plan.mission.id });
   });
 
   it("marks missions interrupted by a previous run as failed at startup", async () => {
