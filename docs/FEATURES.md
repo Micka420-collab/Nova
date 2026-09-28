@@ -163,6 +163,7 @@ Chaque fiche suit le même gabarit : **Histoire** · **UI** · **Technique** · 
 - **Permissions / sécurité** : le shell de l'utilisateur n'est pas soumis au moteur de permissions (c'est l'utilisateur) ; les commandes de l'agent le sont toujours (A3) et n'utilisent le pty que pour l'affichage, l'exécution restant structurée.
 - **Acceptation** : `vim`, `htop`, `npm run dev` fonctionnent ; Ctrl+C interrompt ; la sortie de 100 000 lignes ne bloque pas l'interface ; les commandes de l'agent sont visuellement distinctes et reliées à leur mission.
 - **P0 · M** (sous réserve de D1)
+- **Statut (2026-09-28, `feat/j2b-parite-harness`, Linux x64, faux serveur)** : terminal interactif livré en J2-A ; partie agent livrée en J2-B (L1) : processus de mission dans une session d'agent du pty-host, en lecture seule, « Prendre la main » ; `j2b-terminal-agent.spec.ts`. Vue scindée et blocs OSC 133 non faits.
 
 ### b. Agent autonome
 
@@ -187,6 +188,7 @@ Chaque fiche suit le même gabarit : **Histoire** · **UI** · **Technique** · 
 - **Permissions / sécurité** : profil Assisté : commandes de build/test connues du projet (`workspace_facts`) en `allow`, le reste en `ask` ; Lecture seule : `deny` ; Autonome : `allow` sauf catégorie « dangereuse » et réseau hors contrat.
 - **Acceptation** : une commande qui écrit hors de l'espace via `cd ..` est refusée par la politique (le `cwd` est confiné) ; un `npm run dev` en arrière-plan reste tuable ; la sortie de 50 Mo ne sature ni la mémoire ni la base.
 - **P0 · M**
+- **Statut (2026-09-28, `feat/j2b-parite-harness`, Linux x64, faux serveur)** : L0 livré en J2-A ; processus en arrière-plan suivis et tuables en J2-B (L1 : `process_list`, `process_output`, `process_stop` approuvé, plafond par mission, aucun orphelin à la sortie).
 
 #### A4 — Tests et vérifications réelles
 - **Histoire** : « Le test n'est “vert” que si NOVA l'a lancé. »
@@ -223,6 +225,7 @@ Voir c. (W1–W2) : `web_search`, `fetch_page`, `read_pdf_url`, soumis à la pol
 - **Technique** : tables `missions`, `tasks`, `mission_events` (journal ajout-seul, source de vérité pour l'UI et la reprise), `proofs`, `artifacts` ; états `ready`, `running`, `waiting-approval`, `suspended`, `succeeded`, `failed`, `cancelled` ; le plan est produit par un appel dédié avec sortie structurée (schéma zod), les critères d'acceptation par tâche sont des phrases + un type (`test_passes`, `command_succeeds`, `file_exists`, `manual`) que le runtime sait vérifier ou marquer « à confirmer par toi ».
 - **Acceptation** : une mission dont le critère `test_passes` échoue termine en `failed` avec explication ; les événements suffisent à reconstruire la carte après redémarrage (test de rejeu).
 - **P0 · L**
+- **Statut (2026-09-28, `feat/j2b-parite-harness`, Linux x64, faux serveur)** : livré en J2-A ; étendu en J2-B (L8) par la poursuite « jusqu'à preuve » (tours bornés par nombre, 10 au plus, et par un plafond dans le budget de la mission) ; `j2b-proof-timeline.spec.ts`.
 
 #### A10 — Points de restauration et retour arrière (sans Git obligatoire)
 - **Histoire** : « Je peux revenir à avant la mission, ou ne restaurer qu'un fichier, sans que NOVA écrase ce que j'ai moi-même changé. »
@@ -256,10 +259,12 @@ Voir c. (W1–W2) : `web_search`, `fetch_page`, `read_pdf_url`, soumis à la pol
 - **Histoire** : « Pour une grosse tâche, NOVA planifie, fait implémenter par un second agent dans un espace séparé, et relit, sans exploser le budget. »
 - **Technique** : sous-missions avec leur propre contrat, budget partagé par réservation, profondeur de délégation 1, `git worktree` (A5) ou dossier de travail séparé, intégration sérialisée avec relecture ; le désaccord se règle par tests, pas par vote. Bénéfice **mesuré** (taux de missions gardées, coût) avant d'être proposé par défaut.
 - **P2 · L**
+- **Statut (2026-09-28, `feat/j2b-parite-harness`, Linux x64, faux serveur)** : partiel, livré en J2-B (L5) sur option du contrat : `start_submission`, profondeur 1, worktree séparé, budget du parent réservé, intégration manuelle après tests ; `j2b-submissions.spec.ts`. Bénéfice non mesuré ; intégration sérialisée automatique et conflits listés non faits.
 
 #### A15 — Dossier de passation entre modèles
 - **Technique** : à tout moment, la mission peut produire un dossier structuré (objectif, faits établis, décisions, travail restant, résultats d'outils pertinents, fichiers touchés) qui devient le contexte du nouveau modèle ; aucune prétention à transférer un état interne. Aussi utilisé pour la compaction (C7).
 - **P1 · M**
+- **Statut (2026-09-28, `feat/j2b-parite-harness`, Linux x64, faux serveur)** : livré en J2-B (L2) : dossier de passation au changement de modèle en cours de mission, requête suivante sur le nouveau modèle ; `j2b-compaction.spec.ts`.
 
 #### A16 — Essai à blanc (dry-run)
 - **Technique** : les outils d'écriture écrivent dans une **couche virtuelle** (overlay en mémoire + `checkpoint_files` provisoires) ; `run_command` refuse les commandes classées mutation et exécute les lectures/tests sur un dossier temporaire copié (option, coûteux) ou est simplement refusé avec explication ; la carte affiche « ce que la mission ferait ». Honnête : les effets des commandes non exécutées sont « inconnus ».
@@ -267,6 +272,7 @@ Voir c. (W1–W2) : `web_search`, `fetch_page`, `read_pdf_url`, soumis à la pol
 
 #### A17 — Missions en arrière-plan et file d'attente
 - Plusieurs missions par espace, une seule « active » sur les fichiers à la fois (sérialisation des écritures), les autres en lecture ou en attente ; Nomi rapporte (N4). **P1 · M**
+- **Statut (2026-09-28, `feat/j2b-parite-harness`, Linux x64, faux serveur)** : partiel (J2-B L7) : une mission continue fenêtre fermée si l'option est active, et quitter demande confirmation ; la file d'attente et la sérialisation des écritures entre missions ne sont pas faites.
 
 ### c. Internet
 
@@ -346,6 +352,7 @@ Voir c. (W1–W2) : `web_search`, `fetch_page`, `read_pdf_url`, soumis à la pol
 - **Technique** : format **Agent Skills** (spécification vérifiée le 27/09/2026 sur agentskills.io) : dossier `nom-de-skill/SKILL.md` avec frontmatter YAML `name` (1–64 caractères, minuscules/chiffres/tirets, égal au nom du dossier) et `description` (1–1024) obligatoires, `license`, `compatibility`, `metadata`, `allowed-tools` (expérimental) facultatifs ; sous-dossiers `scripts/`, `references/`, `assets/` ; **divulgation progressive** : métadonnées (~100 jetons) chargées au démarrage, corps (< 5 000 jetons recommandé) à l'activation, ressources à la demande. Paquet `packages/skills` : installation depuis un dossier local ou un dépôt Git autorisé, prévisualisation (contenu + permissions déduites de `allowed-tools`), activation par projet, scripts exécutés via A3 (même moteur de permissions), désinstallation sans résidu (scénario 9). Compatibilité de lecture avec les dossiers `.claude/skills` et `.agents/skills` présents dans un projet ⚠ à vérifier et à afficher comme telle. Six skills initiales livrées : comprendre un dépôt, créer une interface, diagnostiquer un bug, écrire des tests utiles, préparer une release, documenter un projet.
 - **UI** : Extensions → Skills : installées, disponibles dans le projet, activer, voir le contenu, mettre à jour (réversible), désinstaller.
 - **P0 (chargement + 3 skills) · M**, **P1 (installation Git, mises à jour) · M**
+- **Statut (2026-09-28, `feat/j2b-parite-harness`, Linux x64, faux serveur)** : P0 livré en J2-B (L3) : aperçu puis installation depuis un dossier, activation par projet, outil `skill`, désinstallation sans résidu, 3 skills livrées (`comprendre-un-depot`, `ecrire-des-tests-utiles`, `preparer-une-release`) ; `j2b-skills.spec.ts`. P1 non fait : installation Git, mises à jour, scripts des skills hors projet, 3 skills restantes.
 
 #### M9 — Hooks (actions liées aux événements)
 - **Technique** : événements `mission.started`, `tool.before` (peut **bloquer** avec raison), `tool.after`, `files.changed`, `mission.finished`, `approval.requested`, `preview.error` ; actions : lancer un script (A3, sous permissions), notifier (Pr4), appeler un webhook vers un hôte autorisé (W4), écrire une note de mémoire (C3). Configuration dans `.nova/hooks.json` du projet (portable) et UI. Exemple : « après chaque écriture d'un `.ts`, lancer `pnpm lint --fix` ».
@@ -410,6 +417,7 @@ Voir h. (V4, V5). Les commandes cibles du brief (« Explique-moi cette erreur »
 
 #### N12 — Nomi dans la barre système
 - Icône `Tray` avec état de mission et menu (Parler, Arrêter la mission, Ouvrir). **P2 · S**
+- **Statut (2026-09-28, `feat/j2b-parite-harness`, Linux x64, faux serveur)** : livré en J2-B (L7) : état réel de Nomi, missions en cours, « Ouvrir NOVA », « Quitter NOVA » qui avertit si une mission tourne ; `j2b-desktop.spec.ts`. « Parler » non fait (voix en J4) ; icône parfois invisible sous certains bureaux Linux sans hôte StatusNotifier.
 
 ### f. Aperçu et création d'applications
 
@@ -480,6 +488,7 @@ Voir h. (V4, V5). Les commandes cibles du brief (« Explique-moi cette erreur »
 
 #### C7 — Résumés et compaction explicites
 - Quand le contexte approche la limite du modèle (`contextLength` du catalogue), NOVA propose une compaction : le dossier de passation (A15) remplace l'historique ancien ; le résumé est **affiché comme tel** dans la conversation ; jamais silencieux. **P1 · S**
+- **Statut (2026-09-28, `feat/j2b-parite-harness`, Linux x64, faux serveur)** : livré en J2-B (L2) : proposition à 80 % du contexte, appliquée seulement par l'utilisateur, « /compact » en Discuter ; `j2b-compaction.spec.ts`. Un résumé proposé ne s'applique plus après un redémarrage.
 
 #### C8 — Exclusions et fichiers sensibles
 - `.novaignore` + défauts (`.env*`, clés, `*.pem`, `node_modules`, `.git`, binaires) ; scan de secrets avant tout envoi (`redactSecrets` étendu : clés AWS, jetons GitHub, JWT, chaînes de connexion) qui **bloque** et explique plutôt que masquer silencieusement du code ; liste visible dans les Réglages. **P0 · S**
@@ -488,6 +497,7 @@ Voir h. (V4, V5). Les commandes cibles du brief (« Explique-moi cette erreur »
 
 #### V1 — Images dans la conversation
 - Coller/glisser ; envoi en `image_url` (data URL) **uniquement** vers un modèle dont `inputModalities` inclut `image` (catalogue), sinon message clair et proposition de modèle ; redimensionnement (proposé : 1 568 px max) ; table `attachments` + fichiers dans `dataDir/attachments` ; coût d'image visible. **P0 · S**
+- **Statut (2026-09-28, `feat/j2b-parite-harness`, Linux x64, faux serveur)** : en J2-B (L7), une image collée avec un modèle texte propose un modèle vision du catalogue ; l'image part une fois et n'est pas stockée (pas de table `attachments`) ; « Relancer » ne renvoie pas les images ; `j2b-desktop.spec.ts`.
 
 #### V2 — Captures d'écran
 - `desktopCapturer` avec **choix de la fenêtre** et **aperçu de ce qui sera envoyé**, capture ponctuelle (jamais continue) ; sous Linux Wayland via le portail PipeWire (⚠ comportement à vérifier) ; le gestionnaire de permissions du main autorise `media` pour la seule origine de l'application et seulement pendant la capture. **P1 · S**
@@ -524,12 +534,14 @@ Voir h. (V4, V5). Les commandes cibles du brief (« Explique-moi cette erreur »
 
 #### Pr5 — Automatisations et missions planifiées
 - **Technique** : déclencheurs : horaire (`croner`), changement de fichiers, événement Git (commit), hook (M9) ; contrat et budget **persistants** ; exécution uniquement quand NOVA tourne (honnête : pas de service en arrière-plan en v2) ; journal des exécutions ; exemples : « chaque matin, lance les tests et résume », « à chaque commit, relis le diff ». **P1 · M**
+- **Statut (2026-09-28, `feat/j2b-parite-harness`, Linux x64, faux serveur)** : partiel, livré en J2-B (L6) : déclencheur horaire (unique, intervalle, quotidien, hebdomadaire, cron), exécution comme une mission normale avec contrat persistant, historique, pause ; `j2b-schedules.spec.ts`. Déclencheurs fichiers, Git et hooks non faits.
 
 #### Pr6 — Glisser-déposer
 - Fichiers vers la conversation (pièce jointe ou @-mention), vers l'arbre (copie), images. **P0 · S**
 
 #### Pr7 — Recherche globale
 - Conversations, missions, artefacts, mémoire, fichiers : SQLite **FTS5** (⚠ vérifier que le SQLite d'Electron 44 est compilé avec FTS5 ; sinon LIKE + index). **P1 · S**
+- **Statut (2026-09-28, `feat/j2b-parite-harness`, Linux x64, faux serveur)** : partiel, livré en J2-B (L8) : recherche FTS dans le journal des missions (migration v6) et « Bifurquer d'ici » ; `j2b-proof-timeline.spec.ts`. Conversations, artefacts, mémoire et fichiers non couverts.
 
 #### Pr8 — Export, import, sauvegarde
 - Conversation en Markdown/JSON, dossier de mission (contexte partageable + preuves, **sans secrets**), sauvegarde/restauration de `nova.sqlite` et des dossiers de données ; vérifié par le scénario 16 étendu. **P1 · S**
@@ -541,6 +553,7 @@ Voir h. (V4, V5). Les commandes cibles du brief (« Explique-moi cette erreur »
 - **Technique** : profils = règles **inspectables** par classe de tâche (conversation, agent, édition en ligne, complétion, résumé, vision, recherche, embeddings) : filtres de capacités (`supportsTools`, `inputModalities`, `contextLength` minimal), plafond de prix par million de jetons, préférence de confidentialité (`deny`), familles préférées **choisies par l'utilisateur** (aucun identifiant codé en dur : le profil sélectionne dans le catalogue courant) ; modèle verrouillable ; changement de profil = nouvelle estimation. Table `routing_profiles`.
 - **UI** : Réglages → Modèles : profils, règles en clair, résultat de la sélection (« Construire → X, 1,20 $/M sortie »).
 - **P0 · M**
+- **Statut (2026-09-28, `feat/j2b-parite-harness`, Linux x64, faux serveur)** : en J2-B (L7), pilote automatique optionnel dans Discuter : un appel de classement choisit l'effort de réflexion et le web pour un message, affiché et modifiable avant l'envoi ; son coût est affiché, pas enregistré ; absent de l'accueil.
 
 #### Mo2 — Replis
 - OpenRouter `models: [...]` (vérifié : essai en ordre, sur erreur/contexte/modération/limite/panne ; facturation et champ `model` = modèle réellement servi) ; NOVA construit la liste depuis le profil en **préservant** capacités, budget et confidentialité ; le modèle servi est déjà affiché (`servedModel`) et un changement effectif est **signalé**. Pas de repli silencieux vers un modèle plus cher ou moins confidentiel. **P0 · S**
@@ -728,6 +741,7 @@ Le plus grand saut visible : NOVA passe de « chat » à « atelier avec un agen
 **Taille** : XL (≈ 4–6 semaines à plein temps avec agents). Ordre interne conseillé : S1+S2+audit → outils fichiers + checkpoints → boucle A1 avec proxy → missions A9/A11 → éditeur E1/E2/E4 → terminal → web → MCP → Nomi → inspecteur/profils/budget.
 
 ### J2-B — « Ça tourne sous mes yeux »
+- **Statut (2026-09-28)** : non commencé. L'itération J2-B a été consacrée à la « parité Harness » (voir [`research/DEEPSEEK_HARNESS.md`](research/DEEPSEEK_HARNESS.md) §5 et `ROADMAP.md`) : E13 partie agent, C7, A15, M8 (P0), A14 partiel, Pr5 partiel, Pr7 partiel, N12, mode « Chaîne ». Le périmètre ci-dessous (F1, F2, A7, E5, E6, E7…) reste à faire.
 - **Périmètre** : F1 (aperçu `WebContentsView`), F2 (lancer), A7 (navigateur agent : naviguer, lire, capturer), A8, E5 (LSP TypeScript/JSON/CSS/HTML via `@codemirror/lsp-client`), E6, E7 (édition IA en ligne), E9 complet, E12, E13 si reporté, A5 complet (branches, worktree), A17 (file d'attente), Pr2, Pr4, V2, F4 (2 modèles de projets), F6.
 - **Critères de sortie** : une application Vite plante → signal → correction → aperçu vert, capture avant/après en preuve ; aller à la définition inter-fichiers ; l'agent ouvre l'aperçu, clique, capture, décrit ; scénario 2 « modèle sans outils choisi pour une mission » (message clair et proposition de modèle).
 - **Démo** : « Crée une page de contact » sur le modèle Vite → aperçu → l'agent vérifie visuellement → Ctrl+I « rends le bouton plus contrasté » → diff en ligne → Tab.

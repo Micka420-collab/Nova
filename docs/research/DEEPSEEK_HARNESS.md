@@ -1,6 +1,6 @@
 # Rapport : l'« app » DeepSeek de septembre 2026, et les écarts avec NOVA
 
-Recherche en lecture seule, sans aucune modification de dépôt. Pour vérifier les fonctions, j'ai cloné le dépôt officiel de DeepSeek Harness (`deepseek-ai/deepseek-harness`) dans mon dossier temporaire et j'en ai lu le code.
+Recherche en lecture seule, sans aucune modification de dépôt. La section 5, ajoutée le 2026-09-28, fait le point sur ce que NOVA couvre après J2-B. Pour vérifier les fonctions, j'ai cloné le dépôt officiel de DeepSeek Harness (`deepseek-ai/deepseek-harness`) dans mon dossier temporaire et j'en ai lu le code.
 
 ## 0. De quelle « app » parle-t-on ?
 
@@ -123,3 +123,28 @@ Les écarts qui comptent le plus vis-à-vis de DeepSeek Harness :
 Là où NOVA a déjà un avantage : budget par mission avec réservation, preuves par critère, retour arrière fichier par fichier, compagnon Nomi.
 
 Le computer use et le sous-agent externe restent coûteux et expérimentaux chez DeepSeek aussi.
+## 5. Ce que NOVA couvre après J2-B
+
+Mise à jour du 2026-09-28, après la vérification finale de la branche `feat/j2b-parite-harness` (tête `65fce37`, non poussée). Tout ce qui est marqué « couvert » a été vérifié sur Linux x64 contre le faux serveur OpenRouter (lint, types, 2 239 tests unitaires, Playwright 46/46 deux fois ; détail dans [`../STATUS.md`](../STATUS.md)). Rien n'a encore tourné avec un vrai compte OpenRouter, ni sur Windows ou macOS. Les équivalents sont des conceptions propres à NOVA (noms, parcours, interface en français), pas des copies de l'app DeepSeek.
+
+| Fonction DeepSeek Harness (§2B) | État dans NOVA | Voie et preuve | Ce qui manque encore |
+|---|---|---|---|
+| Terminaux interactifs pilotés par l'agent | Couvert | L1 : processus de mission dans une session d'agent du pty-host, en lecture seule ; « Prendre la main » la rend à l'utilisateur et la détache de la mission (`j2b-terminal-agent.spec.ts`) | Windows : chemin pty testé seulement avec un faux spawn |
+| Tâches en arrière-plan (`job_*`) | Couvert | L1 : `process_list`, `process_output`, `process_stop` (approuvé), plafond par mission, aucun orphelin à la sortie | — |
+| Compaction auto et `/compact` | Couvert, jamais silencieux | L2 : résumé proposé à 80 % du contexte, appliqué seulement par l'utilisateur ; « /compact » en Discuter (`j2b-compaction.spec.ts`) | Pas de compaction automatique sans accord (choix NOVA) ; un résumé proposé ne s'applique plus après un redémarrage |
+| Changement de modèle en cours de session | Couvert | L2 : dossier de passation (A15), requête suivante sur le nouveau modèle | — |
+| Skills (outil `skill`, projet et utilisateur) | Couvert en partie | L3 : aperçu avant installation, activation par projet, chargement à la demande, désinstallation sans résidu, 3 skills livrées (`j2b-skills.spec.ts`) | Installation depuis Git, mises à jour, scripts des skills hors projet, skills Office |
+| Mode Code / PTC | Couvert (mode « Chaîne ») | L4 : un programme JS dans l'hôte `chain-host` ; chaque appel passe par le moteur de permissions dans le main et par les approbations, imbriqué sous sa carte ; un refus lève une erreur dans le programme (`j2b-chain.spec.ts`) | `vm` n'est pas une frontière de sécurité (ADR-022) |
+| Sous-agents (neufs ou « fork ») | Couvert en partie (sous-missions) | L5 : `start_submission`, profondeur 1, worktree séparé, budget du parent réservé et refusé au-delà, intégration après tests (`j2b-submissions.spec.ts`) | Intégration manuelle ; conflits non listés ; pas d'équipes d'agents ; pas de sous-agent externe (Claude Code, Codex, ACP) |
+| Workflows et boucle « ralph » | Non couvert | — | « Recette de mission » (§3) non commencée |
+| Tâches planifiées (« Automation tasks ») | Couvert | L6 : unique, intervalle, quotidien, hebdomadaire, cron ; exécution comme une mission normale avec contrat persistant, historique, **pause** (absente chez DeepSeek) (`j2b-schedules.spec.ts`) | Le modèle ne crée pas lui-même de planification ; exécution seulement quand NOVA tourne |
+| App de bureau : barre système, tâches qui continuent fenêtre fermée, avertissement avant de quitter | Couvert | L7 : option « garder en marche », menu de la barre avec l'état réel de Nomi et les missions en cours, « Quitter NOVA » qui avertit (`j2b-desktop.spec.ts`) ; NOVA tourne aussi sous Linux | Icône parfois invisible sous certains bureaux Linux ; mises à jour signées non faites (Q3) |
+| Parcours d'accueil (usage et niveau de détail) | Couvert | L7 : profil code ou documents, densité « résultat / étapes clés / tout », réglable ensuite | — |
+| Mode unique qui choisit seul réflexion et recherche | Couvert en option | L7 : pilote automatique de Discuter, choix affiché et modifiable avant l'envoi | Absent de l'accueil ; coût du classement affiché, pas enregistré |
+| Vision sans changer de mode | Couvert | L7 : image collée avec un modèle texte → modèle vision du catalogue proposé ; image envoyée une fois, jamais stockée | « Relancer » ne renvoie pas les images |
+| Objectif persistant + continuation en « Rounds » | Couvert (« jusqu'à preuve ») | L8 : tours bornés par nombre (10 au plus) et par un plafond dans le budget de la mission, arrêt dès que les critères sont prouvés ou au plafond (`j2b-proof-timeline.spec.ts`) | Un tour déjà lancé peut dépasser le plafond de poursuite d'au plus ce tour |
+| Trajectoire : chercher, forker, reprendre | Couvert en partie | L8 : recherche FTS dans le journal des missions, « Bifurquer d'ici » (mission liée, rien de rejoué) | Pas de rejeu ; le raisonnement n'est jamais conservé ni affiché (ADR-008), à la différence du journal DeepSeek |
+| Repli du raisonnement | Écart volontaire | ADR-008 : le raisonnement est signalé (phase « réflexion »), jamais conservé ni affiché | — |
+| LSP, navigateur agent, webhook GitHub, computer use, voix, hooks, SSH, SDK, mises à jour signées, sandbox OS | Non couverts par J2-B | Voir le tableau §3 et `FEATURES.md` (E5, A7, Pr5 étendu, V4, M9, S3 L1, S8) | Inchangé |
+
+Avantages NOVA conservés et renforcés par J2-B : budget par mission avec réservation, désormais partagé avec les sous-missions ; preuves par critère qui arrêtent la poursuite ; permissions évaluées dans le main avant tout effet, y compris pour chaque appel d'un programme « Chaîne » ; contenu non fiable (W5) suivi à travers sous-missions, bifurcations et index de skills.

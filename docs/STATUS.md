@@ -4,8 +4,9 @@ Page de reprise : ce qui marche, ce qui a réellement été testé, ce qui ne l'
 
 ## État au 2026-09-28
 
-- **Jalons en cours** : J0 (fondations) et J1 (vraie conversation) ; J2-A (« l'atelier s'ouvre ») intégré sur la branche `feat/j2a-atelier` (tête vérifiée : `643b286`, non poussée, CI non rejouée sur cette tête). Voir [`ROADMAP.md`](ROADMAP.md).
-- **Verdict** : non prêt pour la production. La tranche verticale du jalon 1 et les parcours J2-A (a) à (j) fonctionnent sur Linux x64 contre un faux serveur OpenRouter ; rien n'a encore été parcouru avec une vraie clé, et J2-A n'a pas tourné sur Windows ni macOS.
+- **Jalons en cours** : J0 (fondations) et J1 (vraie conversation) ; J2-A (« l'atelier s'ouvre ») intégré sur la branche `feat/j2a-atelier` (tête vérifiée : `643b286`, non poussée, CI non rejouée sur cette tête) ; J2-B (« parité Harness ») intégré sur la branche `feat/j2b-parite-harness`, basée sur `feat/j2a-atelier` (tête vérifiée : `65fce37`, non poussée, CI non rejouée). Voir [`ROADMAP.md`](ROADMAP.md).
+- **Verdict** : non prêt pour la production. La tranche verticale du jalon 1, les parcours J2-A (a) à (j) et les huit voies J2-B (L1 à L8) fonctionnent sur Linux x64 contre un faux serveur OpenRouter ; rien n'a encore été parcouru avec une vraie clé, et ni J2-A ni J2-B n'ont tourné sur Windows ou macOS.
+- **Vérification finale J2-B (2026-09-28, tête `65fce37`)** : lint, types, 2 239 tests unitaires, build, suite Playwright complète 46/46 deux fois de suite (aucune relance, `retries: 0`), sans correctif nécessaire (détail dans « Testé réellement »). Correspondance avec DeepSeek Harness : [`research/DEEPSEEK_HARNESS.md`](research/DEEPSEEK_HARNESS.md#5-ce-que-nova-couvre-après-j2-b).
 - **J2-B « parité Harness », phase 0 (2026-09-28, branche `feat/j2b-parite-harness`)** : contrats partagés des huit voies (processus et terminal de l'agent, compaction et dossier de passation, skills, mode « Chaîne », sous-missions, missions planifiées, présence bureau et pilote automatique, missions « jusqu'à preuve » et chronologie), migration v6, dépôts et points d'extension (boucle, passerelle d'outils, lien runtime). Aucune fonction J2-B n'est encore visible : les huit groupes IPC répondent `unavailable` et aucun outil J2-B n'est proposé au modèle tant que sa voie n'est pas branchée.
 - **J2-B « parité Harness », intégration (2026-09-28, branche `feat/j2b-parite-harness`, non poussée)** : les huit voies sont branchées dans le main (services, outils, crochets de la boucle, hôte `chain-host`) et dans l'interface (panneaux de mission, options du contrat, documents Extensions › Skills, Missions planifiées et Recherche dans les missions, palette, réglages « Bureau et affichage », accueil de profil). Plus aucun groupe IPC ne répond `unavailable`. Vérifié sur Linux x64 contre le faux serveur OpenRouter : lint, types, 2 212 tests unitaires, build, Playwright 42/42 (les 29 existants + 13 parcours J2-B). Détail et limites plus bas.
 - **Vérification finale J2-A (2026-09-28)** : lint, types, 1 746 tests unitaires, build, suite Playwright complète 29/29 deux fois de suite et `vault-smoke` `os` au vert, sans correctif nécessaire (détail dans « Testé réellement »).
@@ -96,6 +97,11 @@ Environnement commun, sauf mention contraire : Linux x64, Ubuntu 26.04, Node 24.
 | 2026-09-28 | Intégration J2-B — `LD_LIBRARY_PATH=<.devdeps>/usr/lib/x86_64-linux-gnu xvfb-run -a npx playwright test` (dans `apps/desktop`) | Linux x64, Electron 44.4.5, Xvfb | 42/42 réussis (4,8 min) : les 29 existants (dont `atelier-foundations` qui exige désormais `chain: ok` du self-test) + `j2b-chain` 1, `j2b-compaction` 3, `j2b-desktop` 4, `j2b-proof-timeline` 1, `j2b-schedules` 1, `j2b-skills` 1, `j2b-submissions` 1, `j2b-terminal-agent` 1 | Intégration J2-B |
 | 2026-09-28 | E2E J2-B complétés — `pnpm lint` ; `pnpm typecheck` ; `pnpm test` | Linux x64, Vitest 5.0.2 | Code 0 ; 208 fichiers réussis, 1 ignoré ; 2 215 tests réussis, 2 ignorés | E2E J2-B |
 | 2026-09-28 | E2E J2-B complétés — `npx electron-vite build` puis `LD_LIBRARY_PATH=<.devdeps>/usr/lib/x86_64-linux-gnu xvfb-run -a npx playwright test` (dans `apps/desktop`), deux fois de suite | Linux x64, Electron 44.4.5, Xvfb | 46/46 puis 46/46 (≈ 5 min chacun) : + Chaîne avec appel refusé, budget partagé des sous-missions, planification « toutes les minutes » exécutée puis en pause, menu de la barre système et avertissement de sortie, arrêt de la poursuite au plafond | E2E J2-B |
+| 2026-09-28 | Vérification finale J2-B (tête `65fce37`) — `pnpm lint` | Linux x64, Node 24.20.0 | Code 0, aucun avertissement (`oxlint --deny-warnings`) | Vérification finale J2-B |
+| 2026-09-28 | Vérification finale J2-B — `pnpm typecheck` | Linux x64 | Code 0, aucune erreur | Vérification finale J2-B |
+| 2026-09-28 | Vérification finale J2-B — `pnpm test` | Linux x64, Vitest 5.0.2 | 209 fichiers réussis, 1 ignoré (210) ; 2 239 tests réussis, 2 ignorés (2 241) ; 57,6 s | Vérification finale J2-B |
+| 2026-09-28 | Vérification finale J2-B — `cd apps/desktop && npx electron-vite build` | Linux x64 | Build OK (6,6 s) ; seul avertissement : taille de bloc > 500 kB | Vérification finale J2-B |
+| 2026-09-28 | Vérification finale J2-B — `LD_LIBRARY_PATH=<.devdeps>/usr/lib/x86_64-linux-gnu timeout 1800 xvfb-run -a -s "-screen 0 1440x900x24" npx playwright test` (dans `apps/desktop`), lancé deux fois de suite | Linux x64, Electron 44.4.5, Xvfb 1440×900 | Passage 1 : 46/46 (5,0 min) ; passage 2 : 46/46 (5,0 min) ; `retries: 0`, aucune relance. Les 29 specs J1 + J2-A et les 17 J2-B : `j2b-chain` 2, `j2b-compaction` 3, `j2b-desktop` 5, `j2b-proof-timeline` 2, `j2b-schedules` 1, `j2b-skills` 1, `j2b-submissions` 2, `j2b-terminal-agent` 1 | Vérification finale J2-B |
 | en attente | Scénario 1 manuel avec un vrai compte OpenRouter (réponse en continu réelle) | | à faire : demande une clé avec crédit | |
 
 ## Non vérifié
@@ -118,6 +124,7 @@ Environnement commun, sauf mention contraire : Linux x64, Ubuntu 26.04, Node 24.
   - (fait en J2-B L1 : les processus en arrière-plan tournent dans une session d'agent du pty-host, les commandes au premier plan y sont reflétées en lecture seule) ;
   - vue scindée du terminal, blocs OSC 133 ; editorconfig, minimap ; profils Vim/Emacs ; panneaux Ctrl+1…9 ;
   - jetons de l'atelier encore dans `packages/ui/src/styles/agent.css` (à déplacer dans `tokens.css` avec tests de contraste) ; contraste de `--nv-match-bg` en sombre (3,72:1) à corriger dans VISUAL.md.
+- J2-B, pas encore vérifié sur la tête `65fce37` : CI trois OS (branche non poussée) ; `vault-smoke` et `--nova-selftest=workers` (dont `chain-host`) sur le paquet `electron-builder --dir` (non relancés) ; scénarios 15 et 16 sur les surfaces J2-B (axe-core non lancé sur les documents Skills, Missions planifiées, Recherche ; exports et journal non inspectés pour les secrets par un E2E).
 - J2-B, vérifié seulement contre le faux serveur et sur Linux x64 ; limites connues :
   - Windows et macOS : aucun passage (le chemin pty d'un processus en arrière-plan sous Windows n'est testé qu'avec un faux spawn) ; barre système sous certains bureaux Linux sans hôte StatusNotifier : l'icône peut exister sans être visible ; une entrée « Missions en cours » du menu de la barre ouvre NOVA sans sélectionner la mission ;
   - Chaîne : `vm` n'est pas une frontière de sécurité (ADR-022, risque résiduel V8) ;
@@ -146,9 +153,9 @@ Aucune plateforme n'est déclarée prise en charge tant que sa ligne n'indique p
 
 | Plateforme | Construit | Testé E2E | Signé | Installable |
 | --- | --- | --- | --- | --- |
-| Linux x64 — référence (Ubuntu 26.04) | Oui — 2026-09-27, `electron-builder --linux dir` | Oui — 2026-09-28, Playwright 29/29 deux fois (J1 + J2-A, coffre faible ou session) et `vault-smoke` `os` ; `weak` le 2026-09-27 | Non (aucun certificat, Q3) | Non vérifié (AppImage non testée) |
-| Windows x64 (CI `windows-latest`) | Oui — run 36320963259 (commit `98762932`), `win-unpacked` | Oui pour J1 — E2E 13/13 ; coffre `os`/`dpapi` détecté hors Playwright. J2-A : non vérifié | Non (aucun certificat, Q3) | Non vérifié (installeur NSIS non testé) |
-| macOS arm64 (CI `macos-latest`) | Oui — run 36320963259 (commit `98762932`), `mac-arm64` | Oui pour J1 — E2E 13/13 (trousseau factice de Playwright) ; coffre `os`/`keychain` détecté hors Playwright avec un trousseau de test déverrouillé. J2-A : non vérifié | Non (aucun certificat, Q3) | Non vérifié (DMG non testé) |
+| Linux x64 — référence (Ubuntu 26.04) | Oui — 2026-09-27, `electron-builder --linux dir` | Oui — 2026-09-28, Playwright 46/46 deux fois sur `65fce37` (J1 + J2-A + J2-B, coffre faible ou session) ; `vault-smoke` `os` sur `643b286` (J2-A) ; `weak` le 2026-09-27 | Non (aucun certificat, Q3) | Non vérifié (AppImage non testée) |
+| Windows x64 (CI `windows-latest`) | Oui — run 36320963259 (commit `98762932`), `win-unpacked` | Oui pour J1 — E2E 13/13 ; coffre `os`/`dpapi` détecté hors Playwright. J2-A et J2-B : non vérifiés | Non (aucun certificat, Q3) | Non vérifié (installeur NSIS non testé) |
+| macOS arm64 (CI `macos-latest`) | Oui — run 36320963259 (commit `98762932`), `mac-arm64` | Oui pour J1 — E2E 13/13 (trousseau factice de Playwright) ; coffre `os`/`keychain` détecté hors Playwright avec un trousseau de test déverrouillé. J2-A et J2-B : non vérifiés | Non (aucun certificat, Q3) | Non vérifié (DMG non testé) |
 
 Format attendu d'une cellule remplie : « Oui — 2026-mm-jj, commande ou run CI » ou « Non — raison ».
 
@@ -165,7 +172,7 @@ Format attendu d'une cellule remplie : « Oui — 2026-mm-jj, commande ou run CI
 
 ## Prochaine action
 
-1. Pousser `feat/j2a-atelier` et consigner le run CI sur la tête (ubuntu, windows, macos : E2E 29/29, `vault-smoke`, `--nova-selftest=workers` sur le paquet, arch mac x64 sur `macos-15-intel`), puis mettre la matrice à jour.
+1. Pousser `feat/j2a-atelier` puis `feat/j2b-parite-harness` et consigner le run CI sur chaque tête (ubuntu, windows, macos : E2E 29/29 puis 46/46, `vault-smoke`, `--nova-selftest=workers` sur le paquet, arch mac x64 sur `macos-15-intel`), puis mettre la matrice à jour.
 2. Rejouer les scénarios 15 et 16 sur le périmètre de l'atelier (axe-core sur l'atelier ; journal d'audit et exports de mission inspectés pour les secrets).
 3. Créer le dépôt de démonstration `e2e/fixtures/vite-bug` et jouer la démonstration J2-A sur le build empaqueté Linux ; relever les mesures initiales de performance.
 4. Scénario 1 et une mission J2-A avec un vrai compte OpenRouter ; reporter commande et résultat ici.
@@ -173,6 +180,7 @@ Format attendu d'une cellule remplie : « Oui — 2026-mm-jj, commande ou run CI
 
 ## Historique de cette page
 
+- 2026-09-28 — vérification finale J2-B sur `65fce37` : lint, types, 2 239 tests unitaires, build, Playwright 46/46 ×2, sans correctif ; ROADMAP, FEATURES et correspondance DeepSeek Harness mis à jour.
 - 2026-09-28 — revue J2-B, 22 défauts corrigés (tests unitaires qui échouent sur l'ancien code ; lint, types, 2 239 tests, build ; Playwright : specs J2-B desktop, chain, submissions, terminal-agent (mis à jour : la session reprise quitte la mission), schedules, compaction, proof-timeline, skills, plus j2a-mission, j2a-permissions et ui-journey au vert) : contexte non fiable transmis aux sous-missions, bifurcations et index de skills (W5) ; réserve d'une sous-mission hors du total du jour (migration v7) ; « Prendre la main » détache le processus de la mission ; plafond de processus tenu en parallèle ; aucun processus orphelin des sous-missions ni des tests d'intégration ; résumé de conversation limité aux échanges complets ; barre système et Réglages sans faux zéro ; approbations d'un programme « Chaîne » toujours visibles ; pilote automatique lié à son message ; catalogue non chargé jamais présenté comme vide ; plafond « Jusqu'à preuve » à 0 refusé.
 - 2026-09-28 — E2E J2-B complétés (46/46 deux fois) ; corrections : titre d'approbation de `process_stop`, libellé « conflit » générique, tutoiement de la compaction, critères du dossier de passation en français, notices du terminal, marge des planifications, options segmentées.
 - 2026-09-28 — intégration J2-B : les huit voies branchées (main, renderer, palette), demandes de contrat des voies appliquées (ADR-022, ADR-023) ; lint, types, 2 212 tests, build, Playwright 42/42.
