@@ -283,13 +283,16 @@ export function createCompactionCore(deps: CompactionServiceDeps): CompactionCor
     if (deps.summaries.pending(target)) throw new CompactionError("conflict", "a proposed summary waits for a decision");
     const { messages, applied, seqOf, after } = conversationSlice(conversationId);
     if (messages.some((message) => message.status === "streaming")) throw new CompactionError("conflict", "an answer is being written");
-    const last = after.at(-1);
+    // Whole exchanges only: up to the last answer that completed. A trailing question whose answer
+    // failed, was stopped or interrupted stays after the summary, so a retry still sends it.
+    const covered = after.slice(0, after.findLastIndex((message) => message.role === "assistant" && message.status === "complete") + 1);
+    const last = covered.at(-1);
     const lastSeq = last ? seqOf.get(last.id) : undefined;
-    if (!last || lastSeq === undefined || after.length < 2) throw new CompactionError("invalid_request", "nothing to summarize yet");
+    if (!last || lastSeq === undefined || covered.length < 2) throw new CompactionError("invalid_request", "nothing to summarize yet");
     const before = conversationUsage(conversationId);
     conversationsGenerating.add(conversationId);
     try {
-      const entries = conversationTranscript(after, applied?.summary ?? null);
+      const entries = conversationTranscript(covered, applied?.summary ?? null);
       const { text, costUsd } = await summarize(target, modelId, entries, null, instructions, new AbortController().signal);
       const summary = deps.summaries.insert({
         target,

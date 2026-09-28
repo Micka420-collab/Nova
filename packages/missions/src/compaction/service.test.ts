@@ -272,6 +272,28 @@ describe("conversations", () => {
     expect(h.core.usage(target)).toMatchObject({ source: "estimate", modelId: MODEL });
   });
 
+  it("never covers an unanswered question: after a failed answer, a retry still sends the question", async () => {
+    const messages = [
+      message("m1", "user", "Corrige le panier"),
+      message("m2", "assistant", "C'est fait."),
+      message("m3", "user", "Et la facture ?"),
+      message("m4", "assistant", "", { status: "error" }),
+    ];
+    const h = setup({ messages });
+    h.summaries.seqs.set("conv", messages.map((item, index) => ({ id: item.id, seq: index + 1 })));
+    const target = { kind: "conversation" as const, conversationId: "conv" };
+    const summary = await h.core.compact({ target, modelId: MODEL, instructions: null });
+    expect(summary.coveredUntilSeq).toBe(2);
+    expect(h.calls[0]?.messages.at(-1)?.content).not.toContain("Et la facture");
+    h.core.decide({ summaryId: summary.id, decision: "apply" });
+    // Retry: the failed answer is replaced; the question is what the model must answer.
+    expect(h.core.historyForModel("conv", messages.slice(0, 3))?.history).toEqual([messages[2]]);
+    // Nothing complete to summarize: refused, rather than a summary that swallows the question.
+    const unanswered = setup({ messages: [message("m1", "user", "Q"), message("m2", "assistant", "", { status: "error" })] });
+    unanswered.summaries.seqs.set("conv", [{ id: "m1", seq: 1 }, { id: "m2", seq: 2 }]);
+    await expect(unanswered.core.compact({ target, modelId: MODEL, instructions: null })).rejects.toMatchObject({ code: "invalid_request" });
+  });
+
   it("uses the provider's last report as usage and flags a due proposal without writing one", () => {
     const messages = [message("m1", "user", "Q"), message("m2", "assistant", "R", { usage: usage(820) })];
     const h = setup({ messages });
