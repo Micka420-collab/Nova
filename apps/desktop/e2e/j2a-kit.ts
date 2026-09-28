@@ -59,17 +59,22 @@ export async function shot(page: Page, name: string): Promise<void> {
 }
 
 /** Key (session) + default model through the bridge, then the UI reloads on that state. */
-export async function connect(page: Page): Promise<void> {
+/**
+ * Sets the key, loads the catalog and picks the default model. Unless `firstRun`, the first-run
+ * profile question is answered too (profile « code », density « Tout » so every card shows).
+ */
+export async function connect(page: Page, options: { firstRun?: boolean } = {}): Promise<void> {
   await page.evaluate(
-    async ({ apiKey, modelId }) => {
+    async ({ apiKey, modelId, firstRun }) => {
       const saved = await window.novaBridge.connection.setKey({ providerId: "openrouter", apiKey, storage: "session" });
       if (!saved.ok) throw new Error(saved.error.message);
       const catalog = await window.novaBridge.models.catalog({ providerId: "openrouter", refresh: true });
       if (!catalog.ok) throw new Error(catalog.error.message);
-      const settings = await window.novaBridge.settings.update({ defaultModelId: modelId });
+      const onboarded = firstRun ? {} : { onboarding: { profile: "code" as const, completedAt: Date.now() }, display: { density: "all" as const } };
+      const settings = await window.novaBridge.settings.update({ defaultModelId: modelId, ...onboarded });
       if (!settings.ok) throw new Error(settings.error.message);
     },
-    { apiKey: MOCK_KEYS.valid, modelId: MODEL_ID },
+    { apiKey: MOCK_KEYS.valid, modelId: MODEL_ID, firstRun: options.firstRun === true },
   );
   await page.reload();
 }

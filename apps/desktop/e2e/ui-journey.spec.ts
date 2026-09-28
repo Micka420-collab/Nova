@@ -44,7 +44,12 @@ async function connectThroughBridge(page: Page, apiKey: string = MOCK_KEYS.valid
     async ({ key, modelId }) => {
       const saved = await window.novaBridge.connection.setKey({ providerId: "openrouter", apiKey: key, storage: "session" });
       if (!saved.ok) throw new Error(saved.error.message);
-      const settings = await window.novaBridge.settings.update({ defaultModelId: modelId });
+      // The first-run profile question is answered too (scenario 1 covers it through the UI).
+      const settings = await window.novaBridge.settings.update({
+        defaultModelId: modelId,
+        onboarding: { profile: "code", completedAt: Date.now() },
+        display: { density: "all" },
+      });
       if (!settings.ok) throw new Error(settings.error.message);
     },
     { key: apiKey, modelId: MODEL_ID },
@@ -83,6 +88,13 @@ test("scenario 1 — first run: key, model, streamed answer, restart keeps histo
   await expect(page.getByRole("heading", { name: "Choisis un modèle" })).toBeVisible();
   await page.locator(".nova-model", { hasText: MODEL_ID }).first().click();
   await shot(page, "03-model-chosen");
+
+  // J2-B: then one question on how NOVA will be used (display only), answered once.
+  const profile = page.getByRole("dialog", { name: "Comment vas-tu utiliser NOVA ?" });
+  await expect(profile).toBeVisible();
+  await profile.getByRole("radio", { name: /Code et développement/ }).check();
+  await profile.getByRole("button", { name: "Commencer" }).click();
+  await expect(profile).toHaveCount(0);
 
   const composer = page.getByRole("textbox", { name: /Décris ton idée|Message/ }).first();
   await composer.fill("Bonjour Nomi, aide-moi à construire mon idée");

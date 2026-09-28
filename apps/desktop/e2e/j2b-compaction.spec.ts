@@ -40,11 +40,14 @@ const FULL = Math.floor(contextLengthOf(MODEL_ID) * 0.9);
 
 const LONG_MISSION: MissionScript = {
   plan: { summary: "Je lis puis je corrige le panier.", tasks: [{ title: "Corriger le total", acceptance: { kind: "manual", detail: "" } }] },
-  step({ results }) {
-    if (results.length === 0) return heavy({ kind: "tools", calls: [{ name: "read_file", args: { path: "src/cart.js" } }] }, FULL);
+  step({ results, nudges }) {
+    // An applied summary replaces the calls it covers (the read): it counts as that progress.
+    const summarized = nudges.some((nudge) => nudge.startsWith("Summary of the earlier"));
+    const progress = results.length + (summarized ? 1 : 0);
+    if (progress === 0) return heavy({ kind: "tools", calls: [{ name: "read_file", args: { path: "src/cart.js" } }] }, FULL);
     // The edit waits for an approval: the user decides on the proposal meanwhile.
-    if (results.length === 1) {
-      return heavy({ kind: "tools", calls: [{ name: "edit_file", args: { path: "src/cart.js", old: "prices.length", new: "prices.reduce((sum, price) => sum + price, 0)" } }] }, FULL);
+    if (progress === 1) {
+      return heavy({ kind: "tools", calls: [{ name: "edit_file", args: { path: "src/cart.js", edits: [{ oldText: "prices.length", newText: "prices.reduce((sum, price) => sum + price, 0)" }] } }] }, FULL);
     }
     return { kind: "answer", text: "Le total additionne maintenant les prix." };
   },
@@ -52,9 +55,11 @@ const LONG_MISSION: MissionScript = {
 
 const SWITCH_MISSION: MissionScript = {
   plan: { summary: "Je corrige le panier.", tasks: [{ title: "Corriger le total", acceptance: { kind: "manual", detail: "" } }] },
-  step({ results }) {
-    if (results.length === 0) {
-      return { kind: "tools", calls: [{ name: "edit_file", args: { path: "src/cart.js", old: "prices.length", new: "prices.reduce((sum, price) => sum + price, 0)" } }] };
+  step({ results, nudges }) {
+    // After a model switch the new model starts from the handoff dossier (the edit is in it).
+    const handedOver = nudges.some((nudge) => nudge.startsWith("Handoff dossier"));
+    if (results.length === 0 && !handedOver) {
+      return { kind: "tools", calls: [{ name: "edit_file", args: { path: "src/cart.js", edits: [{ oldText: "prices.length", newText: "prices.reduce((sum, price) => sum + price, 0)" }] } }] };
     }
     return { kind: "answer", text: "Corrigé." };
   },
@@ -137,10 +142,12 @@ test("(b) /compact in Discuter proposes a summary; once applied it replaces the 
   test.setTimeout(90_000);
   nova = await launchOnFolder({ userDataDir, mock, folder: project });
   const { page } = nova;
-  const composer = page.getByRole("textbox", { name: /Écris à Nomi|Message/ }).last();
-  await composer.fill("Explique le panier");
-  await composer.press("Enter");
+  const home = page.getByRole("textbox", { name: /Décris ton idée|Message/ }).first();
+  await home.fill("Explique le panier");
+  await home.press("Enter");
   await expect(page.getByText(/Réponse simulée n°1/)).toBeVisible();
+  // The conversation continues in the chat composer.
+  const composer = page.getByRole("textbox", { name: "Message" }).last();
   await composer.fill("/compact garder les noms de fichiers");
   await composer.press("Enter");
 

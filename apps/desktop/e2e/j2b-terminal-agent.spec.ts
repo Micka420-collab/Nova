@@ -129,7 +129,7 @@ test("agent terminal: background servers read-only until « Prendre la main », 
 
   // The dock shows the server's agent session, read-only: typing reaches nothing.
   await page.keyboard.press("Control+j");
-  const panel = page.getByRole("region", { name: "Terminal" });
+  const panel = page.getByRole("region", { name: "Terminal", exact: true });
   await expect(panel).toBeVisible();
   await panel.getByRole("tab", { name: /server\.js a\.pid/ }).click();
   await expect(panel.getByText(/Session de Nomi en lecture seule/)).toBeVisible();
@@ -152,7 +152,10 @@ test("agent terminal: background servers read-only until « Prendre la main », 
   // process_stop, approved: server A (its whole tree) is gone and the card says so.
   await approveOnce.click();
   await expect.poll(() => alive(serverA), { timeout: 15_000 }).toBe(false);
+  // The call's card opens on its result; the processes list says the same.
+  await agent.getByRole("button", { name: /^Arrêter le processus node server\.js a\.pid/ }).click();
   await expect(agent.getByText("Processus arrêté").first()).toBeVisible();
+  await expect(agent.getByRole("region", { name: "Processus en arrière-plan" }).getByText("Arrêté").first()).toBeVisible();
   const events = await missionEvents(page, mission.id);
   const ended = events.filter((event) => event.type === "process.ended") as unknown as { process: { argv: string[]; state: string } }[];
   expect(ended.map((event) => [event.process.argv.at(-1), event.process.state])).toEqual([["a.pid", "stopped"]]);

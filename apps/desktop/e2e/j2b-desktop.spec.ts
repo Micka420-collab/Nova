@@ -85,7 +85,7 @@ function chatRequests(marker: string): { model: string; body: Record<string, unk
 test("first run: the profile and density are saved and not asked again", async () => {
   nova = await launchNova({ userDataDir, mock });
   const { page } = nova;
-  await connect(page);
+  await connect(page, { firstRun: true });
   const dialog = page.getByRole("dialog", { name: "Comment vas-tu utiliser NOVA ?" });
   await expect(dialog).toBeVisible();
   await dialog.getByRole("radio", { name: /Documents et création/ }).check();
@@ -114,7 +114,7 @@ test("autopilot: the choice is shown before sending and the overridden effort re
   await composer.fill("Compare deux architectures de panier [ap]");
   await composer.press("Enter");
 
-  // The mock answers the classifier with prose: NOVA says it uses its default, never guesses.
+  // The mock classifier answers with its two closed fields; the card says what NOVA proposes.
   const card = page.getByRole("region", { name: /Réglages (proposés pour ce message|par défaut)/ });
   await expect(card).toBeVisible();
   const classifier = chatRequests("[ap]").find(({ body }) => JSON.stringify(body.messages).includes("You classify one chat message"));

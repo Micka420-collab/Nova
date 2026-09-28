@@ -73,7 +73,7 @@ test("a scheduled run starts a normal mission, its history updates, and pause st
   // Editor: the preview of the next runs is visible before saving; a 1-minute interval.
   await page.getByRole("button", { name: "Nouvelle planification" }).click();
   const form = page.getByRole("form", { name: "Nouvelle planification" });
-  await form.getByLabel("Nom").fill("Veille minute");
+  await form.getByLabel("Nom", { exact: true }).fill("Veille minute");
   await form.getByLabel(/Objectif de la mission/).fill("[script:sched] Résume le projet.");
   await form.getByRole("radio", { name: "Intervalle" }).click();
   await form.getByLabel("Toutes les (minutes)").fill("1");
@@ -81,7 +81,7 @@ test("a scheduled run starts a normal mission, its history updates, and pause st
   await expect(form.getByText("Rattraper une seule fois")).toBeVisible();
   await shot(page, "j2b-schedules-editor");
   await form.getByRole("button", { name: "Enregistrer" }).click();
-  await expect(page.getByText("Veille minute")).toBeVisible();
+  await expect(page.getByText("Veille minute", { exact: true })).toBeVisible();
 
   // Pause it at once: its due time (≈ 60 s) must pass without any run.
   await page.getByRole("button", { name: "Mettre en pause Veille minute" }).click();
@@ -112,7 +112,7 @@ test("a scheduled run starts a normal mission, its history updates, and pause st
     },
     { id: workspaceId, modelId: MODEL_ID, contract: CONTRACT },
   );
-  await expect(page.getByText("Résumé unique")).toBeVisible();
+  await expect(page.getByText("Résumé unique", { exact: true })).toBeVisible();
 
   // The run starts a normal mission (plan + start on the mock) and ends; the history shows it.
   await expect.poll(async () => (await runsOf(page, once))[0]?.outcome ?? "none", { timeout: 60_000 }).toMatch(/succeeded|failed|cancelled/);

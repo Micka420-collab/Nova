@@ -77,6 +77,8 @@ test("« Chaîne »: one program, three gated calls under its card, approval in 
   await approveOnce.click();
 
   await expect(agent.locator(".nova-endcard")).toBeVisible({ timeout: 60_000 });
+  // The program's card opens on its result; its calls are listed under it either way.
+  await agent.getByRole("button", { name: /^Enchaîner/ }).click();
   await expect(agent.getByText("Programme terminé · 3 appels d’outil", { exact: false })).toBeVisible();
   await expect(agent.getByRole("list", { name: "3 appels de ce programme" })).toBeVisible();
   await shot(page, "j2b-chain-03-nested");

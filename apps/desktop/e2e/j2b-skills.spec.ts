@@ -155,7 +155,8 @@ test("(L3) skills: preview then install, enable for the project, loaded by a mis
   const goneEvents = await missionEvents(page, goneId);
   expect(goneEvents.some((event) => event.type === "skill.loaded")).toBe(false);
   const finished = goneEvents.find((event) => event.type === "tool.finished") as { display?: { kind: string; code?: string } } | undefined;
-  expect(finished?.display).toMatchObject({ kind: "error", code: "not_found" });
+  // With no skill enabled, the mission has no skill index and is not offered the `skill` tool at all.
+  expect(finished?.display).toMatchObject({ kind: "error", code: "permission_denied" });
   for (const prompt of systemPrompts("[script:skill-gone]")) expect(prompt).not.toContain(SKILL_REF);
   await shot(page, "j2b-l3-04-skill-uninstalled");
 });
