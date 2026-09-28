@@ -1,0 +1,109 @@
+/* L8 — search in the missions' journal, event actions (resume / branch), « jusqu'à preuve » status. Tokens only. */
+
+.nova-timeline-search {
+  display: grid;
+  gap: var(--nv-space-3);
+}
+
+.nova-timeline-search__form {
+  display: grid;
+  gap: var(--nv-space-2);
+}
+
+.nova-timeline-search__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--nv-space-2);
+}
+
+.nova-timeline-search__row > :first-child {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.nova-timeline-search__status {
+  font-size: var(--nv-text-sm);
+  color: var(--nv-text-secondary);
+}
+
+.nova-timeline-hits {
+  display: grid;
+  gap: var(--nv-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nova-timeline-hit {
+  display: grid;
+  gap: var(--nv-space-1);
+  padding: var(--nv-space-2) var(--nv-space-3);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-md);
+  background: var(--nv-panel);
+}
+
+.nova-timeline-hit__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--nv-space-2);
+}
+
+.nova-timeline-hit__title {
+  margin: 0;
+  font-size: var(--nv-text-sm);
+  font-weight: var(--nv-weight-medium);
+  color: var(--nv-text);
+  overflow-wrap: anywhere;
+}
+
+.nova-timeline-hit__meta {
+  font-size: var(--nv-text-xs);
+  color: var(--nv-text-secondary);
+}
+
+.nova-timeline-hit__snippet {
+  margin: 0;
+  font-size: var(--nv-text-sm);
+  color: var(--nv-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.nova-event-actions {
+  display: grid;
+  gap: var(--nv-space-2);
+}
+
+.nova-event-actions__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nv-space-2);
+}
+
+.nova-event-actions__form {
+  display: grid;
+  gap: var(--nv-space-2);
+  padding: var(--nv-space-3);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-md);
+  background: var(--nv-panel);
+}
+
+.nova-continuation {
+  display: grid;
+  gap: var(--nv-space-1);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-continuation__rounds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nv-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--nv-text-secondary);
+}
