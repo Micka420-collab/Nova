@@ -79,6 +79,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${GITHUB_REF_NAME}" dist/* \
-            --title "NOVA ${GITHUB_REF_NAME#v} — l'atelier prend vie" \
+            --title "NOVA ${GITHUB_REF_NAME#v}" \
             --notes-file "docs/releases/${GITHUB_REF_NAME}.md" \
             --prerelease --verify-tag
