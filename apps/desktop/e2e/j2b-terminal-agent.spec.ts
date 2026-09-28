@@ -13,13 +13,20 @@ import { makeUserDataDir, removeDir, type LaunchedNova } from "./fixtures";
 import { currentWorkspaceId, latestMission, launchOnFolder, missionEvents, planFromAgent, shot, writeShopProject } from "./j2a-kit";
 import { startMockOpenRouter, type MissionScript, type MockOpenRouter, type ScriptStep } from "./mock-openrouter";
 
-/** A tiny server: writes its pid, says it is ready, echoes every line it reads on its terminal. */
+/**
+ * A tiny server: writes its pid, says it is ready, echoes every line it reads on its terminal and
+ * appends it to `<pid file>.in`. What reached it is read from the disk, not from the screen: with the
+ * WebGL renderer (macOS, Windows with a GPU) the terminal text is only pixels.
+ */
 const SERVER = [
   'const fs = require("node:fs");',
   "fs.writeFileSync(process.argv[2], String(process.pid));",
   'console.log("serveur pret");',
   'process.stdin.setEncoding("utf8");',
-  'process.stdin.on("data", (data) => console.log("recu: " + data.trim()));',
+  'process.stdin.on("data", (data) => {',
+  '  console.log("recu: " + data.trim());',
+  '  fs.appendFileSync(process.argv[2] + ".in", data);',
+  "});",
   "setInterval(() => {}, 1000);",
   "",
 ].join("\n");
@@ -62,7 +69,15 @@ test.beforeEach(async () => {
 
 test.afterEach(async () => {
   for (const pid of pids.splice(0)) if (alive(pid)) process.kill(pid, "SIGKILL");
-  await nova?.app.close().catch(() => {});
+  if (nova) {
+    // A failed test must not hang its teardown on the quit question: answer « Quitter quand même ».
+    await nova.app
+      .evaluate(({ dialog }) => {
+        dialog.showMessageBox = (() => Promise.resolve({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox;
+      })
+      .catch(() => {});
+    await nova.app.close().catch(() => {});
+  }
   nova = null;
   await mock.close();
   removeDir(userDataDir);
@@ -84,14 +99,19 @@ function pidOf(name: string): number {
   return pid;
 }
 
-/** Visible text of the selected terminal (xterm DOM rows, or its accessibility buffer). */
-async function screenText(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const view = document.querySelector(".nv-terminal-view:not([hidden])");
-    const rows = view?.querySelector(".xterm-rows");
-    const a11y = view?.querySelector(".xterm-accessibility-tree");
-    return `${rows?.textContent ?? ""}\n${a11y?.textContent ?? ""}`;
-  });
+/** What server B read on its terminal (its `.in` file). */
+function receivedByB(): string {
+  const path = join(project, "b.pid.in");
+  return existsSync(path) ? readFileSync(path, "utf8") : "";
+}
+
+/** A process's recent output, through the same API as the « Processus » list. */
+async function outputOf(page: Page, processId: string): Promise<string> {
+  return page.evaluate(async (id) => {
+    const result = await window.novaBridge.processes.output({ processId: id, maxChars: 2_000 });
+    if (!result.ok) throw new Error(result.error.message);
+    return result.value.text;
+  }, processId);
 }
 
 test("agent terminal: background servers read-only until « Prendre la main », process tools, no orphan at quit", async () => {
@@ -127,27 +147,31 @@ test("agent terminal: background servers read-only until « Prendre la main », 
     { argv: ["node", "server.js", "b.pid"], state: "running", hosted: true },
   ]);
 
+  // Server B is listening on its terminal (its output says so) before anything is typed.
+  const processB = listed.find((item) => item.argv.at(-1) === "b.pid")?.id ?? "missing";
+  await expect.poll(() => outputOf(page, processB)).toContain("serveur pret");
+
   // The dock shows server B's agent session, read-only: typing reaches nothing.
   await page.keyboard.press("Control+j");
   const panel = page.getByRole("region", { name: "Terminal", exact: true });
   await expect(panel).toBeVisible();
   await panel.getByRole("tab", { name: /server\.js b\.pid/ }).click();
   await expect(panel.getByText(/Session de Nomi en lecture seule/)).toBeVisible();
-  await expect.poll(() => screenText(page)).toContain("serveur pret");
   const view = panel.locator(".nv-terminal-view:not([hidden])");
   await view.click();
   await page.keyboard.type("ignore\n");
-  await page.waitForTimeout(500);
-  expect(await screenText(page)).not.toContain("recu: ignore");
+  await page.waitForTimeout(1_000);
+  expect(receivedByB()).toBe("");
   await shot(page, "j2b-l1-01-agent-terminal-read-only");
 
   // « Prendre la main »: the session is the user's (server B leaves the mission), the server
-  // receives the line.
+  // receives the line, and only that one.
   await panel.getByRole("button", { name: "Prendre la main" }).click();
   await expect(panel.getByText(/Session de Nomi en lecture seule/)).toHaveCount(0);
   await view.click();
   await page.keyboard.type("bonjour\n");
-  await expect.poll(() => screenText(page)).toContain("recu: bonjour");
+  await expect.poll(receivedByB).toContain("bonjour");
+  expect(receivedByB()).not.toContain("ignore");
   await shot(page, "j2b-l1-02-agent-terminal-taken-over");
 
   // process_stop, approved: server A (its whole tree) is gone and the card says so.
@@ -172,10 +196,32 @@ test("agent terminal: background servers read-only until « Prendre la main », 
   expect(output?.display.outputTail).toContain("serveur pret");
 
   // The mission now waits on another approval; its end would spare B (the user's now), but quitting
-  // NOVA must not leave it behind.
+  // NOVA must not leave it behind. Quitting asks first (the mission runs); « Quitter quand même ».
   await expect(approveOnce).toBeVisible({ timeout: 30_000 });
   expect(alive(serverB)).toBe(true);
-  await nova.app.close();
+  const app = nova.app;
+  await app.evaluate(({ dialog }) => {
+    const asked: string[] = [];
+    (globalThis as { novaQuitQuestions?: string[] }).novaQuitQuestions = asked;
+    dialog.showMessageBox = ((...args: unknown[]) => {
+      asked.push((args.at(-1) as { detail?: string }).detail ?? "");
+      // Answered once the test has read the question (the app exits right after).
+      return new Promise((resolve) => {
+        (globalThis as { novaQuitAnswer?: () => void }).novaQuitAnswer = () => resolve({ response: 1, checkboxChecked: false });
+      });
+    }) as typeof dialog.showMessageBox;
+  });
+  await app.evaluate(({ app: electronApp }) => electronApp.quit());
+  await expect.poll(() => app.evaluate(() => (globalThis as { novaQuitQuestions?: string[] }).novaQuitQuestions ?? [])).toHaveLength(1);
+  const question = (await app.evaluate(() => (globalThis as { novaQuitQuestions?: string[] }).novaQuitQuestions?.[0])) ?? "";
+  expect(question).toContain("1 mission en cours");
+  expect(question).toContain("1 approbation en attente");
+  // Server B is the user's now: not a mission process, and no line for the open terminal.
+  expect(question).not.toContain("processus");
+  expect(question).not.toContain("terminal");
+  const closed = app.waitForEvent("close", { timeout: 20_000 });
+  await app.evaluate(() => (globalThis as { novaQuitAnswer?: () => void }).novaQuitAnswer?.()).catch(() => undefined);
+  await closed;
   nova = null;
   await expect.poll(() => alive(serverB), { timeout: 15_000 }).toBe(false);
 });

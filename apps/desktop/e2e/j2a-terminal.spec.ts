@@ -1,6 +1,7 @@
 // J2-A journey (e): the terminal of the atelier is a real shell (node-pty in the pty-host worker) in
 // the project folder: a command runs there, Ctrl+C interrupts a running program (the process is
-// really gone), and the shell keeps working afterwards.
+// really gone), and the shell keeps working afterwards. Quitting with only an idle shell open asks
+// nothing (the quit warning is about missions, their processes and schedules).
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
@@ -24,7 +25,15 @@ test.beforeEach(async () => {
 test.afterEach(async () => {
   if (spawnedPid !== null && alive(spawnedPid)) process.kill(spawnedPid, "SIGKILL");
   spawnedPid = null;
-  await nova?.app.close().catch(() => {});
+  if (nova) {
+    // A failed test must not hang its teardown on the quit question: answer « Quitter quand même ».
+    await nova.app
+      .evaluate(({ dialog }) => {
+        dialog.showMessageBox = (() => Promise.resolve({ response: 1, checkboxChecked: false })) as typeof dialog.showMessageBox;
+      })
+      .catch(() => {});
+    await nova.app.close().catch(() => {});
+  }
   nova = null;
   await mock.close();
   removeDir(userDataDir);
@@ -90,4 +99,15 @@ test("(e) terminal: a command runs in the project folder, Ctrl+C stops a running
   expect(existsSync(after)).toBe(true);
   await expect(panel.getByRole("tab", { name: /En cours/ }).first()).toBeVisible();
   await shot(page, "j2a-15-terminal-interrupted");
+
+  // Quitting with only this idle shell open asks nothing: NOVA closes. (A question here would be
+  // answered « Annuler » and NOVA would stay open.)
+  const app = nova.app;
+  await app.evaluate(({ dialog }) => {
+    dialog.showMessageBox = (() => Promise.resolve({ response: 0, checkboxChecked: false })) as typeof dialog.showMessageBox;
+  });
+  const closed = app.waitForEvent("close", { timeout: 20_000 });
+  await app.evaluate(({ app: electronApp }) => electronApp.quit()).catch(() => undefined);
+  await closed;
+  nova = null;
 });
