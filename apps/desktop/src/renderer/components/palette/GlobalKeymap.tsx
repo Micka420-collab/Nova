@@ -24,8 +24,9 @@ function runEditorCommand(atelier: AtelierState, command: AtelierCommand): boole
       void editor.saveAll();
       return true;
     case "closeTab":
+      // Same path as the workbench: a tab with unsaved edits asks (pendingClose), never nothing.
       if (!active) return false;
-      editor.closeTab(active);
+      editor.requestClose(active);
       return true;
     case "reopenTab":
       void editor.reopenClosed();
@@ -36,12 +37,8 @@ function runEditorCommand(atelier: AtelierState, command: AtelierCommand): boole
     case "cycleOrder":
       editor.cycleOrder(command.direction);
       return true;
-    case "goToTab": {
-      const tab = editor.tabs[command.index];
-      if (!tab) return false;
-      editor.activate(tab.path);
-      return true;
-    }
+    case "goToTab":
+      return editor.goToTab(command.index);
     case "quickOpen":
     case "projectSearch":
       // Registry commands (`file.quickOpen`, `file.searchProject`) own these.

@@ -303,15 +303,10 @@ export function EditorWorkbench({ agentWritingPaths = EMPTY_SET, onQuickOpen, on
   const activePath = useAtelier((state) => state.editor.activePath);
   const active = tabs.find((tab) => tab.path === activePath) ?? null;
   const [bus] = useState(createCursorBus);
-  const [pendingClose, setPendingClose] = useState<string | null>(null);
+  const pendingClose = useAtelier((state) => state.editor.pendingClose);
   const [announcement, setAnnouncement] = useState("");
 
-  const requestClose = useCallback(
-    (path: string) => {
-      if (!store.getState().editor.closeTab(path)) setPendingClose(path);
-    },
-    [store],
-  );
+  const requestClose = useCallback((path: string) => store.getState().editor.requestClose(path), [store]);
 
   const run = useCallback(
     async (command: AtelierCommand): Promise<boolean> => {
@@ -338,11 +333,8 @@ export function EditorWorkbench({ agentWritingPaths = EMPTY_SET, onQuickOpen, on
         case "cycleOrder":
           editor.cycleOrder(command.direction);
           return true;
-        case "goToTab": {
-          const target = command.index === 8 ? editor.tabs.at(-1) : editor.tabs[command.index];
-          if (target) editor.activate(target.path);
-          return target !== undefined;
-        }
+        case "goToTab":
+          return editor.goToTab(command.index);
         case "quickOpen":
           onQuickOpen?.();
           return onQuickOpen !== undefined;
@@ -395,20 +387,20 @@ export function EditorWorkbench({ agentWritingPaths = EMPTY_SET, onQuickOpen, on
       </output>
       <Dialog
         open={closingTab !== undefined}
-        onClose={() => setPendingClose(null)}
+        onClose={() => store.getState().editor.cancelClose()}
         size="sm"
         title={closingTab ? editorCopy.closeDirtyTitle(basenameOf(closingTab.path)) : ""}
         description={editorCopy.closeDirtyDetail}
         footer={
           closingTab ? (
             <>
-              <Button variant="ghost" onClick={() => setPendingClose(null)}>
+              <Button variant="ghost" onClick={() => store.getState().editor.cancelClose()}>
                 {editorCopy.cancel}
               </Button>
               <Button
                 variant="danger"
                 onClick={() => {
-                  setPendingClose(null);
+                  store.getState().editor.cancelClose();
                   store.getState().editor.closeTab(closingTab.path, true);
                 }}
               >
@@ -417,7 +409,7 @@ export function EditorWorkbench({ agentWritingPaths = EMPTY_SET, onQuickOpen, on
               <Button
                 variant="primary"
                 onClick={async () => {
-                  setPendingClose(null);
+                  store.getState().editor.cancelClose();
                   if (await store.getState().editor.save(closingTab.path)) store.getState().editor.closeTab(closingTab.path);
                 }}
               >

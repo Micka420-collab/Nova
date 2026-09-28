@@ -114,6 +114,8 @@ export interface EditorData {
   closed: RelativePath[];
   /** Bumped when a user action should move focus into the editor (never for agent actions). */
   focusSeq: number;
+  /** A close asked for a tab with unsaved edits: the workbench asks Save / Discard / Cancel. */
+  pendingClose: RelativePath | null;
   reveal: EditorReveal | null;
   /** Non-reactive: buffers by path for the current workspace. Mutated in place, never replaced. */
   buffers: Map<RelativePath, DocModel>;
@@ -135,6 +137,11 @@ export interface EditorActions {
   activate(path: RelativePath, focus?: boolean): void;
   /** Closes a tab; refuses (returns false) when it has unsaved edits and `force` is not set. */
   closeTab(path: RelativePath, force?: boolean): boolean;
+  /** User close (Ctrl+W, tab button): closes, or asks through `pendingClose` when unsaved. */
+  requestClose(path: RelativePath): void;
+  cancelClose(): void;
+  /** Alt+1…9: the tab at `index` in strip order; 8 (Alt+9) is always the last tab. */
+  goToTab(index: number): boolean;
   closeOthers(path: RelativePath): void;
   reopenClosed(): Promise<void>;
   /** Ctrl+Tab: next (1) or previous (-1) tab in most-recently-used order. */
@@ -164,6 +171,7 @@ export interface EditorActions {
   claimFocus(focusSeq: number): boolean;
   /** Applies a `files.onEvent` batch to open tabs. */
   applyFilesEvent(event: FilesEvent): void;
+  /** Unsaved edits in any workspace (the shown one and the parked ones). */
   hasUnsaved(): boolean;
   /** Switches the session to another workspace (buffers of the previous one stay in memory). */
   switchWorkspace(workspaceId: string | null): Promise<void>;
@@ -238,6 +246,7 @@ export function initialEditorData(): EditorData {
     mru: [],
     closed: [],
     focusSeq: 0,
+    pendingClose: null,
     reveal: null,
     buffers: new Map(),
     scroll: new Map(),
@@ -457,13 +466,32 @@ export function createEditorSlice<T extends EditorSlice>(
       const neighbor = tabs[index]?.path ?? tabs[index - 1]?.path ?? null;
       state.buffers.delete(path);
       readSeq.delete(path);
+      const wasActive = state.activePath === path;
       patch({
         tabs,
         mru,
-        activePath: state.activePath === path ? neighbor : state.activePath,
+        activePath: wasActive ? neighbor : state.activePath,
+        // The closed view held the focus: hand it to the neighbor's editor, never to <body>.
+        focusSeq: wasActive && neighbor !== null ? state.focusSeq + 1 : state.focusSeq,
+        pendingClose: state.pendingClose === path ? null : state.pendingClose,
         closed: [...state.closed.filter((item) => item !== path), path].slice(-CLOSED_LIMIT),
       });
       return true;
+    },
+
+    requestClose(path) {
+      if (!data().closeTab(path)) patch({ pendingClose: path });
+    },
+
+    cancelClose() {
+      patch({ pendingClose: null });
+    },
+
+    goToTab(index) {
+      const { tabs } = data();
+      const target = index === 8 ? tabs.at(-1) : tabs[index];
+      if (target) data().activate(target.path);
+      return target !== undefined;
     },
 
     closeOthers(path) {
@@ -614,7 +642,7 @@ export function createEditorSlice<T extends EditorSlice>(
       }
     },
 
-    hasUnsaved: () => data().tabs.some((tab) => tab.dirty),
+    hasUnsaved: () => [data().tabs, ...[...parked.values()].map((session) => session.tabs)].some((tabs) => tabs.some((tab) => tab.dirty)),
 
     async switchWorkspace(workspaceId) {
       const state = data();
@@ -635,7 +663,9 @@ export function createEditorSlice<T extends EditorSlice>(
       const back = workspaceId ? parked.get(workspaceId) : undefined;
       if (back && workspaceId) {
         parked.delete(workspaceId);
-        patch({ ...back, workspaceId, reveal: null });
+        patch({ ...back, workspaceId, reveal: null, pendingClose: null });
+        // File events of a parked workspace were dropped: compare every loaded tab with the disk now.
+        for (const tab of back.tabs) if (tab.status === "ready") void checkDisk(tab.path, false);
         return;
       }
       patch({ ...initialEditorData(), workspaceId, focusSeq: state.focusSeq });

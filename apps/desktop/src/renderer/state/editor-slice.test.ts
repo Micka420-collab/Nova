@@ -216,7 +216,55 @@ describe("editor slice: tabs", () => {
   });
 });
 
+describe("editor slice: user closes and tab jumps", () => {
+  it("a close of a tab with unsaved edits asks through pendingClose; closing the active tab hands focus to its neighbor", async () => {
+    const { store } = await setup({ "a.ts": "a", "b.ts": "b" });
+    await editor(store).openFile("a.ts");
+    await editor(store).openFile("b.ts");
+    type(store, "b.ts", "edited");
+    editor(store).requestClose("b.ts");
+    expect(editor(store).pendingClose).toBe("b.ts");
+    expect(tab(store, "b.ts")).toBeDefined();
+    editor(store).cancelClose();
+    type(store, "b.ts", "b");
+    const seq = editor(store).focusSeq;
+    editor(store).requestClose("b.ts");
+    expect(editor(store).activePath).toBe("a.ts");
+    expect(editor(store).focusSeq).toBe(seq + 1);
+  });
+
+  it("Alt+9 is the last tab and Alt+1…8 the tab at that position, wherever the key is pressed", async () => {
+    const files = Object.fromEntries(Array.from({ length: 10 }, (_, index) => [`f${index}.ts`, String(index)]));
+    const { store } = await setup(files);
+    for (const path of Object.keys(files)) await editor(store).openFile(path);
+    expect(editor(store).goToTab(8)).toBe(true);
+    expect(editor(store).activePath).toBe("f9.ts");
+    expect(editor(store).goToTab(1)).toBe(true);
+    expect(editor(store).activePath).toBe("f1.ts");
+  });
+});
+
 describe("editor slice: session per workspace (Pr3)", () => {
+  it("re-reads the tabs of a workspace brought back: changes made while it was parked are shown", async () => {
+    const { fake, store } = await setup({ "README.md": "old" });
+    await editor(store).openFile("README.md");
+    await store.getState().explorer.bind(OTHER_WORKSPACE);
+    fake.disk.set("README.md", "pulled");
+    await flush();
+    await store.getState().explorer.bind(WORKSPACE_ID);
+    await flush();
+    expect(bufferText(store, "README.md")).toBe("pulled");
+  });
+
+  it("counts unsaved edits of parked workspaces too (quit guard)", async () => {
+    const { store } = await setup({ "a.ts": "a" });
+    await editor(store).openFile("a.ts");
+    type(store, "a.ts", "unsaved");
+    await store.getState().explorer.bind(OTHER_WORKSPACE);
+    expect(editor(store).tabs).toEqual([]);
+    expect(editor(store).hasUnsaved()).toBe(true);
+  });
+
   it("switching workspaces and back restores tabs and unsaved buffers", async () => {
     const { store } = await setup({ "a.ts": "a" });
     await editor(store).openFile("a.ts");

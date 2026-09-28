@@ -76,6 +76,17 @@ describe("EditorWorkbench", () => {
     expect(store.getState().editor.activePath).toBe("src/b.ts");
   });
 
+  it("Ctrl+W in the editor puts the focus in the neighbor tab's editor, not on the page", async () => {
+    const { store } = await setup({ "src/a.ts": "a", "src/b.ts": "b" });
+    await open(store, "src/a.ts");
+    await open(store, "src/b.ts");
+    currentView().focus();
+    fireEvent.keyDown(currentView().contentDOM, { key: "w", ctrlKey: true });
+    await flush();
+    expect(currentView().state.doc.toString()).toBe("a");
+    expect(document.activeElement).toBe(currentView().contentDOM);
+  });
+
   it("moves between tabs with the arrow keys and Ctrl+Tab, and reorders with Ctrl+Shift+PageDown", async () => {
     const { store } = await setup({ "a.ts": "a", "b.ts": "b", "c.ts": "c" });
     for (const path of ["a.ts", "b.ts", "c.ts"]) await open(store, path);
