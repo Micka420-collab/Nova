@@ -142,7 +142,7 @@ describe("PermissionsService", () => {
       expect(await onDisk.evaluateOnDisk(read("src/new.ts"), { toolCallId: null })).toMatchObject({ decision: "allow" });
       const rows = audit.list({ action: "permission.decision" });
       expect(rows.map((row) => [row.decision, row.target, row.dataSummary?.["reason"]])).toEqual([
-        ["allow", "src/new.ts", "contract_allows"],
+        ["allow", "src/new.ts", "profile_allows"],
         ["deny", "lien/temoin.txt", "outside_workspace"],
       ]);
     } finally {
