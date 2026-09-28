@@ -1,7 +1,7 @@
 {
   "name": "nova-workspace",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "NOVA — atelier personnel d'IA (desktop d'abord).",
   "type": "module",
   "packageManager": "pnpm@12.1.0",
