@@ -1,0 +1,52 @@
+/* J2-B L7: images pasted in Discuter (thumbnails, refusal, vision model proposal). */
+.nova-images {
+  display: grid;
+  gap: var(--nv-space-2);
+}
+
+.nova-images__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nv-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nova-images__item {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-md);
+}
+
+.nova-images__thumb {
+  display: block;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--nv-radius-sm);
+  object-fit: cover;
+}
+
+.nova-images__notice {
+  margin: 0;
+  color: var(--nv-amber);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-images__note {
+  margin: 0;
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-xs);
+}
+
+.nova-images__suggestion {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-2);
+  margin: 0;
+}

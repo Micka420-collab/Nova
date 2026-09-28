@@ -1,0 +1,95 @@
+/* Background processes of a mission (L1): compact rows inside the mission card or the agent panel. */
+
+.nova-procs {
+  display: grid;
+  gap: var(--nv-space-2);
+  min-width: 0;
+}
+
+.nova-procs__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--nv-space-2);
+}
+
+.nova-procs__title {
+  margin: 0;
+  font-size: var(--nv-text-sm);
+  font-weight: 600;
+}
+
+.nova-procs__summary,
+.nova-procs__meta,
+.nova-procs__note,
+.nova-procs__output figcaption {
+  margin: 0;
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.nova-procs__list {
+  display: grid;
+  gap: var(--nv-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nova-procs__item {
+  display: grid;
+  gap: var(--nv-space-1);
+  padding: var(--nv-space-2) var(--nv-space-3);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-sm);
+  min-width: 0;
+}
+
+.nova-procs__row {
+  display: flex;
+  align-items: center;
+  gap: var(--nv-space-2);
+  min-width: 0;
+}
+
+.nova-procs__command {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--nv-font-mono);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-procs__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nv-space-1);
+}
+
+.nova-procs__error {
+  margin: 0;
+  color: var(--nv-danger);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-procs__output {
+  display: grid;
+  gap: var(--nv-space-1);
+  margin: 0;
+}
+
+.nova-procs__output pre {
+  max-height: 240px;
+  margin: 0;
+  padding: var(--nv-space-2);
+  overflow: auto;
+  border-radius: var(--nv-radius-xs);
+  background: var(--nv-bg);
+  font-family: var(--nv-font-mono);
+  font-size: var(--nv-text-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

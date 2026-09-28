@@ -1,0 +1,161 @@
+/* L2 — context gauge, summary and handoff cards, model switcher. Tokens only. */
+
+.nova-context {
+  display: grid;
+  gap: var(--nv-space-3);
+}
+
+.nova-context-gauge {
+  display: grid;
+  gap: var(--nv-space-1);
+}
+
+.nova-context-gauge__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--nv-space-2);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-context-gauge__label {
+  color: var(--nv-text-secondary);
+}
+
+.nova-context-gauge__value {
+  font-variant-numeric: tabular-nums;
+  color: var(--nv-text);
+}
+
+.nova-context-gauge__track {
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--nv-radius-pill);
+  background: var(--nv-raised);
+}
+
+.nova-context-gauge__meter {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  appearance: none;
+  background: transparent;
+}
+
+.nova-context-gauge__meter::-webkit-meter-bar {
+  height: 100%;
+  border: 0;
+  border-radius: inherit;
+  background: var(--nv-raised);
+}
+
+.nova-context-gauge__meter::-webkit-meter-optimum-value,
+.nova-context-gauge__meter::-webkit-meter-suboptimum-value,
+.nova-context-gauge__meter::-webkit-meter-even-less-good-value {
+  border-radius: inherit;
+  background: var(--nv-accent);
+  transition: width var(--nv-duration-base) var(--nv-ease-standard);
+}
+
+.nova-context-gauge__meter--due::-webkit-meter-optimum-value,
+.nova-context-gauge__meter--due::-webkit-meter-suboptimum-value,
+.nova-context-gauge__meter--due::-webkit-meter-even-less-good-value {
+  background: var(--nv-amber);
+}
+
+/* The proposal threshold (COMPACTION_PROPOSAL_RATIO), drawn so the user sees where NOVA asks. */
+.nova-context-gauge__threshold {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--nv-border-strong);
+}
+
+.nova-context-card {
+  display: grid;
+  gap: var(--nv-space-2);
+  padding: var(--nv-space-3);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-md);
+  background: var(--nv-panel);
+}
+
+.nova-context-card--proposed {
+  border-color: var(--nv-amber);
+}
+
+.nova-context-card--dismissed {
+  opacity: 0.75;
+}
+
+.nova-context-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-2);
+}
+
+.nova-context-card__title {
+  margin: 0;
+  font-size: var(--nv-text-md);
+  font-weight: var(--nv-weight-medium);
+}
+
+/* A summary is quoted, never styled as a model message. */
+.nova-context-card__summary {
+  margin: 0;
+  padding: var(--nv-space-2) var(--nv-space-3);
+  max-height: 280px;
+  overflow: auto;
+  border-left: 3px solid var(--nv-info);
+  border-radius: var(--nv-radius-xs);
+  background: var(--nv-info-soft);
+  font-size: var(--nv-text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.nova-context-card__facts,
+.nova-context-card__list {
+  margin: 0;
+  padding-left: var(--nv-space-4);
+  font-size: var(--nv-text-sm);
+  color: var(--nv-text-secondary);
+}
+
+.nova-context-card__section {
+  display: grid;
+  gap: var(--nv-space-1);
+}
+
+.nova-context-card__section h4 {
+  margin: 0;
+  font-size: var(--nv-text-sm);
+  font-weight: var(--nv-weight-medium);
+}
+
+.nova-context-card__actions,
+.nova-context-switcher__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nv-space-2);
+}
+
+.nova-context-switcher {
+  display: grid;
+  gap: var(--nv-space-2);
+}
+
+.nova-context-switcher select {
+  min-height: var(--nv-control-md);
+  padding: 0 var(--nv-space-2);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-sm);
+  background: var(--nv-field);
+  color: var(--nv-text);
+  font: inherit;
+}

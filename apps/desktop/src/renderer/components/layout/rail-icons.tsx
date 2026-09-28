@@ -52,3 +52,10 @@ export const PlugIcon = ({ size }: { size?: number }) => (
     <path d="M9 2v5M15 2v5M6 7h12v4a6 6 0 0 1-12 0zM12 17v5" />
   </Icon>
 );
+
+export const ClockIcon = ({ size }: { size?: number }) => (
+  <Icon size={size}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7v5l3 2" />
+  </Icon>
+);

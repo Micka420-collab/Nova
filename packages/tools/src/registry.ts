@@ -6,6 +6,7 @@ import type { McpToolOffer, ToolDeps } from "./apis";
 import { parseToolArguments } from "./args";
 import { createBuiltinExecutors } from "./builtin";
 import { ToolFailure, errorResult, makeResult } from "./content";
+import { createHarnessExecutors } from "./harness-tools";
 import type { ExecutedToolResult, ToolExecutionContext, ToolExecutor, ToolRegistry } from "./index";
 
 export interface ToolRegistryOptions {
@@ -121,6 +122,8 @@ function mcpExecutor(offer: McpToolOffer, deps: ToolDeps): ToolExecutor<Record<s
 export function createToolRegistry(options: ToolRegistryOptions): ToolRegistry {
   const executors = new Map<string, ToolExecutor>();
   for (const executor of createBuiltinExecutors(options.deps)) executors.set(executor.name, guarded(executor));
+  // J2-B executors (one factory per lane); a lane not wired registers none, so its tool is not offered.
+  for (const executor of createHarnessExecutors(options.deps)) executors.set(executor.name, guarded(executor));
   const mcpNames: string[] = [];
   for (const offer of options.mcpTools ?? []) {
     const name = offer.definition.name;

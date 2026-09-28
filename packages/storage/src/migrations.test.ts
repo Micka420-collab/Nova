@@ -27,6 +27,7 @@ const LATEST_TABLES = [
   "audit_log",
   "checkpoint_files",
   "checkpoints",
+  "compaction_summaries",
   "conversations",
   "cost_reservations",
   "editor_state",
@@ -37,6 +38,14 @@ const LATEST_TABLES = [
   "messages",
   "mission_contracts",
   "mission_events",
+  // FTS5 table of mission_events and its shadow tables (v6).
+  "mission_events_fts",
+  "mission_events_fts_config",
+  "mission_events_fts_content",
+  "mission_events_fts_data",
+  "mission_events_fts_docsize",
+  "mission_events_fts_idx",
+  "mission_links",
   "mission_tasks",
   "missions",
   "model_catalog",
@@ -45,9 +54,13 @@ const LATEST_TABLES = [
   "provider_connections",
   "review_decisions",
   "routing_profiles",
+  "schedule_runs",
+  "schedules",
   "secrets",
   "settings",
   "signals",
+  "skill_enablements",
+  "skills",
   // Created by the AUTOINCREMENT of mission_events and audit_log.
   "sqlite_sequence",
   "suggestions",
@@ -191,8 +204,8 @@ const V1_TABLES: Record<string, string> = {
 describe("migrations v2 to v5", () => {
   it("opens a fresh database at the latest version", () => {
     const store = openNovaStore(":memory:");
-    expect(SCHEMA_VERSION).toBe(5);
-    expect(readSchemaVersion(store.db)).toBe(5);
+    expect(SCHEMA_VERSION).toBe(7);
+    expect(readSchemaVersion(store.db)).toBe(7);
     expect(tableNames(store.db)).toEqual(LATEST_TABLES);
     store.close();
   });
@@ -256,6 +269,36 @@ describe("migrations v2 to v5", () => {
     }
     expect(tableNames(db)).toEqual(LATEST_TABLES);
     expect(snapshot(db, "usage_records", "id").map((row) => row["kind"])).toEqual(["generation", "generation"]);
+    db.close();
+  });
+});
+
+describe("migration v6 (harness)", () => {
+  it("indexes the journal a v5 database already had, and keeps indexing new events", () => {
+    const db = new DatabaseSync(":memory:");
+    db.exec("PRAGMA foreign_keys = ON");
+    migrate(db, MIGRATIONS.slice(0, 5));
+    db.exec(`
+      INSERT INTO workspaces (id, root_path, name, created_at, last_opened_at) VALUES ('ws-1', '/p', 'p', 1, 1);
+      INSERT INTO missions (id, workspace_id, title, goal, mode, state, created_at, updated_at)
+        VALUES ('m-1', 'ws-1', 'Panier', 'g', 'fix', 'failed', 1, 1);
+      INSERT INTO mission_events (id, mission_id, type, payload_json, created_at)
+        VALUES ('e-1', 'm-1', 'mission.failed', '{"detail":"total du panier faux"}', 2);
+      INSERT INTO tool_calls (id, mission_id, tool, operation, arguments_json, state, requested_at)
+        VALUES ('c-1', 'm-1', 'read_file', 'read', '{}', 'succeeded', 2);
+    `);
+    expect(migrate(db, MIGRATIONS)).toBe(SCHEMA_VERSION);
+    const match = (term: string) =>
+      db.prepare("SELECT rowid FROM mission_events_fts WHERE mission_events_fts MATCH ?").all(term).map((row) => row["rowid"]);
+    expect(match("panier")).toHaveLength(1);
+    db.exec(`INSERT INTO mission_events (id, mission_id, type, payload_json, created_at)
+      VALUES ('e-2', 'm-1', 'review.decided', '{"decisions":"quantité"}', 3)`);
+    expect(match("quantite")).toHaveLength(1);
+    // Existing tool calls have no parent; a chained call points to its run_chain call.
+    expect(db.prepare("SELECT parent_call_id FROM tool_calls WHERE id = 'c-1'").get()?.["parent_call_id"]).toBeNull();
+    db.exec(`INSERT INTO tool_calls (id, mission_id, tool, operation, arguments_json, state, requested_at, parent_call_id)
+      VALUES ('c-2', 'm-1', 'read_file', 'read', '{}', 'succeeded', 3, 'c-1')`);
+    expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     db.close();
   });
 });

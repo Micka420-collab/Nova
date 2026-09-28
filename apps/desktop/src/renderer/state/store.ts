@@ -35,6 +35,7 @@ import {
   type MissionView,
 } from "../components/missions/timeline";
 import { extractMentions } from "../components/agent/mentions";
+import type { ChatSendExtras } from "../components/chat/Composer";
 import { toUiError, type UiError } from "../lib/errors";
 import {
   applyActiveStreams,
@@ -58,6 +59,7 @@ export type SettingsSection =
   | "privacy"
   | "appearance"
   | "companion"
+  | "desktop"
   | "shortcuts"
   | "diagnostics";
 
@@ -82,7 +84,11 @@ export type WorkbenchDoc =
   | { kind: "mission"; missionId: string }
   | { kind: "diff"; missionId: string }
   | { kind: "checkpoints"; missionId: string | null }
-  | { kind: "extensions" };
+  | { kind: "extensions" }
+  /** J2-B L6: scheduled missions of the open project. */
+  | { kind: "schedules" }
+  /** J2-B L8: search in the missions' journals. */
+  | { kind: "timeline" };
 
 export function docKey(doc: WorkbenchDoc): string {
   switch (doc.kind) {
@@ -153,6 +159,8 @@ export interface UiState {
   quickOpen: boolean;
   /** Ask the agent panel to move focus to this approval card (explicit user navigation only). */
   approvalFocus: { approvalId: string; nonce: number } | null;
+  /** Section shown by the Extensions document (J2-B L3: MCP servers or skills). */
+  extensionsTab: "mcp" | "skills";
 }
 
 export interface WorkspaceState {
@@ -236,7 +244,7 @@ export interface AppActions {
   newConversation(): void;
   goHome(): void;
   openSettings(section?: SettingsSection): void;
-  send(content: string, conversationId: string | null): Promise<void>;
+  send(content: string, conversationId: string | null, extras?: ChatSendExtras): Promise<void>;
   setDraft(conversationId: string | null, text: string): void;
   /**
    * Appends `block` to the current conversation's draft and shows that chat (discuss mode, no
@@ -246,7 +254,7 @@ export interface AppActions {
   /** Shows the chat in the agent panel: discuss mode, no mission selected, panel open. */
   showChat(): void;
   /** Sends `content` as the draft of `conversationId`: on failure the draft keeps its text and gets the error. */
-  sendDraft(content: string, conversationId: string | null): Promise<boolean>;
+  sendDraft(content: string, conversationId: string | null, extras?: ChatSendExtras): Promise<boolean>;
   stop(conversationId: string): Promise<void>;
   retry(conversationId: string, messageId: string): Promise<void>;
   rename(id: string, title: string): Promise<void>;
@@ -285,6 +293,11 @@ export interface AppActions {
   refreshMissions(): Promise<void>;
   planMission(goal: string): Promise<void>;
   discardPlan(): void;
+  /**
+   * J2-B L8: shows a mission prepared elsewhere (a fork « Reprendre / Bifurquer d'ici ») in the
+   * contract sheet, exactly like a plan the user just asked for: nothing starts without « Lancer ».
+   */
+  adoptPlan(result: MissionPlanResult): void;
   setWebPreference(value: boolean | null): void;
   startMission(missionId: string, tasks: MissionTaskDraft[] | null, contract: MissionContractInput): Promise<void>;
   selectMission(id: string | null): void;
@@ -348,6 +361,7 @@ export function initialData(): AppData {
       reveal: null,
       terminalRequest: null,
       approvalFocus: null,
+      extensionsTab: "mcp",
       quickOpen: false,
     },
     workspace: { current: null, facts: null, status: "idle", error: null },
@@ -756,13 +770,14 @@ export function createAppStore(client: NovaApi): AppStore {
         }));
       },
 
-      async send(content, conversationId) {
+      async send(content, conversationId, extras) {
         const modelId = selectedModelId(get(), conversationId);
         if (!modelId) throw new Error("send() called without a selected model");
         // C6/W1: with a folder open, the @mentions of the message and the Web button go with it.
         const workspaceId = get().workspace.current?.id ?? null;
         const attachments = workspaceId ? extractMentions(content) : [];
-        const webSearch = get().missions.webPreference === true;
+        // The autopilot's web choice (shown, overridable) wins over the Web button for this message.
+        const webSearch = extras?.webSearch ?? get().missions.webPreference === true;
         const result = await client.chat.send({
           conversationId,
           content,
@@ -770,6 +785,8 @@ export function createAppStore(client: NovaApi): AppStore {
           ...(workspaceId ? { workspaceId } : {}),
           ...(attachments.length > 0 ? { attachments } : {}),
           ...(webSearch ? { webSearch } : {}),
+          ...(extras?.reasoningEffort ? { reasoningEffort: extras.reasoningEffort } : {}),
+          ...(extras?.images && extras.images.length > 0 ? { images: extras.images } : {}),
         });
         // Stream events are emitted only after this result (runtime contract), so none were lost.
         const state = get();
@@ -817,11 +834,11 @@ export function createAppStore(client: NovaApi): AppStore {
         set((state) => ({ ui: { ...state.ui, route: "chat", agentOpen: true, contextOverlayOpen: false } }));
       },
 
-      async sendDraft(content, conversationId) {
+      async sendDraft(content, conversationId, extras) {
         const key = conversationId ?? NEW_CONVERSATION;
         patchDraft(key, { error: null });
         try {
-          await get().send(content, conversationId);
+          await get().send(content, conversationId, extras);
           dropDraft(key);
           return true;
         } catch (error) {
@@ -1105,6 +1122,17 @@ export function createAppStore(client: NovaApi): AppStore {
 
       discardPlan() {
         patchMissions({ plan: { status: "idle" } });
+      },
+
+      adoptPlan(result) {
+        const { mission } = result;
+        putView(viewFromPlan(result));
+        putMission(mission);
+        set((state) => ({
+          workMode: mission.mode,
+          missions: { ...state.missions, selectedId: null, detailError: null, plan: { status: "ready", goal: mission.goal, mode: mission.mode, result } },
+          ui: { ...state.ui, route: "chat", agentOpen: true, contextOverlayOpen: false },
+        }));
       },
 
       setWebPreference(value) {

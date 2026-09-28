@@ -1,0 +1,38 @@
+/* J2-B L7: the autopilot's choice shown in the composer before a message leaves. */
+.nova-autopilot {
+  display: grid;
+  gap: var(--nv-space-2);
+  padding-top: var(--nv-space-2);
+  border-top: 1px solid var(--nv-border);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-autopilot--busy {
+  display: flex;
+  align-items: center;
+  gap: var(--nv-space-2);
+  color: var(--nv-text-secondary);
+}
+
+.nova-autopilot__title {
+  margin: 0;
+  font-weight: var(--nv-weight-medium);
+}
+
+.nova-autopilot__text {
+  margin: 0;
+}
+
+.nova-autopilot__meta {
+  margin: 0;
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-xs);
+}
+
+.nova-autopilot__controls,
+.nova-autopilot__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-2) var(--nv-space-4);
+}

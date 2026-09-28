@@ -10,6 +10,7 @@ import { formatCost, formatInteger } from "../../lib/format";
 import { useApp, useClient } from "../../state/context";
 import { toolCategory, type ToolItem } from "../missions/timeline";
 import { RefusedLink } from "../chat/Markdown";
+import { HarnessDisplay } from "./HarnessDisplay";
 
 const copy = fr.atelier.timeline;
 const OUTPUT_TAIL_LINES = 12;
@@ -236,6 +237,11 @@ function DisplayBody({ display }: { display: ToolDisplay }) {
           {display.text ? <pre className="nova-tool__pre">{display.text}</pre> : null}
         </>
       );
+    case "process":
+    case "skill":
+    case "chain":
+    case "submission":
+      return <HarnessDisplay display={display} />;
   }
 }
 

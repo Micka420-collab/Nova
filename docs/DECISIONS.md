@@ -343,6 +343,33 @@ Format : contexte → décision → alternatives considérées → conséquences
 
 **Autres choix d'intégration.** `@nova/missions` n'a pas besoin de déclarer `zod` : il n'importe que le `z` réexporté par `@nova/tools` (aucun `import "zod"` direct), donc aucun `pnpm add`. Le catalogue MCP recommandé est importé tel quel par le renderer (`@nova/mcp/catalog`, sans le SDK) plutôt que servi par une IPC.
 
+## ADR-022 — Mode « Chaîne » : un hôte isolé par programme (J2-B L4)
+
+- **Date** : 2026-09-28 · **Statut** : acceptée ; implémentée (intégration J2-B).
+
+**Décision.** Un programme `run_chain` s'exécute dans un `utilityProcess` `chain-host` créé pour lui seul et tué à sa fin (succès, erreur, délai, arrêt, limite), hors du `WorkerPool`. Environnement nettoyé (`scrubEnv`, aucun secret), `stdio` redirigé et expurgé, tas plafonné par `--js-flags=--max-old-space-size` (un `--max-old-space-size` nu est ignoré par `utilityProcess` sous Electron 44). Dans l'hôte, contexte V8 neuf `vm.createContext(vm.constants.DONT_CONTEXTIFY, { codeGeneration: { strings: false, wasm: false }, microtaskMode: "afterEvaluate" })` : ni `require`, ni `import()`, ni `process`, ni `fetch`, ni minuteries ; le pont est compilé dans le contexte et n'expose qu'une fonction hôte qui ne lève jamais. Chaque `nova.<outil>(args)` repasse par la même passerelle que les appels directs (analyse, mode, moteur de permissions, approbation, point de reprise, audit, `parentCallId`). Quand le programme finit autrement qu'en succès, les appels encore en attente (approbation) sont retirés (`ChainRunContext.runNested(call, signal)`).
+
+**Pourquoi.** `vm` n'est pas une frontière de sécurité selon Node : la défense en profondeur vient du processus séparé par programme, sans secret, sans objet hôte et sans génération de code. **Risque résiduel** : une faille V8 donnerait un processus Node avec les droits fichiers de l'utilisateur ; suivi : modèle de permissions Node (`--permission`) quand `utilityProcess` le prendra en charge (non vérifié).
+
+**Vérification.** `--nova-selftest=workers` lance un vrai hôte (`return 6 * 7`) et rapporte `chain: { ok, detail }` ; `e2e/atelier-foundations.spec.ts` l'exige.
+
+## ADR-023 — Intégration J2-B « parité Harness » : choix de câblage
+
+- **Date** : 2026-09-28 · **Statut** : acceptée ; implémentée (intégration J2-B).
+
+**Aucune nouvelle dépendance.** Cron à cinq champs et fuseaux IANA maison (`@nova/scheduler`, via `Intl`), en-tête YAML des `SKILL.md` lu par un analyseur restreint (`@nova/skills`), mode « Chaîne » sur `node:vm`, worktrees par le `git` du système. Le renderer importe `@nova/scheduler` (pur, sans Node) pour l'aperçu des prochaines exécutions, calculé par le même code que le main — exception assumée à « le renderer n'importe que `shared` et `ui` », comme `@nova/companion` et `@nova/mcp/catalog`.
+
+**Contrats ajustés à la demande des voies.**
+- `ToolExecutor.permissionFacts(args, scope?)` : la passerelle passe la mission de l'appel, pour que `process_stop` montre l'argv exact qu'il arrête (un processus d'une autre mission reste introuvable).
+- `CommandRunner.run(…, onTerminal?)` : les commandes au premier plan journalisent aussi `tool.terminal` (session miroir en lecture seule).
+- `ChainRunContext.runNested(call, signal?)` et `ToolExecutionContext.runNested(call, signal?)` (voir ADR-022).
+- `ProvenanceSource` gagne `skill` : le contenu d'une skill d'utilisateur ou de projet est une donnée non fiable, jamais une autorité.
+- L'outil `skill` n'est proposé qu'aux missions qui ont un index de skills (aucune référence inventée, aucun schéma inutile).
+- `MissionControllerDeps.beforeTerminal(event)` : un fait de clôture (`continuation.stopped`) est journalisé juste avant l'événement terminal, que la fin vienne du runtime ou du main.
+- Sous-missions : les outils d'un enfant écrivain sont routés vers son worktree (`routeToolDeps`), ses chemins sont vérifiés (S2) dans ce worktree (`PermissionsService.missionRootOf`) mais son intégration l'est dans le projet (`evaluateInProject`) ; sa relecture et son diff attendent l'intégration (refus `conflict` tant que le worktree existe).
+
+**Interface.** Les panneaux J2-B d'une mission (contexte, « Jusqu'à preuve », processus, sous-missions, skills chargées, appels d'un programme sous sa carte) sont montés **une seule fois**, dans le journal du panneau Agent. Les options du contrat (« Jusqu'à preuve », « Chaîne », « Sous-missions ») ne sont envoyées que si l'une est active : un contrat simple reste identique à J2-A. La question de profil du premier lancement vient après le choix du modèle (une question à la fois). « Reprendre / Bifurquer d'ici » n'apparaît que sur les moments clés d'une mission terminée (réponses de Nomi, fichiers modifiés, commandes et tests réussis). Tant qu'un groupe répond `unavailable`, son interface ne montre rien.
+
 ## Dépendances et justification
 
 Dépendances déclarées au 2026-09-27 (voir les `package.json`).

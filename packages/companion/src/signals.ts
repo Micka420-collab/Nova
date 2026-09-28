@@ -22,7 +22,11 @@ export function evidenceExcerpt(text: string | null): string | null {
 /** Short French description of what an approval asks for (redacted command). */
 export function approvalSummary(approval: Approval): string {
   const { request } = approval;
-  if (request.argv && request.argv.length > 0) return `exécuter ${redactSecrets(shortCommand(request.argv))}`;
+  if (request.argv && request.argv.length > 0) {
+    // process_stop carries the argv of the process it kills: it stops a command, it runs none.
+    const verb = request.tool === "process_stop" ? "arrêter" : "exécuter";
+    return `${verb} ${redactSecrets(shortCommand(request.argv))}`;
+  }
   if (request.path !== undefined) {
     if (request.operation === "delete") return `supprimer ${request.path}`;
     if (request.operation === "write") return `modifier ${request.path}`;

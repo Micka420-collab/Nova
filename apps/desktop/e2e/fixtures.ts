@@ -44,9 +44,25 @@ export async function launchNova(options: {
     env,
     timeout: 45_000,
   });
-  const page = await app.firstWindow();
+  let page: Page;
+  try {
+    page = await app.firstWindow();
+  } catch (error) {
+    // No window: say what the main process logged, and free the data dir for the teardown.
+    const log = logTail(options.userDataDir);
+    app.process().kill();
+    throw new Error(`${error instanceof Error ? error.message : String(error)}\nNOVA main log (end):\n${log}`, { cause: error });
+  }
   await page.waitForLoadState("domcontentloaded");
   return { app, page };
+}
+
+function logTail(userDataDir: string): string {
+  try {
+    return readFileSync(join(userDataDir, "logs", "nova.log"), "utf8").split("\n").slice(-40).join("\n");
+  } catch {
+    return "(no log file)";
+  }
 }
 
 /**

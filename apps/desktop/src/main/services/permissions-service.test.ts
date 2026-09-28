@@ -155,6 +155,33 @@ describe("PermissionsService", () => {
     }
   });
 
+  it("checks a writing sub-mission's paths in its worktree, and its integration in the project", async () => {
+    const base = mkdtempSync(join(tmpdir(), "nova-perm-"));
+    try {
+      const project = join(base, "shop");
+      const worktree = join(base, "worktree");
+      mkdirSync(join(project, "lien"), { recursive: true });
+      mkdirSync(worktree);
+      mkdirSync(join(base, "outside"));
+      // Same relative path, two trees: only the worktree's leads outside.
+      symlinkSync(join(base, "outside"), join(worktree, "lien"));
+      const service = new PermissionsService({
+        policies: createPolicyRepo(store.db, now),
+        audit,
+        isolation: { level: "L0" },
+        contractOf: (id) => (id === missionId ? contract : null),
+        rootOf: async () => project,
+        missionRootOf: async (id) => (id === missionId ? worktree : null),
+        now,
+      });
+      const read: PermissionRequest = { workspaceId, missionId, tool: "read_file", operation: "read", path: "lien/x.txt", mode: "fix" };
+      expect(await service.evaluateOnDisk(read)).toMatchObject({ decision: "deny", reason: "outside_workspace" });
+      expect(await service.evaluateInProject(read)).toMatchObject({ decision: "allow" });
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
   it("uses the mission contract's profile and routine commands", () => {
     contract = { ...contract, profile: "autonomous" };
     expect(permissions.evaluate(write()).decision).toBe("allow");

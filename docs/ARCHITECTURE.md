@@ -231,6 +231,8 @@ Migrations en ajout seul (`packages/storage/src/migrations.ts`), tables STRICT a
 | v3 « missions » | `missions`, `mission_contracts`, `mission_tasks`, `mission_events` (journal ajout-seul), `tool_calls`, `proofs`, `approvals`, `policies`, `audit_log` (sans clé étrangère : survit aux suppressions), `review_decisions`, `cost_reservations` ; `usage_records` reconstruite : `conversation_id` devient facultatif, ajout de `mission_id`, `tool_call_id`, `kind` (`generation` par défaut) |
 | v4 « connecteurs » | `mcp_servers` (valeurs secrètes par référence au coffre), `mcp_tool_permissions`, `mcp_tools_cache`, `web_policy_rules`, `web_cache` |
 | v5 « compagnon » | `signals`, `suggestions`, `memory_items`, `routing_profiles` |
+| v6 « harness » | `skills`, `skill_enablements`, `schedules`, `schedule_runs`, `mission_links`, `compaction_summaries`, index FTS du journal, `tool_calls.parent_call_id` |
+| v7 « réserves de sous-missions » | `cost_reservations.backs_submission` : la réserve d'un parent pour une sous-mission borne le budget du parent sans compter dans le total du jour (les appels de l'enfant y comptent déjà) |
 
 ### Entités prévues
 

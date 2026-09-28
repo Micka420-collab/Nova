@@ -515,6 +515,158 @@ export const MIGRATIONS: readonly Migration[] = [
         WHERE is_default = 1;
     `,
   },
+  {
+    // J2-B "parité Harness": skills (M8), scheduled missions (Pr5), sub-missions and forks
+    // (A14, timeline), compaction summaries and handoff dossiers (C7/A15), journal search, and
+    // the parent of calls issued by a « Chaîne » program.
+    version: 6,
+    name: "harness",
+    sql: `
+      -- User-installed skills only: builtin skills are shipped data and project skills live in
+      -- the workspace (.nova/skills), so neither has a row. install_dir is relative to
+      -- <dataDir>/skills. declared_json: SkillDeclaredPermissions (information, never a grant).
+      CREATE TABLE skills (
+        name TEXT PRIMARY KEY NOT NULL CHECK (name <> ''),
+        description TEXT NOT NULL,
+        version TEXT,
+        declared_json TEXT NOT NULL CHECK (json_valid(declared_json)),
+        content_hash TEXT NOT NULL,
+        file_count INTEGER NOT NULL CHECK (file_count >= 0),
+        total_bytes INTEGER NOT NULL CHECK (total_bytes >= 0),
+        install_dir TEXT NOT NULL,
+        installed_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      ) STRICT;
+
+      -- Per-project enablement. skill_ref is '<scope>:<name>'; no foreign key because builtin
+      -- and project skills have no row (uninstalling a user skill deletes its enablements in the
+      -- same transaction). content_hash: the version the user saw when enabling it (a project
+      -- skill changed on disk since then is shown again before use).
+      CREATE TABLE skill_enablements (
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        skill_ref TEXT NOT NULL
+          CHECK (skill_ref GLOB 'builtin:?*' OR skill_ref GLOB 'user:?*' OR skill_ref GLOB 'project:?*'),
+        enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+        content_hash TEXT,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (workspace_id, skill_ref)
+      ) STRICT;
+      CREATE INDEX skill_enablements_by_ref ON skill_enablements (skill_ref);
+
+      -- A mission template run on a trigger. contract_json: MissionContractInput (budget per
+      -- run); trigger_json: ScheduleTrigger. next_run_at NULL = paused, completed or not computable.
+      CREATE TABLE schedules (
+        id TEXT PRIMARY KEY NOT NULL,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        goal TEXT NOT NULL,
+        mode TEXT NOT NULL CHECK (mode IN ('understand', 'plan', 'build', 'fix', 'verify')),
+        model_id TEXT NOT NULL,
+        contract_json TEXT NOT NULL CHECK (json_valid(contract_json)),
+        trigger_json TEXT NOT NULL CHECK (json_valid(trigger_json)),
+        missed_policy TEXT NOT NULL CHECK (missed_policy IN ('skip', 'run_once')),
+        state TEXT NOT NULL CHECK (state IN ('active', 'paused', 'completed')),
+        next_run_at INTEGER,
+        last_run_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      ) STRICT;
+      CREATE INDEX schedules_by_workspace ON schedules (workspace_id, created_at);
+      CREATE INDEX schedules_by_due ON schedules (state, next_run_at);
+
+      -- Every due run is recorded, skipped ones included (history shown to the user).
+      CREATE TABLE schedule_runs (
+        id TEXT PRIMARY KEY NOT NULL,
+        schedule_id TEXT NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+        mission_id TEXT REFERENCES missions(id) ON DELETE SET NULL,
+        due_at INTEGER NOT NULL,
+        started_at INTEGER,
+        ended_at INTEGER,
+        outcome TEXT NOT NULL CHECK (outcome IN ('running', 'succeeded', 'failed', 'cancelled', 'suspended',
+          'skipped_missed', 'skipped_overlap', 'skipped_budget', 'error')),
+        detail TEXT
+      ) STRICT;
+      CREATE INDEX schedule_runs_by_schedule ON schedule_runs (schedule_id, due_at DESC);
+      CREATE INDEX schedule_runs_by_mission ON schedule_runs (mission_id);
+
+      -- A child mission's origin: a sub-mission (depth 1, budget reserved from the parent) or a
+      -- fork from one of the parent's events. worktree: folder name under <dataDir>/worktrees.
+      CREATE TABLE mission_links (
+        child_mission_id TEXT PRIMARY KEY NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+        parent_mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK (kind IN ('submission', 'fork')),
+        fork_seq INTEGER CHECK (fork_seq >= 1),
+        depth INTEGER NOT NULL CHECK (depth >= 1),
+        reserved_usd REAL CHECK (reserved_usd >= 0),
+        worktree TEXT,
+        integration TEXT CHECK (integration IN
+          ('not_needed', 'pending', 'testing', 'integrated', 'tests_failed', 'conflict', 'discarded')),
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        CHECK (child_mission_id <> parent_mission_id),
+        CHECK ((kind = 'fork') = (fork_seq IS NOT NULL))
+      ) STRICT;
+      CREATE INDEX mission_links_by_parent ON mission_links (parent_mission_id, created_at);
+
+      -- Summaries are model-written text (redacted, never reasoning — ADR-008). Exactly one
+      -- target: a mission or a conversation; handoff dossiers exist for missions only.
+      CREATE TABLE compaction_summaries (
+        id TEXT PRIMARY KEY NOT NULL,
+        mission_id TEXT REFERENCES missions(id) ON DELETE CASCADE,
+        conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK (kind IN ('compaction', 'handoff')),
+        reason TEXT NOT NULL CHECK (reason IN ('proposed', 'manual', 'model_switch')),
+        status TEXT NOT NULL CHECK (status IN ('proposed', 'applied', 'dismissed')),
+        summary TEXT NOT NULL,
+        dossier_json TEXT CHECK (json_valid(dossier_json)),
+        summarizer_model_id TEXT,
+        from_model_id TEXT,
+        to_model_id TEXT,
+        covered_until_seq INTEGER NOT NULL CHECK (covered_until_seq >= 0),
+        tokens_before INTEGER,
+        tokens_after INTEGER,
+        pruned_json TEXT NOT NULL CHECK (json_valid(pruned_json)),
+        cost REAL,
+        created_at INTEGER NOT NULL,
+        decided_at INTEGER,
+        CHECK ((mission_id IS NULL) <> (conversation_id IS NULL)),
+        CHECK (kind = 'compaction' OR mission_id IS NOT NULL),
+        CHECK ((kind = 'handoff') = (dossier_json IS NOT NULL))
+      ) STRICT;
+      CREATE INDEX compaction_summaries_by_mission ON compaction_summaries (mission_id, created_at);
+      CREATE INDEX compaction_summaries_by_conversation ON compaction_summaries (conversation_id, created_at);
+
+      -- Timeline search over stored mission events (live-only events are never stored). Kept in
+      -- sync by triggers, so a deleted mission (cascade) leaves nothing searchable behind.
+      CREATE VIRTUAL TABLE mission_events_fts USING fts5(
+        body, mission_id UNINDEXED, type UNINDEXED, tokenize = 'unicode61 remove_diacritics 2'
+      );
+      INSERT INTO mission_events_fts (rowid, body, mission_id, type)
+        SELECT seq, payload_json, mission_id, type FROM mission_events;
+      CREATE TRIGGER mission_events_fts_insert AFTER INSERT ON mission_events BEGIN
+        INSERT INTO mission_events_fts (rowid, body, mission_id, type)
+          VALUES (new.seq, new.payload_json, new.mission_id, new.type);
+      END;
+      CREATE TRIGGER mission_events_fts_delete AFTER DELETE ON mission_events BEGIN
+        DELETE FROM mission_events_fts WHERE rowid = old.seq;
+      END;
+
+      -- Calls issued by a « Chaîne » program point to their run_chain call.
+      ALTER TABLE tool_calls ADD COLUMN parent_call_id TEXT REFERENCES tool_calls(id) ON DELETE SET NULL;
+      CREATE INDEX tool_calls_by_parent ON tool_calls (parent_call_id);
+    `,
+  },
+  {
+    // A parent mission's hold for a running sub-mission: it bounds the parent's own budget, but
+    // the child's calls reserve and record their usage themselves, so the hold is left out of the
+    // day's total (else the same money is counted twice against the daily cap).
+    version: 7,
+    name: "submission-holds",
+    sql: `
+      ALTER TABLE cost_reservations
+        ADD COLUMN backs_submission INTEGER NOT NULL DEFAULT 0 CHECK (backs_submission IN (0, 1));
+    `,
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

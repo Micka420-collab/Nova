@@ -7,6 +7,7 @@ import type { AppService } from "./services/app-service";
 import type { CatalogService } from "./services/catalog-service";
 import type { ChatEventHub } from "./services/chat-events";
 import type { ConnectionService } from "./services/connection-service";
+import type { HarnessApi } from "./services/harness-unavailable";
 
 export type MainApi = { [G in keyof NovaApi]: Omit<NovaApi[G], "onEvent"> };
 
@@ -38,6 +39,8 @@ export interface MainApiDeps {
   stopTimeoutMs?: number;
   /** J2-A groups (workspace, files, missions…), each backed by its service. */
   atelier: AtelierApi;
+  /** J2-B groups (processes, context, skills…); `unavailableHarnessApi()` until each lane is wired. */
+  harness: HarnessApi;
 }
 
 const DEFAULT_STOP_TIMEOUT_MS = 5_000;
@@ -51,6 +54,7 @@ export function createMainApi(deps: MainApiDeps): MainApi {
   const stopTimeoutMs = deps.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS;
   return {
     ...deps.atelier,
+    ...deps.harness,
     app: deps.app,
     settings: {
       get: async () => store.getSettings(),

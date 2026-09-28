@@ -25,6 +25,28 @@ import type {
   CompanionWatchRequest,
   CompanionWatchResult,
 } from "./companion";
+import type {
+  CompactRequest,
+  CompactionDecideRequest,
+  CompactionSummary,
+  CompactionsListRequest,
+  ContextEvent,
+  ContextUsage,
+  ContextUsageRequest,
+  HandoffDossier,
+  HandoffRequest,
+} from "./compaction";
+import {
+  CHAT_IMAGE_LIMITS,
+  ChatImageSchema,
+  DETAIL_DENSITIES,
+  ONBOARDING_PROFILES,
+  REASONING_EFFORTS,
+  type AutopilotChoice,
+  type AutopilotClassifyRequest,
+  type DesktopEvent,
+  type DesktopState,
+} from "./desktop";
 import type { GitDiff, GitDiffRequest, GitStatus } from "./git";
 import { EntityIdSchema, ModelIdSchema } from "./ids";
 import type {
@@ -70,6 +92,38 @@ import type {
   PermissionsProfileRequest,
   PermissionsSetProfileRequest,
 } from "./permissions";
+import type {
+  MissionProcess,
+  ProcessEvent,
+  ProcessIdRequest,
+  ProcessOutput,
+  ProcessOutputRequest,
+  ProcessesListRequest,
+} from "./processes";
+import type {
+  Schedule,
+  ScheduleCreateRequest,
+  ScheduleEvent,
+  ScheduleIdRequest,
+  ScheduleRun,
+  ScheduleRunsRequest,
+  ScheduleSetPausedRequest,
+  ScheduleUpdateRequest,
+  SchedulesListRequest,
+} from "./schedules";
+import type {
+  SkillDetail,
+  SkillGetRequest,
+  SkillInstallRequest,
+  SkillMeta,
+  SkillPreview,
+  SkillPreviewRequest,
+  SkillSetEnabledRequest,
+  SkillUninstallRequest,
+  SkillsListRequest,
+} from "./skills";
+import type { MissionTreeNode, MissionTreeRequest, SubMissionIdRequest } from "./submissions";
+import type { MissionForkRequest, TimelineHit, TimelineSearchRequest } from "./timeline";
 import type {
   TerminalCreateRequest,
   TerminalEvent,
@@ -173,6 +227,10 @@ export const ChatSendRequestSchema = z.object({
   attachments: z.array(ContextMentionSchema).max(20).optional(),
   /** W1: the "Web" button of Discuter; never automatic. Domain policy of the workspace applies. */
   webSearch: z.boolean().optional(),
+  /** J2-B L7: reasoning effort for this message (autopilot choice or user override); absent = model default. */
+  reasoningEffort: z.enum(REASONING_EFFORTS).nullable().optional(),
+  /** J2-B L7: images pasted for this message only (never stored); the model must accept "image". */
+  images: z.array(ChatImageSchema).max(CHAT_IMAGE_LIMITS.maxImages).optional(),
 });
 
 export const ChatStopRequestSchema = z.object({ streamId: entityId });
@@ -194,6 +252,13 @@ export const SettingsPatchSchema = z
       .partial()
       .strict(),
     privacy: z.object({ providerDataCollection: z.enum(["deny", "allow"]) }).partial().strict(),
+    desktop: z.object({ keepRunningOnClose: z.boolean() }).partial().strict(),
+    onboarding: z
+      .object({ profile: z.enum(ONBOARDING_PROFILES).nullable(), completedAt: z.int().min(0).nullable() })
+      .partial()
+      .strict(),
+    display: z.object({ density: z.enum(DETAIL_DENSITIES) }).partial().strict(),
+    chat: z.object({ autopilot: z.boolean(), suggestVisionModel: z.boolean() }).partial().strict(),
   })
   .partial()
   .strict();
@@ -462,7 +527,83 @@ export interface NovaApi {
     proposeMerge(req: CheckpointMergeRequest): Promise<MergeProposal>;
     applyMerge(req: CheckpointApplyMergeRequest): Promise<RestoreFileResult>;
   };
+
+  // J2-B "parité Harness" (see HARNESS_GROUPS). Until a lane's service is wired, main answers
+  // `unavailable` for its group and the renderer shows no control for it.
+  /** L1: background processes of missions. */
+  processes: {
+    list(req: ProcessesListRequest): Promise<MissionProcess[]>;
+    output(req: ProcessOutputRequest): Promise<ProcessOutput>;
+    /** Idempotent; resolves once the process tree exited. */
+    stop(req: ProcessIdRequest): Promise<MissionProcess>;
+    onEvent(listener: (event: ProcessEvent) => void): () => void;
+  };
+  /** L2: context usage, compaction (never silent) and handoff dossier. */
+  context: {
+    usage(req: ContextUsageRequest): Promise<ContextUsage>;
+    /** Manual `/compact`: writes a summary in `proposed` state (applied only by `decide`). */
+    compact(req: CompactRequest): Promise<CompactionSummary>;
+    decide(req: CompactionDecideRequest): Promise<CompactionSummary>;
+    list(req: CompactionsListRequest): Promise<CompactionSummary[]>;
+    handoff(req: HandoffRequest): Promise<HandoffDossier>;
+    onEvent(listener: (event: ContextEvent) => void): () => void;
+  };
+  /** L3: skills (install after preview, enable per project, uninstall without residue). */
+  skills: {
+    list(req: SkillsListRequest): Promise<SkillMeta[]>;
+    get(req: SkillGetRequest): Promise<SkillDetail>;
+    /** null when the user cancels the folder picker. */
+    preview(req: SkillPreviewRequest): Promise<SkillPreview | null>;
+    install(req: SkillInstallRequest): Promise<SkillMeta>;
+    uninstall(req: SkillUninstallRequest): Promise<void>;
+    setEnabled(req: SkillSetEnabledRequest): Promise<SkillMeta>;
+  };
+  /** L5: sub-missions (tree, serialized integration). */
+  submissions: {
+    tree(req: MissionTreeRequest): Promise<MissionTreeNode>;
+    /** Runs the child's tests on its worktree, then integrates it (checkpointed) if they pass. */
+    integrate(req: SubMissionIdRequest): Promise<MissionTreeNode>;
+    discard(req: SubMissionIdRequest): Promise<MissionTreeNode>;
+  };
+  /** L6: scheduled missions. */
+  schedules: {
+    list(req: SchedulesListRequest): Promise<Schedule[]>;
+    create(req: ScheduleCreateRequest): Promise<Schedule>;
+    update(req: ScheduleUpdateRequest): Promise<Schedule>;
+    setPaused(req: ScheduleSetPausedRequest): Promise<Schedule>;
+    remove(req: ScheduleIdRequest): Promise<void>;
+    runs(req: ScheduleRunsRequest): Promise<ScheduleRun[]>;
+    onEvent(listener: (event: ScheduleEvent) => void): () => void;
+  };
+  /** L7: tray / quit state. */
+  desktop: {
+    state(): Promise<DesktopState>;
+    onEvent(listener: (event: DesktopEvent) => void): () => void;
+  };
+  /** L7: chat autopilot (one cheap classifier call, shown and overridable). */
+  autopilot: {
+    classify(req: AutopilotClassifyRequest): Promise<AutopilotChoice>;
+  };
+  /** L8: timeline search and fork. */
+  timeline: {
+    search(req: TimelineSearchRequest): Promise<TimelineHit[]>;
+    /** New mission in `ready` from the events up to `atSeq` (the original is untouched). */
+    fork(req: MissionForkRequest): Promise<MissionPlanResult>;
+  };
 }
+
+/** NovaApi groups added by J2-B (each owned by one lane; J2-B lane map). */
+export const HARNESS_GROUPS = [
+  "processes",
+  "context",
+  "skills",
+  "submissions",
+  "schedules",
+  "desktop",
+  "autopilot",
+  "timeline",
+] as const satisfies readonly (keyof NovaApi)[];
+export type HarnessGroup = (typeof HARNESS_GROUPS)[number];
 
 // ---------------------------------------------------------------------------
 // Bridge shape: what the preload actually exposes. Custom Error subclasses do not survive
@@ -607,6 +748,53 @@ export function createNovaClient(bridge: NovaBridge): NovaApi {
       create: (req) => unwrap(bridge.checkpoints.create(req)),
       proposeMerge: (req) => unwrap(bridge.checkpoints.proposeMerge(req)),
       applyMerge: (req) => unwrap(bridge.checkpoints.applyMerge(req)),
+    },
+    processes: {
+      list: (req) => unwrap(bridge.processes.list(req)),
+      output: (req) => unwrap(bridge.processes.output(req)),
+      stop: (req) => unwrap(bridge.processes.stop(req)),
+      onEvent: (listener) => bridge.processes.onEvent(listener),
+    },
+    context: {
+      usage: (req) => unwrap(bridge.context.usage(req)),
+      compact: (req) => unwrap(bridge.context.compact(req)),
+      decide: (req) => unwrap(bridge.context.decide(req)),
+      list: (req) => unwrap(bridge.context.list(req)),
+      handoff: (req) => unwrap(bridge.context.handoff(req)),
+      onEvent: (listener) => bridge.context.onEvent(listener),
+    },
+    skills: {
+      list: (req) => unwrap(bridge.skills.list(req)),
+      get: (req) => unwrap(bridge.skills.get(req)),
+      preview: (req) => unwrap(bridge.skills.preview(req)),
+      install: (req) => unwrap(bridge.skills.install(req)),
+      uninstall: (req) => unwrap(bridge.skills.uninstall(req)),
+      setEnabled: (req) => unwrap(bridge.skills.setEnabled(req)),
+    },
+    submissions: {
+      tree: (req) => unwrap(bridge.submissions.tree(req)),
+      integrate: (req) => unwrap(bridge.submissions.integrate(req)),
+      discard: (req) => unwrap(bridge.submissions.discard(req)),
+    },
+    schedules: {
+      list: (req) => unwrap(bridge.schedules.list(req)),
+      create: (req) => unwrap(bridge.schedules.create(req)),
+      update: (req) => unwrap(bridge.schedules.update(req)),
+      setPaused: (req) => unwrap(bridge.schedules.setPaused(req)),
+      remove: (req) => unwrap(bridge.schedules.remove(req)),
+      runs: (req) => unwrap(bridge.schedules.runs(req)),
+      onEvent: (listener) => bridge.schedules.onEvent(listener),
+    },
+    desktop: {
+      state: () => unwrap(bridge.desktop.state()),
+      onEvent: (listener) => bridge.desktop.onEvent(listener),
+    },
+    autopilot: {
+      classify: (req) => unwrap(bridge.autopilot.classify(req)),
+    },
+    timeline: {
+      search: (req) => unwrap(bridge.timeline.search(req)),
+      fork: (req) => unwrap(bridge.timeline.fork(req)),
     },
   };
 }

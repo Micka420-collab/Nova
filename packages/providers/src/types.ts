@@ -5,6 +5,7 @@ import type {
   ModelInfo,
   ProviderErrorInfo,
   ProviderId,
+  ReasoningEffort,
   UsageSummary,
 } from "@nova/shared";
 
@@ -18,12 +19,22 @@ export interface ChatToolCall {
 }
 
 /**
+ * An image sent with one user message (OpenAI `image_url` content part, as a base64 data URL).
+ * Only for models whose catalog `inputModalities` has "image"; never stored by NOVA.
+ */
+export interface ChatImageInput {
+  mediaType: string;
+  dataBase64: string;
+}
+
+/**
  * Messages sent to the provider. An assistant turn that requested tools must carry its
  * `toolCalls` (and its opaque `reasoningDetails` when the provider returned some: several
  * providers reject a tool round-trip without them); each call is answered by one `tool` message.
  */
 export type ChatMessageInput =
-  | { role: "system" | "user"; content: string }
+  | { role: "system"; content: string }
+  | { role: "user"; content: string; images?: ChatImageInput[] }
   | { role: "assistant"; content: string; toolCalls?: ChatToolCall[]; reasoningDetails?: unknown[] }
   | { role: "tool"; toolCallId: string; content: string };
 
@@ -68,6 +79,12 @@ export interface StreamChatRequest {
    * default: plain chat never needs them and they carry reasoning text (ADR-008).
    */
   keepReasoningDetails?: boolean;
+  /**
+   * OpenRouter `reasoning.effort` for this request. Callers send it only when the catalog does not
+   * say the model lacks reasoning (`supportsReasoning !== false`); absent = the model's default.
+   * The reasoning itself is never exposed (ADR-008).
+   */
+  reasoningEffort?: ReasoningEffort;
 }
 
 /**

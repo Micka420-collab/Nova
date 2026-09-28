@@ -115,7 +115,7 @@ class FakePort {
   }
 }
 
-function setup(existing: TerminalSession[] = []) {
+function setup(existing: TerminalSession[] = [], canTakeOver?: (session: TerminalSession) => boolean) {
   const ports = new Map<string, FakePort>();
   const portFor = (id: string): FakePort => {
     let port = ports.get(id);
@@ -156,6 +156,7 @@ function setup(existing: TerminalSession[] = []) {
       onExplain={(request) => explains.push(request)}
       onOpenLink={() => {}}
       colorScheme="dark"
+      {...(canTakeOver ? { canTakeOver } : {})}
     />,
   );
   return { api, store, portFor, explains, emit: (event: TerminalEvent) => emitEvent?.(event) };
@@ -220,6 +221,18 @@ describe("TerminalPanel", () => {
     await waitFor(() => expect(api.takeOver).toHaveBeenCalledWith({ sessionId: agent.id }));
     await waitFor(() => expect(screen.queryByText(/lecture seule/)).toBeNull());
     expect(terminals.at(-1)?.options["disableStdin"]).toBe(false);
+  });
+
+  it("offers no takeover on a mirror of the structured commands (J2-B L1), only on a background program", async () => {
+    const mirror = session("33333333-3333-4333-8333-333333333333", { owner: "agent", missionId: "44444444-4444-4444-8444-444444444444", title: "Commandes de Nomi" });
+    const program = session("55555555-5555-4555-8555-555555555555", { owner: "agent", missionId: "44444444-4444-4444-8444-444444444444", title: "pnpm dev" });
+    const { store } = setup([mirror, program], (item) => item.id === program.id);
+    act(() => store.getState().select(mirror.id));
+    expect(await screen.findByText(/Nomi affiche ici les commandes/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Prendre la main" })).toBeNull();
+    act(() => store.getState().select(program.id));
+    expect(await screen.findByRole("button", { name: "Prendre la main" })).toBeTruthy();
+    expect(screen.getByText(/Session de Nomi en lecture seule/)).toBeTruthy();
   });
 
   it("shows an agent session as soon as a mission opens it, ignoring other workspaces", async () => {

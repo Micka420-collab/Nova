@@ -5,11 +5,15 @@ import type {
   ApprovalEvent,
   ChatStreamEvent,
   CompanionEvent,
+  ContextEvent,
+  DesktopEvent,
   FilesEvent,
   IpcResult,
   MissionEvent,
   NovaBridge,
   NovaPortEnvelope,
+  ProcessEvent,
+  ScheduleEvent,
   TerminalEvent,
 } from "@nova/shared";
 import { IPC_CHANNELS, NOVA_PORT_MESSAGE } from "@nova/shared/channels";
@@ -169,6 +173,53 @@ const bridge: NovaBridge = {
     create: (req) => invoke(C.checkpointsCreate, req),
     proposeMerge: (req) => invoke(C.checkpointsProposeMerge, req),
     applyMerge: (req) => invoke(C.checkpointsApplyMerge, req),
+  },
+  processes: {
+    list: (req) => invoke(C.processesList, req),
+    output: (req) => invoke(C.processesOutput, req),
+    stop: (req) => invoke(C.processesStop, req),
+    onEvent: (listener) => subscribe<ProcessEvent>(C.processesEvent, listener),
+  },
+  context: {
+    usage: (req) => invoke(C.contextUsage, req),
+    compact: (req) => invoke(C.contextCompact, req),
+    decide: (req) => invoke(C.contextDecide, req),
+    list: (req) => invoke(C.contextList, req),
+    handoff: (req) => invoke(C.contextHandoff, req),
+    onEvent: (listener) => subscribe<ContextEvent>(C.contextEvent, listener),
+  },
+  skills: {
+    list: (req) => invoke(C.skillsList, req),
+    get: (req) => invoke(C.skillsGet, req),
+    preview: (req) => invoke(C.skillsPreview, req),
+    install: (req) => invoke(C.skillsInstall, req),
+    uninstall: (req) => invoke(C.skillsUninstall, req),
+    setEnabled: (req) => invoke(C.skillsSetEnabled, req),
+  },
+  submissions: {
+    tree: (req) => invoke(C.submissionsTree, req),
+    integrate: (req) => invoke(C.submissionsIntegrate, req),
+    discard: (req) => invoke(C.submissionsDiscard, req),
+  },
+  schedules: {
+    list: (req) => invoke(C.schedulesList, req),
+    create: (req) => invoke(C.schedulesCreate, req),
+    update: (req) => invoke(C.schedulesUpdate, req),
+    setPaused: (req) => invoke(C.schedulesSetPaused, req),
+    remove: (req) => invoke(C.schedulesRemove, req),
+    runs: (req) => invoke(C.schedulesRuns, req),
+    onEvent: (listener) => subscribe<ScheduleEvent>(C.schedulesEvent, listener),
+  },
+  desktop: {
+    state: () => invoke(C.desktopState),
+    onEvent: (listener) => subscribe<DesktopEvent>(C.desktopEvent, listener),
+  },
+  autopilot: {
+    classify: (req) => invoke(C.autopilotClassify, req),
+  },
+  timeline: {
+    search: (req) => invoke(C.timelineSearch, req),
+    fork: (req) => invoke(C.timelineFork, req),
   },
 };
 

@@ -25,6 +25,7 @@ import { ModelBrowser } from "../models/ModelBrowser";
 import { findModel } from "../models/filter";
 import { KeyCheckSummary, KeySetup } from "../setup/KeySetup";
 import { AuditSection, BudgetSection, InternetSection, PermissionsSection } from "./AtelierSections";
+import { DesktopSection } from "./DesktopSection";
 
 const SECTIONS: readonly SettingsSection[] = [
   "providers",
@@ -36,6 +37,7 @@ const SECTIONS: readonly SettingsSection[] = [
   "privacy",
   "appearance",
   "companion",
+  "desktop",
   "shortcuts",
   "diagnostics",
 ];
@@ -369,6 +371,7 @@ const SECTION_VIEWS: Record<SettingsSection, () => JSX.Element | null> = {
   privacy: PrivacySection,
   appearance: AppearanceSection,
   companion: CompanionSection,
+  desktop: DesktopSection,
   shortcuts: ShortcutsSection,
   diagnostics: DiagnosticsSection,
 };

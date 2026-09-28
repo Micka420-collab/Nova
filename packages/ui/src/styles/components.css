@@ -285,8 +285,11 @@
 
 /* Segmented control */
 
+/* In a narrow panel the options wrap to a second row; a label never breaks inside its 30px segment. */
 .nv-segmented {
   display: inline-flex;
+  flex-wrap: wrap;
+  max-width: 100%;
   gap: 2px;
   padding: 3px;
   border: 1px solid var(--nv-border);
@@ -303,6 +306,7 @@
   padding: 0 var(--nv-space-3);
   border: 0;
   border-radius: calc(var(--nv-radius-sm) - 3px);
+  white-space: nowrap;
   background: transparent;
   color: var(--nv-text-secondary);
   font-size: var(--nv-text-sm);

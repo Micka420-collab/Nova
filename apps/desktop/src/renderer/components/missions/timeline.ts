@@ -25,6 +25,7 @@ import {
   type ToolName,
   type UsageSummary,
 } from "@nova/shared";
+import { initialHarnessView, reduceHarnessView, type HarnessView } from "./timeline-harness";
 
 /** Live output kept per tool card (the full output is an artifact in main). */
 export const TOOL_OUTPUT_TAIL_CHARS = 4_000;
@@ -108,6 +109,8 @@ export interface MissionView {
    * derived from events are then lower bounds, and main's projections (diff, proofs) are the truth.
    */
   logTruncated: boolean;
+  /** J2-B slices (processes, context, skills, chain, sub-missions, continuation), one per lane. */
+  harness: HarnessView;
 }
 
 function emptyView(mission: Mission, contract: MissionContract | null): MissionView {
@@ -125,6 +128,7 @@ function emptyView(mission: Mission, contract: MissionContract | null): MissionV
     suspended: null,
     lastSeq: 0,
     logTruncated: false,
+    harness: initialHarnessView(),
   };
 }
 
@@ -337,6 +341,9 @@ function reduce(view: MissionView, event: MissionEvent): MissionView {
         review: [...(view.review ?? []), ...event.decisions],
         items: [...view.items, { kind: "notice", ...base, notice: { type: "review", decisions: event.decisions } }],
       };
+    default:
+      // J2-B events: each lane projects its own slice (./timeline-harness.ts).
+      return { ...view, harness: reduceHarnessView(view.harness, event) };
   }
 }
 
@@ -386,6 +393,12 @@ const TOOL_CATEGORIES: Record<Exclude<ToolName, `mcp__${string}__${string}`>, To
   git_commit: "git",
   web_search: "web",
   fetch_page: "web",
+  process_list: "terminal",
+  process_output: "terminal",
+  process_stop: "terminal",
+  skill: "read",
+  run_chain: "terminal",
+  start_submission: "terminal",
 };
 
 export function toolCategory(name: ToolName): ToolCategory {
@@ -560,7 +573,9 @@ export function groupTimeline(items: readonly TimelineItem[]): TimelineEntry[] {
   for (const item of items) {
     // A model turn that only called tools has no text: no empty « Nomi » bubble between the cards.
     if (item.kind === "message" && item.complete && item.text.trim() === "") continue;
-    const foldable = item.kind === "tool" && !STANDS_OUT.has(item.state);
+    // A run_chain card carries its program and the calls it made (approvals included): folded
+    // into a group it would show none of them.
+    const foldable = item.kind === "tool" && !STANDS_OUT.has(item.state) && item.call.name !== "run_chain";
     const sameRun =
       foldable && run.length > 0 && run[0] !== undefined && toolCategory(run[0].call.name) === toolCategory(item.call.name);
     if (foldable && (run.length === 0 || sameRun)) {

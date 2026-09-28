@@ -17,6 +17,7 @@
 import type { z } from "zod";
 import type {
   ContentHash,
+  MissionEvent,
   OperationClass,
   PermissionReason,
   PermissionRequest,
@@ -43,7 +44,31 @@ export interface ToolExecutionContext {
   missionHosts: readonly string[] | null;
   /** Live command output (pushed as `tool.output`, never stored). */
   onOutput?: (stream: "stdout" | "stderr", chunk: string) => void;
+  /** J2-B: journals a lane event of this mission (skill loaded, chain run, sub-mission, terminal). */
+  record?: (event: ToolRecordedEvent) => void;
+  /**
+   * L4, run_chain only: runs one call of the program through the SAME gateway pipeline (parse,
+   * mode, permission engine, approval, checkpoint, audit) with `parentCallId` = this call.
+   * run_chain and start_submission are refused inside a program (CHAIN_FORBIDDEN_TOOLS).
+   */
+  runNested?: (call: { name: string; rawArguments: string }, signal?: AbortSignal) => Promise<ToolResult>;
 }
+
+/** Mission of the call whose permission facts are extracted (a process of another mission is unknown). */
+export interface ToolCallScope {
+  workspaceId: string;
+  missionId: string;
+}
+
+type WithoutEnvelope<T> = T extends unknown ? Omit<T, "id" | "seq" | "at" | "missionId"> : never;
+
+/** Mission events a tool executor may journal through `ToolExecutionContext.record`. */
+export type ToolRecordedEvent = WithoutEnvelope<
+  Extract<
+    MissionEvent,
+    { type: "tool.terminal" | "process.started" | "skill.loaded" | "chain.started" | "chain.finished" | "submission.started" }
+  >
+>;
 
 export type ToolPermissionFacts = Pick<PermissionRequest, "path" | "host" | "argv">;
 
@@ -66,8 +91,11 @@ export interface ToolExecutor<Args = unknown> {
   readonly operation: OperationClass;
   readonly definition: ToolDefinition;
   readonly argsSchema: z.ZodType<Args>;
-  /** One entry per target (a move has two paths); the gateway evaluates each, strictest wins. */
-  permissionFacts(args: Args): ToolPermissionFacts[] | Promise<ToolPermissionFacts[]>;
+  /**
+   * One entry per target (a move has two paths); the gateway evaluates each, strictest wins. The
+   * gateway always passes the call's scope; executors whose targets do not depend on it ignore it.
+   */
+  permissionFacts(args: Args, scope?: ToolCallScope): ToolPermissionFacts[] | Promise<ToolPermissionFacts[]>;
   /** Owner rule (web domain policy, MCP tool permission); null = none. A throw means deny. */
   ownerPolicy?(args: Args, context: { workspaceId: string; missionHosts: readonly string[] | null }): Promise<OwnerPolicy | null>;
   /** Paths to snapshot before execution (write/delete operations only). */
@@ -89,6 +117,13 @@ export interface ToolRegistry {
 
 export type {
   BackgroundProcess,
+  ChainApi,
+  ChainRunContext,
+  ProcessApi,
+  SkillLoadOutcome,
+  SkillsApi,
+  SubMissionStart,
+  SubmissionsApi,
   CommandOutcome,
   CommandOutputListener,
   CommandRunner,
@@ -106,12 +141,17 @@ export type {
 export { parseToolArguments } from "./args";
 export {
   createProcessCommandRunner,
+  plainTerminalText,
   scrubCommandEnv,
+  type AgentProcessRequest,
+  type AgentProgram,
+  type AgentTerminalHost,
   type ProcessCommandRunner,
   type ProcessCommandRunnerOptions,
 } from "./command-runner";
 export { ToolFailure, capText, errorResult, makeResult, provenance, wrapUntrusted } from "./content";
 export { createToolRegistry, toToolFailure, type ToolRegistryOptions } from "./registry";
+export { createHarnessExecutors } from "./harness-tools";
 export { parseTestOutput, testInvocation, type ParsedTestReport } from "./test-report";
 /**
  * The zod instance of the tool schemas, shared with @nova/missions (plan and link schemas) so

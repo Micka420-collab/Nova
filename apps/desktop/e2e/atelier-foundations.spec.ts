@@ -50,6 +50,7 @@ test("every worker answers ping; node-pty and ripgrep run inside them", () => {
   }
   expect(report.pty.output).toContain("nova-pty-ok");
   expect(report.ripgrep.version).toMatch(/^ripgrep \d+\.\d+\.\d+/);
+  expect(report.chain).toEqual({ ok: true, detail: "chain-host ok" });
 });
 
 test("styles need this load's nonce; inline styles without it are blocked", async () => {

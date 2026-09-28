@@ -7,6 +7,7 @@ import { z } from "zod";
 import { createMainApi, type AtelierApi, type AtelierGroup } from "./api";
 import { buildIpcRoutes, toIpcError, type IpcRoute } from "./ipc-routes";
 import { ServiceError } from "./service-error";
+import { unavailableHarnessApi } from "./services/harness-unavailable";
 import { ChatEventHub } from "./services/chat-events";
 import { VaultError } from "./vault";
 
@@ -96,6 +97,7 @@ function setup(overrides: { appInfo?: () => Promise<AppInfo> } = {}) {
   const serviceCalls: string[] = [];
   const api = createMainApi({
     atelier: recordingAtelier(serviceCalls),
+    harness: unavailableHarnessApi(),
     store,
     runner,
     chatEvents,
@@ -162,6 +164,36 @@ describe("buildIpcRoutes", () => {
       });
     }
     expect(serviceCalls).toEqual(["files.read"]);
+  });
+
+  it("answers `unavailable` for J2-B groups until their lane is wired, after validation", async () => {
+    const { call } = setup();
+    const workspaceId = "7f1c1b8e-7a8f-4d7c-9a51-1c2c3d4e5f60";
+    await expect(call(IPC_CHANNELS.schedulesList, { workspaceId })).resolves.toEqual({
+      ok: false,
+      error: { code: "unavailable", message: "schedules.list is not available yet" },
+    });
+    await expect(call(IPC_CHANNELS.desktopState)).resolves.toMatchObject({ ok: false, error: { code: "unavailable" } });
+    // An interval under one minute and an unknown time zone never reach the service.
+    const base = {
+      workspaceId,
+      title: "Nuit",
+      goal: "Lancer les tests",
+      mode: "verify",
+      modelId: "a/b",
+      contract: { profile: "read_only", allowedOperations: ["read"], allowedHosts: [], webSearch: false, maxDurationMs: 60_000, budgetUsd: 0.1 },
+      missedPolicy: "skip",
+    };
+    await expect(call(IPC_CHANNELS.schedulesCreate, { ...base, trigger: { kind: "interval", everyMinutes: 0 } })).resolves.toMatchObject({
+      ok: false,
+      error: { code: "invalid_request" },
+    });
+    await expect(
+      call(IPC_CHANNELS.schedulesCreate, { ...base, trigger: { kind: "daily", time: "03:00", timeZone: "Mars/Olympus" } }),
+    ).resolves.toMatchObject({ ok: false, error: { code: "invalid_request" } });
+    await expect(
+      call(IPC_CHANNELS.schedulesCreate, { ...base, trigger: { kind: "daily", time: "03:00", timeZone: "Europe/Paris" } }),
+    ).resolves.toMatchObject({ ok: false, error: { code: "unavailable" } });
   });
 
   it("rejects invalid payloads with field names only, never the submitted values", async () => {

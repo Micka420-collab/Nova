@@ -93,6 +93,43 @@ export const IPC_CHANNELS = {
   checkpointsCreate: "nova:checkpoints:create",
   checkpointsProposeMerge: "nova:checkpoints:propose-merge",
   checkpointsApplyMerge: "nova:checkpoints:apply-merge",
+
+  // J2-B "parité Harness"
+  processesList: "nova:processes:list",
+  processesOutput: "nova:processes:output",
+  processesStop: "nova:processes:stop",
+  /** main -> renderer push channel (ProcessEvent). */
+  processesEvent: "nova:processes:event",
+  contextUsage: "nova:context:usage",
+  contextCompact: "nova:context:compact",
+  contextDecide: "nova:context:decide",
+  contextList: "nova:context:list",
+  contextHandoff: "nova:context:handoff",
+  /** main -> renderer push channel (ContextEvent). */
+  contextEvent: "nova:context:event",
+  skillsList: "nova:skills:list",
+  skillsGet: "nova:skills:get",
+  skillsPreview: "nova:skills:preview",
+  skillsInstall: "nova:skills:install",
+  skillsUninstall: "nova:skills:uninstall",
+  skillsSetEnabled: "nova:skills:set-enabled",
+  submissionsTree: "nova:submissions:tree",
+  submissionsIntegrate: "nova:submissions:integrate",
+  submissionsDiscard: "nova:submissions:discard",
+  schedulesList: "nova:schedules:list",
+  schedulesCreate: "nova:schedules:create",
+  schedulesUpdate: "nova:schedules:update",
+  schedulesSetPaused: "nova:schedules:set-paused",
+  schedulesRemove: "nova:schedules:remove",
+  schedulesRuns: "nova:schedules:runs",
+  /** main -> renderer push channel (ScheduleEvent). */
+  schedulesEvent: "nova:schedules:event",
+  desktopState: "nova:desktop:state",
+  /** main -> renderer push channel (DesktopEvent). */
+  desktopEvent: "nova:desktop:event",
+  autopilotClassify: "nova:autopilot:classify",
+  timelineSearch: "nova:timeline:search",
+  timelineFork: "nova:timeline:fork",
   /**
    * main -> preload only: carries a transferred MessagePort (`webContents.postMessage`) with a
    * `NovaPortEnvelope` payload. The preload re-posts it to the page (see ./ports).
@@ -110,6 +147,10 @@ export const PUSH_CHANNELS: readonly IpcChannel[] = [
   IPC_CHANNELS.approvalsEvent,
   IPC_CHANNELS.terminalEvent,
   IPC_CHANNELS.companionEvent,
+  IPC_CHANNELS.processesEvent,
+  IPC_CHANNELS.contextEvent,
+  IPC_CHANNELS.schedulesEvent,
+  IPC_CHANNELS.desktopEvent,
   IPC_CHANNELS.portTransfer,
 ];
 

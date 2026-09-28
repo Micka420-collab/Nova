@@ -1,6 +1,11 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AutopilotChoice } from "@nova/shared";
+import { makeModel } from "../../test/fake-bridge";
+import type { AutopilotPhase } from "./autopilot/autopilot-state";
+import type { AutopilotControl } from "./autopilot/useAutopilot";
 import { Composer, type ComposerProps } from "./Composer";
+import type { ImageAttachments } from "./vision/useImageAttachments";
 
 afterEach(cleanup);
 
@@ -75,5 +80,148 @@ describe("Composer", () => {
     expect(input.getAttribute("aria-describedby")).toContain(screen.getByText("Choisis un modèle pour envoyer ton message.").parentElement?.id);
     fireEvent.click(screen.getByRole("button", { name: "Choisir" }));
     expect(onAction).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Composer J2-B L7 helpers", () => {
+  const png = { mediaType: "image/png" as const, dataBase64: "iVBORw0KGgo=", name: "capture.png" };
+
+  function imagesControl(partial: Partial<ImageAttachments> = {}): ImageAttachments {
+    return {
+      items: [],
+      images: [],
+      notice: null,
+      add: vi.fn<ImageAttachments["add"]>(async () => undefined),
+      remove: vi.fn<ImageAttachments["remove"]>(),
+      clear: vi.fn<ImageAttachments["clear"]>(),
+      block: null,
+      suggestion: null,
+      ...partial,
+    };
+  }
+
+  function autopilotControl(phase: AutopilotPhase): AutopilotControl {
+    return {
+      phase,
+      classify: vi.fn<AutopilotControl["classify"]>(async () => undefined),
+      dispatch: vi.fn<AutopilotControl["dispatch"]>(),
+      reset: vi.fn<AutopilotControl["reset"]>(),
+    };
+  }
+
+  const choice: AutopilotChoice = {
+    reasoningEffort: "high",
+    webSearch: false,
+    rationale: "Demande complexe : effort élevé, sans recherche web.",
+    classifierModelId: "vendor/cheap",
+    costUsd: 0.00001,
+    source: "classifier",
+  };
+
+  it("a pasted image joins the message and leaves with it, then the strip is cleared", async () => {
+    const images = imagesControl({ items: [{ id: 1, image: png }], images: [png] });
+    const { input, onSend, type, press } = setup({ images });
+    const file = new File(["p"], "p.png", { type: "image/png" });
+    fireEvent.paste(input, { clipboardData: { files: [file] } });
+    expect(images.add).toHaveBeenCalledWith([file]);
+    expect(screen.getByRole("img", { name: "capture.png" })).toBeTruthy();
+    expect(screen.getByText(/NOVA ne les enregistre pas/)).toBeTruthy();
+    type("Que montre l'image ?");
+    await press("Enter");
+    expect(onSend).toHaveBeenCalledWith("Que montre l'image ?", { images: [png] });
+    expect(images.clear).toHaveBeenCalledOnce();
+  });
+
+  it("does not send images to a model that cannot read them: reason, fix and suggestion are shown", async () => {
+    const choose = vi.fn<() => Promise<void>>(async () => undefined);
+    const images = imagesControl({
+      items: [{ id: 1, image: png }],
+      images: [png],
+      block: { reason: "Texte seul ne lit pas les images." },
+      suggestion: { model: makeModel({ id: "acme/vision", name: "Acme Vision", inputModalities: ["text", "image"] }), choose },
+    });
+    const { onSend, type, press } = setup({ images });
+    type("Décris");
+    await press("Enter");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.getByText("Texte seul ne lit pas les images.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Utiliser Acme Vision" }));
+    expect(choose).toHaveBeenCalledOnce();
+  });
+
+  it("with the autopilot, the first Enter shows the choice and the second sends it (as overridden)", async () => {
+    const idle = autopilotControl({ kind: "idle" });
+    const first = setup({ autopilot: idle });
+    expect(screen.getByText(/Pilote automatique : Entrée prépare les réglages/)).toBeTruthy();
+    first.type("Compare ces deux architectures");
+    await first.press("Enter");
+    expect(idle.classify).toHaveBeenCalledWith({ content: "Compare ces deux architectures", images: 0 });
+    expect(first.onSend).not.toHaveBeenCalled();
+    cleanup();
+
+    const subject = { content: "Compare ces deux architectures", images: 0 };
+    const ready = autopilotControl({ kind: "ready", subject, choice, reasoningEffort: "medium", webSearch: true });
+    const second = setup({ autopilot: ready });
+    second.type("Compare ces deux architectures");
+    expect(screen.getByText(choice.rationale)).toBeTruthy();
+    expect(screen.getByText(/Estimé par vendor\/cheap/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: "Élevé" }));
+    expect(ready.dispatch).toHaveBeenCalledWith({ type: "effort", value: "high" });
+    await second.press("Enter");
+    expect(second.onSend).toHaveBeenCalledWith("Compare ces deux architectures", { reasoningEffort: "medium", webSearch: true });
+    expect(ready.reset).toHaveBeenCalledOnce();
+  });
+
+  it("says when the choice is NOVA's fallback, and never sends while the estimate runs", async () => {
+    const fallback = autopilotControl({
+      kind: "ready",
+      subject: { content: "Bonjour", images: 0 },
+      choice: { ...choice, source: "fallback", classifierModelId: null, costUsd: 0 },
+      reasoningEffort: "medium",
+      webSearch: false,
+    });
+    setup({ autopilot: fallback }).type("Bonjour");
+    expect(screen.getByRole("region", { name: "Réglages par défaut" })).toBeTruthy();
+    cleanup();
+
+    const busy = autopilotControl({ kind: "classifying", subject: { content: "Encore", images: 0 } });
+    const { onSend, type, press } = setup({ autopilot: busy });
+    expect(screen.getByText("Analyse du message…")).toBeTruthy();
+    type("Encore");
+    await press("Enter");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(busy.classify).not.toHaveBeenCalled();
+  });
+
+  it("never sends a choice estimated for another message: an edited text is estimated again", async () => {
+    const ready = autopilotControl({ kind: "ready", subject: { content: "bonjour", images: 0 }, choice, reasoningEffort: "low", webSearch: false });
+    const { onSend, type, press } = setup({ autopilot: ready });
+    type("Compare en détail ces deux architectures de cache et leurs compromis");
+    expect(screen.queryByText(choice.rationale)).toBeNull();
+    expect(screen.getByRole("region", { name: "Message modifié depuis l'estimation" })).toBeTruthy();
+    await press("Enter");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(ready.classify).toHaveBeenCalledWith({ content: "Compare en détail ces deux architectures de cache et leurs compromis", images: 0 });
+  });
+
+  it("when main does not serve the autopilot, says so and the next Enter sends without it", async () => {
+    const failed = autopilotControl({ kind: "failed", unavailable: true });
+    const { onSend, type, press } = setup({ autopilot: failed });
+    expect(screen.getByRole("alert").textContent).toContain("n'est pas disponible");
+    type("Bonjour");
+    await press("Enter");
+    expect(onSend).toHaveBeenCalledWith("Bonjour");
+  });
+
+  it("after a classifier failure, « Envoyer sans pilote » sends plainly and Enter retries the estimate", async () => {
+    const failed = autopilotControl({ kind: "failed", unavailable: false });
+    const { onSend, type, press } = setup({ autopilot: failed });
+    type("Bonjour");
+    await press("Enter");
+    expect(failed.classify).toHaveBeenCalledOnce();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Envoyer sans pilote" }));
+    });
+    expect(onSend).toHaveBeenCalledWith("Bonjour");
   });
 });

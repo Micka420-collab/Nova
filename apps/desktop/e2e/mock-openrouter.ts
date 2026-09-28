@@ -38,8 +38,9 @@ export interface ScriptedToolCall {
 
 /** What the scripted model does on one turn of a mission. */
 export type ScriptStep =
-  | { kind: "tools"; calls: ScriptedToolCall[]; text?: string; costUsd?: number; delayMs?: number }
-  | { kind: "answer"; text: string; costUsd?: number; delayMs?: number }
+  /** `promptTokens` overrides the reported `usage.prompt_tokens` (context gauge, compaction proposal). */
+  | { kind: "tools"; calls: ScriptedToolCall[]; text?: string; costUsd?: number; delayMs?: number; promptTokens?: number }
+  | { kind: "answer"; text: string; costUsd?: number; delayMs?: number; promptTokens?: number }
   /** Streams nothing useful and never ends until the client goes away (crash / stop tests). */
   | { kind: "hang" };
 
@@ -266,10 +267,29 @@ export async function startMockOpenRouter(options: MockOptions = {}): Promise<Mo
       }
     }
 
+    const system = body.messages?.[0];
+    // Compaction summarizer (L2): a plain working summary, whatever the session was.
+    if (system?.role === "system" && typeof system.content === "string" && system.content.startsWith("You write the working summary")) {
+      chunk({ role: "assistant", content: "Objectif : corriger le total du panier. Fait : src/cart.js lu. Reste : additionner les prix." });
+      send({ id, model, provider: "MockProvider", choices: [{ index: 0, delta: { content: "" }, finish_reason: "stop" }], usage: MISSION_USAGE });
+      res.end("data: [DONE]\n\n");
+      return;
+    }
+    // Autopilot classifier (L7): two closed fields, as a well-behaved classifier answers.
+    if (system?.role === "system" && typeof system.content === "string" && system.content.startsWith("You classify one chat message")) {
+      chunk({ role: "assistant", content: '{"complexity":"complex","needs_web":false}' });
+      send({ id, model, provider: "MockProvider", choices: [{ index: 0, delta: { content: "" }, finish_reason: "stop" }], usage: { prompt_tokens: 80, completion_tokens: 12, total_tokens: 92, cost: 0.000004 } });
+      res.end("data: [DONE]\n\n");
+      return;
+    }
+
     if (script) {
-      const usageOf = (cost: number) => ({ ...MISSION_USAGE, cost });
-      const finish = (reason: string, cost: number) => {
-        send({ id, model, provider: "MockProvider", choices: [{ index: 0, delta: { content: "" }, finish_reason: reason }], usage: usageOf(cost) });
+      const usageOf = (cost: number, promptTokens?: number) =>
+        promptTokens === undefined
+          ? { ...MISSION_USAGE, cost }
+          : { ...MISSION_USAGE, cost, prompt_tokens: promptTokens, total_tokens: promptTokens + MISSION_USAGE.completion_tokens };
+      const finish = (reason: string, cost: number, promptTokens?: number) => {
+        send({ id, model, provider: "MockProvider", choices: [{ index: 0, delta: { content: "" }, finish_reason: reason }], usage: usageOf(cost, promptTokens) });
         res.end("data: [DONE]\n\n");
       };
       // Planning: the only mission call without tools.
@@ -294,7 +314,7 @@ export async function startMockOpenRouter(options: MockOptions = {}): Promise<Mo
           chunk({ role: "assistant", content: piece });
           await sleep(10);
         }
-        return finish("stop", step.costUsd ?? MISSION_USAGE.cost);
+        return finish("stop", step.costUsd ?? MISSION_USAGE.cost, step.promptTokens);
       }
       if (step.text) chunk({ role: "assistant", content: step.text });
       // tool_calls deltas as OpenAI streams them: id/name first, then the arguments in pieces.
@@ -312,7 +332,7 @@ export async function startMockOpenRouter(options: MockOptions = {}): Promise<Mo
           await sleep(2);
         }
       }
-      return finish("tool_calls", step.costUsd ?? MISSION_USAGE.cost);
+      return finish("tool_calls", step.costUsd ?? MISSION_USAGE.cost, step.promptTokens);
     }
 
     if (last.includes("[mission]")) {

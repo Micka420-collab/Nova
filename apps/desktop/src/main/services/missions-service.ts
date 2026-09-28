@@ -14,7 +14,11 @@ import {
   unifiedPatch,
   type ApprovalEventLike,
   type ApprovalServiceLike,
+  type LoopContextHook,
+  type LoopContinuationHook,
   type MissionController,
+  type MissionControllerDeps,
+  type MissionEventInput,
   type PermissionGate,
   type PortLike,
   type ReviewFsGate,
@@ -80,6 +84,24 @@ export interface MissionsServiceDeps {
   /** A fresh port to the agent-runtime worker (production: `openAgentRuntimePort(workers)`). */
   openRuntimePort(): Promise<PortLike>;
   logger?: RuntimeLogger;
+  /** J2-B L3: index of the skills enabled for a workspace (null = none, mission without skills). */
+  skillIndex?: MissionControllerDeps["skillIndex"];
+  /** J2-B L2: context preparation/observation of each model call (`ContextService.runtimeHook`). */
+  contextHook?: LoopContextHook;
+  /** J2-B L8: « jusqu'à preuve » rounds and the closing fact journaled before a terminal event. */
+  continuation?: { hook: LoopContinuationHook; beforeTerminal(event: MissionEventInput): void };
+  /**
+   * J2-B L5: tool deps of ONE mission (a writing sub-mission works in its worktree). Default: the
+   * workspace's deps.
+   */
+  routeToolDeps?(workspaceId: string, missionId: string, base: ToolDeps): Promise<ToolDeps>;
+  /** J2-B L5: processes a mission runs outside its workspace runner (a sub-mission's worktree). */
+  stopMissionProcesses?(missionId: string): Promise<void>;
+  /**
+   * J2-B L5: the worktree a writing sub-mission still works in (null once integrated or discarded).
+   * Its review and diff would read and revert the PROJECT, so they wait for the integration.
+   */
+  missionRootOf?(missionId: string): Promise<string | null>;
 }
 
 export interface MissionsService {
@@ -183,7 +205,11 @@ export function createMissionsService(deps: MissionsServiceDeps): MissionsServic
       if (link) return link;
       linking ??= (async () => {
         const port = await deps.openRuntimePort();
-        const next = connectRuntime(port, controllerOf().runtimeHandlers(host.streamModel));
+        const next = connectRuntime(port, {
+          ...controllerOf().runtimeHandlers(host.streamModel),
+          ...(deps.contextHook ? { context: deps.contextHook } : {}),
+          ...(deps.continuation ? { continuation: deps.continuation.hook } : {}),
+        });
         link = next;
         void next.closed.then(() => {
           if (link === next) link = null;
@@ -201,17 +227,22 @@ export function createMissionsService(deps: MissionsServiceDeps): MissionsServic
       },
     },
     facts: async (workspaceId) => (await deps.toolDeps(workspaceId)).facts(),
-    async tools({ workspaceId }) {
+    async tools({ workspaceId, missionId }) {
       const mcpTools = (await deps.mcpTools?.(workspaceId).catch(() => [])) ?? [];
-      return { registry: createToolRegistry({ deps: await deps.toolDeps(workspaceId), mcpTools }), mcpTools };
+      const base = await deps.toolDeps(workspaceId);
+      const routed = deps.routeToolDeps ? await deps.routeToolDeps(workspaceId, missionId, base) : base;
+      return { registry: createToolRegistry({ deps: routed, mcpTools }), mcpTools };
     },
     commands: {
-      // Background processes live in the workspace's runner; stop them wherever they run.
+      // Background processes live in the workspace's runner (or a sub-mission's); stop them wherever they run.
       stopAll: async (missionId) => {
         const record = missions.get(missionId);
         if (record) await (await deps.toolDeps(record.workspaceId)).commands?.stopAll(missionId);
+        await deps.stopMissionProcesses?.(missionId);
       },
     },
+    ...(deps.skillIndex ? { skillIndex: deps.skillIndex } : {}),
+    ...(deps.continuation ? { beforeTerminal: deps.continuation.beforeTerminal } : {}),
     permissions: deps.permissions,
     approvals: bridge.gate,
     checkpoints: checkpoints
@@ -241,6 +272,13 @@ export function createMissionsService(deps: MissionsServiceDeps): MissionsServic
       }
     };
 
+  /** A writing sub-mission not yet integrated: its changes live in its worktree, not the project. */
+  const notIntegratedYet = async (missionId: string): Promise<void> => {
+    if (deps.missionRootOf && (await deps.missionRootOf(missionId)) !== null) {
+      throw new ServiceError("conflict", "this sub-mission's changes are reviewed once integrated into the project");
+    }
+  };
+
   return {
     controller: ready,
     host,
@@ -253,8 +291,12 @@ export function createMissionsService(deps: MissionsServiceDeps): MissionsServic
       stop: guard(ready.stop),
       list: guard(ready.list),
       get: guard(ready.get),
-      review: guard(ready.review),
+      review: guard(async (req) => {
+        await notIntegratedYet(req.missionId);
+        return ready.review(req);
+      }),
       diff: guard(async ({ missionId }): Promise<MissionDiff> => {
+        await notIntegratedYet(missionId);
         const record = missions.get(missionId);
         if (!record) throw new ServiceError("not_found", "Mission not found");
         const fs = deps.diffFs;

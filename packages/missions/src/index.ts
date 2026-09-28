@@ -90,6 +90,8 @@ export interface ToolRunRequest {
   name: string;
   rawArguments: string;
   requestedAt: number;
+  /** L4: set by the gateway for calls issued by a run_chain program (never by the runtime). */
+  parentCallId?: string | null;
 }
 
 /** Tool execution through main: permission first, then the owning executor. Never throws. */
@@ -115,6 +117,8 @@ export interface MissionRunSpec {
   tools: ToolDefinition[];
   /** Summary of the plan shown to the user (context for the model). */
   planSummary: string;
+  /** L3: enabled skills (names + descriptions), appended to the system prompt; absent = none. */
+  skillIndex?: string | null;
 }
 
 export interface MissionRuntime {
@@ -167,11 +171,22 @@ export {
 export { HUNK_CONTEXT_LINES, diffHunks, revertHunks, unifiedPatch, type LineHunk } from "./line-diff";
 export { missionToolSet } from "./tool-set";
 export { createMissionJournal, eventFromRecord, type MissionJournal, type MissionJournalDeps } from "./journal";
-export { DEFAULT_LOOP_LIMITS, MissionLoop, type LoopLimits, type MissionLoopDeps } from "./loop";
+export {
+  DEFAULT_LOOP_LIMITS,
+  MissionLoop,
+  type ContextPreparation,
+  type LoopContextHook,
+  type LoopContinuationHook,
+  type LoopExtensions,
+  type LoopLimits,
+  type MissionLoopDeps,
+  type OpenCriterion,
+} from "./loop";
 export { NoProgressDetector } from "./no-progress";
 export { PLAN_SCHEMA, planMission, type PlanOutcome } from "./planner";
 export {
   connectRuntime,
+  createChannelLoopExtensions,
   createChannelProviderProxy,
   createChannelToolGateway,
   serveRuntimeChannel,
@@ -180,3 +195,8 @@ export {
 } from "./runtime-link";
 export { applyReview, buildReview, type ReviewFile, type ReviewModel, type ReviewFsGate } from "./review";
 export { evaluateAcceptance, type AcceptanceEvidence } from "./acceptance";
+// J2-B lanes (each lane owns its folder and its own index).
+// `export *` so a lane never edits this file to publish its API.
+export * from "./compaction";
+export * from "./submissions";
+export * from "./continuation";

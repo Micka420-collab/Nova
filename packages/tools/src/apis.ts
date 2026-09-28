@@ -7,6 +7,7 @@
 // - web: `WebService` (L4);
 // - mcp: `McpService` (L5).
 import type {
+  ChainRunSummary,
   ContentHash,
   FetchedPage,
   FileEntry,
@@ -14,12 +15,18 @@ import type {
   GitStatus,
   IsolationLevel,
   McpToolName,
+  MissionLink,
+  MissionProcess,
+  ProcessOutput,
   RelativePath,
   SearchQuery,
   SearchResult,
+  SkillMeta,
+  SkillRef,
   ToolDefinition,
   ToolResult,
   WebCitation,
+  WorkMode,
   WorkspaceFacts,
 } from "@nova/shared";
 
@@ -115,7 +122,11 @@ export type CommandOutputListener = (stream: "stdout" | "stderr", chunk: string)
 
 /** Structured process execution: no shell, confined cwd, scrubbed env, timeout, caps, tree kill. */
 export interface CommandRunner {
-  run(spec: CommandSpec, signal: AbortSignal, onOutput?: CommandOutputListener): Promise<CommandOutcome>;
+  /**
+   * `onTerminal` receives the agent terminal session that mirrors this run (read-only in the dock),
+   * when the runner has one; it is journaled as `tool.terminal`.
+   */
+  run(spec: CommandSpec, signal: AbortSignal, onOutput?: CommandOutputListener, onTerminal?: (sessionId: string) => void): Promise<CommandOutcome>;
   /** Starts a long-lived process (dev server); returns once it runs, with its first output. */
   startBackground(
     spec: CommandSpec,
@@ -216,4 +227,74 @@ export interface ToolDeps {
   git: GitApi | null;
   web: WebApi | null;
   mcp: McpApi | null;
+  // J2-B: absent = the lane is not wired; its tools are then not offered (no executor).
+  /** L1 process tracker (main). */
+  processes?: ProcessApi | null;
+  /** L3 skills runtime (main, @nova/skills). */
+  skills?: SkillsApi | null;
+  /** L4 chain host (main → isolated worker, @nova/chain). */
+  chain?: ChainApi | null;
+  /** L5 sub-mission starter (main, @nova/missions submissions). */
+  submissions?: SubmissionsApi | null;
+}
+
+// ---------------------------------------------------------------------------
+// J2-B injection interfaces (implemented by the owning lanes; J2-B lane map)
+
+/** L1: background processes of the mission (the runner's own records, output redacted). */
+export interface ProcessApi {
+  list(missionId: string): MissionProcess[];
+  /** null = unknown process or one of another mission. */
+  output(missionId: string, processId: string, maxChars: number): ProcessOutput | null;
+  /** Kills the tree; null = unknown process or one of another mission. Idempotent. */
+  stop(missionId: string, processId: string): Promise<MissionProcess | null>;
+}
+
+export interface SkillLoadOutcome {
+  meta: SkillMeta;
+  /** SKILL.md body, or the requested file of the skill, capped at SKILL_LIMITS.loadMaxChars. */
+  content: string;
+  path: RelativePath | null;
+  truncated: boolean;
+}
+
+/** L3: skills enabled for the workspace (index for the prompt, progressive loading). */
+export interface SkillsApi {
+  /** Enabled skills of the workspace, sorted by ref (stable for the prompt cache). */
+  enabled(workspaceId: string): Promise<SkillMeta[]>;
+  /** Throws a coded error (`not_found` when not enabled or unknown, `excluded_path`…). */
+  load(workspaceId: string, ref: SkillRef, path: RelativePath | null): Promise<SkillLoadOutcome>;
+}
+
+export interface ChainRunContext {
+  workspaceId: string;
+  missionId: string;
+  /** The run_chain call id (parent of every inner call). */
+  callId: string;
+  signal: AbortSignal;
+  /**
+   * Runs one `nova.<tool>(args)` of the program through the SAME gateway pipeline as a direct call.
+   * `signal` aborts that call (a program that ends by timeout/limit cancels a pending approval).
+   */
+  runNested(call: { name: string; rawArguments: string }, signal?: AbortSignal): Promise<ToolResult>;
+}
+
+/** L4: runs one program in the isolated chain host; inner calls go through the ToolGateway. */
+export interface ChainApi {
+  run(program: string, context: ChainRunContext): Promise<{ summary: ChainRunSummary; result: string | null; logs: string }>;
+}
+
+export interface SubMissionStart {
+  parentMissionId: string;
+  workspaceId: string;
+  title: string;
+  goal: string;
+  mode: Exclude<WorkMode, "discuss">;
+  /** Reserved from the parent's budget before the child starts (refused if it does not fit). */
+  budgetUsd: number;
+}
+
+/** L5: starts a bounded child mission (depth 1) and reports its link; the loop does not wait. */
+export interface SubmissionsApi {
+  start(request: SubMissionStart, signal: AbortSignal): Promise<{ link: MissionLink; title: string }>;
 }

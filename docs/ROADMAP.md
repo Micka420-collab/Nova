@@ -6,7 +6,7 @@ Jalons de NOVA, leurs dépendances et leurs critères de sortie. Un jalon n'est 
 | --- | --- | --- |
 | J0 | Fondations et design | **En cours** |
 | J1 | Vraie conversation | **En cours** |
-| J2 | Première mission de code | Prévu |
+| J2 | Première mission de code | **En cours** (J2-A et J2-B intégrés sur des branches non poussées) |
 | J3 | Extensibilité et reprise | Prévu |
 | J4 | Nomi et voix | Prévu |
 | J5 | Web et autres plateformes | Prévu |
@@ -112,12 +112,31 @@ Périmètre et critères détaillés : [`FEATURES.md`](FEATURES.md) (§4, J2-A).
 - [x] Nomi suit une mission réelle et explique un échec de tests (parcours h)
 - [x] Plafond de budget avec suspension et reprise ; un seul résultat terminal à l'arrêt — scénario 10, un worker (parcours i)
 - [x] Reprise après plantage sans relance d'un effet externe — scénario 11 (parcours j)
-- [ ] Commandes de l'agent dans le terminal (E13, partie agent) : `run_command` et `run_tests` s'exécutent dans main, aucune session d'agent créée dans le pty-host
+- [ ] Commandes de l'agent dans le terminal (E13, partie agent) : `run_command` et `run_tests` s'exécutent dans main, aucune session d'agent créée dans le pty-host — couvert ensuite par J2-B L1 (sessions d'agent du pty-host, commandes au premier plan reflétées en lecture seule), pas sur la branche J2-A
 - [ ] Mémoriser une commande précise, journal des notifications de Nomi persistant, suivi des processus en arrière-plan, événement « modèle de secours utilisé » (Mo2), inspecteur de contexte exact (voir « Non vérifié » dans `STATUS.md`)
 - [ ] Scénarios 15 et 16 rejoués sur le périmètre de l'atelier (axe-core et inspection des secrets du journal d'audit et des exports)
 - [ ] Démonstration J2-A sur le build empaqueté (dépôt `e2e/fixtures/vite-bug` à créer) et mesures initiales de performance
 - [ ] CI trois OS verte sur la tête de la branche (Windows et macOS n'ont jamais exécuté les specs J2-A)
 - [ ] Appels d'outils, recherche web et serveurs MCP réels avec un vrai compte OpenRouter
+
+### J2-B — « Parité Harness » · intégré sur `feat/j2b-parite-harness`
+
+Périmètre : [`research/DEEPSEEK_HARNESS.md`](research/DEEPSEEK_HARNESS.md) (§2B, §3 ; ce que NOVA couvre désormais : §5), carte des voies et contrats. Cette tranche remplace, pour l'itération, le J2-B « Ça tourne sous mes yeux » de [`FEATURES.md`](FEATURES.md) (aperçu, navigateur agent, LSP restent à faire). Une case n'est cochée que si un test exécuté la couvre : Linux x64, faux serveur OpenRouter, vérification finale du 2026-09-28 sur `65fce37` (lint, types, 2 239 tests unitaires, build, Playwright 46/46 deux fois ; détail dans [`STATUS.md`](STATUS.md)).
+
+- [x] L1 — Terminal de l'agent et processus en arrière-plan : session en lecture seule, « Prendre la main » (la session reprise quitte la mission), `process_list` / `process_output` / `process_stop`, aucun orphelin à la sortie (`j2b-terminal-agent.spec.ts`)
+- [x] L2 — Compaction proposée puis appliquée par l'utilisateur, « /compact », dossier de passation au changement de modèle (`j2b-compaction.spec.ts`)
+- [x] L3 — Skills : aperçu, installation, activation par projet, chargement dans une mission, désinstallation sans résidu (`j2b-skills.spec.ts`)
+- [x] L4 — Mode « Chaîne » : hôte isolé, appels soumis au moteur et aux approbations, imbriqués sous leur programme ; un appel refusé lève une erreur dans le programme, le secret ne part jamais (`j2b-chain.spec.ts`)
+- [x] L5 — Sous-missions bornées : worktree, intégration après tests, arbre dans la mission, budget partagé par réservation (refus au-delà, libération à la fin) (`j2b-submissions.spec.ts`)
+- [x] L6 — Missions planifiées : exécution comme une mission normale, historique, pause (`j2b-schedules.spec.ts`)
+- [x] L7 — Présence bureau (barre système, fenêtre fermée, avertissement à la sortie), accueil, densité, pilote automatique, vision (`j2b-desktop.spec.ts`)
+- [x] L8 — « Jusqu'à preuve » (arrêt au plafond de poursuite compris), recherche dans la chronologie, « Bifurquer d'ici » (`j2b-proof-timeline.spec.ts`)
+- [x] Revue adversariale J2-B : 22 défauts corrigés avec test de non-régression (W5 à travers sous-missions, bifurcations et skills ; réserve des sous-missions dans le total du jour, migration v7 ; processus orphelins ; faux zéros), puis suite complète au vert deux fois
+- [ ] Scénarios 15 et 16 rejoués sur les surfaces J2-B (axe-core sur Skills, Missions planifiées, Recherche ; exports et journal inspectés pour les secrets)
+- [ ] `--nova-selftest=workers` (dont `chain-host`) sur le paquet `electron-builder --dir`
+- [ ] CI trois OS sur la tête de la branche (Windows et macOS n'ont jamais exécuté les specs J2-B)
+- [ ] Parcours J2-B avec un vrai compte OpenRouter (compaction, pilote automatique, vision, sous-missions)
+- [ ] Limites listées dans « Non vérifié » de `STATUS.md` (skills de projet invalides expliquées, installation Git, conflits d'intégration listés, dépense des enfants dans le montant du parent, pilote automatique à l'accueil, 3 skills livrées sur les 6 de M8, résumé proposé après redémarrage)
 
 ## J3 — Extensibilité et reprise
 

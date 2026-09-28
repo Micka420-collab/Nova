@@ -1,0 +1,84 @@
+/* Sub-missions of a mission (L5): compact tree rows inside the mission card or the agent panel. */
+
+.nova-subs {
+  display: grid;
+  gap: var(--nv-space-2);
+  min-width: 0;
+}
+
+.nova-subs__title {
+  margin: 0;
+  font-size: var(--nv-text-sm);
+  font-weight: 600;
+}
+
+.nova-subs__list {
+  display: grid;
+  gap: var(--nv-space-2);
+  margin: 0;
+  padding: 0 0 0 var(--nv-space-3);
+  border-left: 2px solid var(--nv-border);
+  list-style: none;
+}
+
+.nova-subs__child {
+  display: grid;
+  gap: var(--nv-space-1);
+  padding: var(--nv-space-2) var(--nv-space-3);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-sm);
+  min-width: 0;
+}
+
+.nova-subs__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-2);
+  min-width: 0;
+}
+
+.nova-subs__name {
+  flex: 1 1 12ch;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: var(--nv-text-sm);
+}
+
+.nova-subs__meta,
+.nova-subs__hint,
+.nova-subs__parent {
+  margin: 0;
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.nova-subs__error {
+  margin: 0;
+  color: var(--nv-danger);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-subs__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nv-space-1);
+}
+
+.nova-subs__confirm {
+  display: grid;
+  gap: var(--nv-space-1);
+}
+
+/* Contract sheet option (SubMissionsOption). */
+.nova-contract__option-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-2);
+  font-size: var(--nv-text-sm);
+}

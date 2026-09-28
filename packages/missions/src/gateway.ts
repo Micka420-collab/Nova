@@ -5,6 +5,7 @@
 // approval → checkpoint before writes → execute → journal `tool.finished` (exactly once, whatever
 // happens) → proof for tests/commands.
 import {
+  CHAIN_FORBIDDEN_TOOLS,
   isToolName,
   redactSecrets,
   type Approval,
@@ -29,6 +30,7 @@ import {
   type ToolPermissionFacts,
   type ToolRegistry,
 } from "@nova/tools";
+import { randomUUID } from "node:crypto";
 import type { MissionEventInput, ToolGateway, ToolRunRequest } from "./index";
 
 export interface PermissionGate {
@@ -92,7 +94,14 @@ export interface ToolGatewayDeps {
   checkpoints: CheckpointGate | null;
   journal: { append(event: MissionEventInput): unknown };
   toolCalls: {
-    insert(input: { id: string; missionId: string; tool: string; operation: ToolCallSummary["operation"]; arguments: unknown }): unknown;
+    insert(input: {
+      id: string;
+      missionId: string;
+      tool: string;
+      operation: ToolCallSummary["operation"];
+      arguments: unknown;
+      parentCallId?: string | null;
+    }): unknown;
     setDecision(id: string, decision: PermissionDecision["decision"], ruleId: string | null): void;
     markRunning(id: string): void;
     finish(id: string, state: "denied" | "succeeded" | "failed" | "cancelled", outcome: { exitCode: number | null; resultSummary: string | null }): void;
@@ -239,7 +248,7 @@ export function missionHostsOf(contract: MissionContract): readonly string[] | n
 export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
   const now = deps.now ?? Date.now;
 
-  return {
+  const gateway: ToolGateway = {
     async run(request: ToolRunRequest, callSignal: AbortSignal): Promise<ToolResult> {
       const context = deps.context(request.missionId);
       if (!context || context.signal.aborted) return errorResult(request.id, "unavailable", "this mission is not running");
@@ -255,7 +264,7 @@ export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
       let factsError: { code: Parameters<typeof errorResult>[1]; message: string } | null = null;
       if (executor && parsed?.ok) {
         try {
-          facts = await executor.permissionFacts(parsed.args);
+          facts = await executor.permissionFacts(parsed.args, { workspaceId: context.workspaceId, missionId: context.missionId });
         } catch (error) {
           factsError = toToolFailure(error, signal);
         }
@@ -269,10 +278,18 @@ export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
         path: first.path ?? null,
         host: first.host ?? null,
         argv: first.argv?.map(redactSecrets) ?? null,
+        ...(request.parentCallId ? { parentCallId: request.parentCallId } : {}),
       };
       const started = now();
       const missionHosts = missionHostsOf(context.contract);
-      deps.toolCalls.insert({ id: request.id, missionId: context.missionId, tool: name, operation, arguments: summary.argumentsPreview });
+      deps.toolCalls.insert({
+        id: request.id,
+        missionId: context.missionId,
+        tool: name,
+        operation,
+        arguments: summary.argumentsPreview,
+        parentCallId: request.parentCallId ?? null,
+      });
       deps.journal.append({ type: "tool.requested", missionId: context.missionId, call: summary, taskId: null });
 
       let finished = false;
@@ -431,6 +448,29 @@ export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
             if (finished) return;
             deps.journal.append({ type: "tool.output", missionId: context.missionId, callId: request.id, stream, chunk: redactSecrets(chunk.slice(0, 16_000)) });
           },
+          record: (event) => deps.journal.append({ ...event, missionId: context.missionId }),
+          ...(name === "run_chain"
+            ? {
+                // Nested calls re-enter this gateway: same parse, mode, permission, approval and audit.
+                runNested: async (call: { name: string; rawArguments: string }, nestedSignal?: AbortSignal) => {
+                  if ((CHAIN_FORBIDDEN_TOOLS as readonly string[]).includes(call.name)) {
+                    return errorResult(request.id, "permission_denied", `"${call.name}" cannot be called from a program`);
+                  }
+                  return gateway.run(
+                    {
+                      id: randomUUID(),
+                      providerCallId: null,
+                      missionId: context.missionId,
+                      name: call.name,
+                      rawArguments: call.rawArguments,
+                      requestedAt: now(),
+                      parentCallId: request.id,
+                    },
+                    nestedSignal ? AbortSignal.any([signal, nestedSignal]) : signal,
+                  );
+                },
+              }
+            : {}),
         });
         if (result.provenance.untrusted) context.tainted = true;
         // Redacted once here: the proof, the journal and the evidence all see the same argv.
@@ -447,6 +487,7 @@ export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
       }
     },
   };
+  return gateway;
 }
 
 /** A4: tests and foreground commands leave a proof; the tests card points to it. */

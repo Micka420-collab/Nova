@@ -49,6 +49,53 @@ export interface MissionLoopDeps {
   limits?: Partial<LoopLimits>;
   now?: () => number;
   newId?: () => string;
+  /** J2-B extension points (each owned by one lane); absent = J2-A behavior. */
+  extensions?: LoopExtensions;
+}
+
+/**
+ * J2-B hooks of the loop. They run in the agent-runtime process: anything they need from main
+ * (stored summaries, budget) goes through the runtime channel, never around it.
+ */
+export interface LoopExtensions {
+  /** L2 compaction / pruning / usage. */
+  context?: LoopContextHook;
+  /** L8 "jusqu'à preuve" auto-continuation. */
+  continuation?: LoopContinuationHook;
+}
+
+/** What the context hook changes before a model call (null fields = unchanged). */
+export interface ContextPreparation {
+  /** Messages to use from now on (an APPLIED summary replaces the history it covers; pruned results keep head + tail). */
+  messages: ProxyMessage[] | null;
+  /** A15: model to use from now on (after a handoff the user asked for). */
+  modelId: string | null;
+}
+
+export interface LoopContextHook {
+  /**
+   * Before each model call; null = nothing changes. Never compacts on its own: a proposal waits
+   * for the user's decision (C7), and a model switch only follows the user's handoff request.
+   */
+  prepare(input: { missionId: string; modelId: string; messages: readonly ProxyMessage[] }): Promise<ContextPreparation | null>;
+  /** After each model call, with the provider's reported usage (context.usage / proposals). */
+  observe(input: { missionId: string; modelId: string; usage: UsageSummary | null; messageCount: number }): void;
+}
+
+export interface OpenCriterion {
+  taskId: string;
+  title: string;
+  reason: string;
+}
+
+export interface LoopContinuationHook {
+  /**
+   * The model ended a round with checkable criteria still unproven (after the usual nudge).
+   * Returns the user message that starts the next round, or null to end the mission with
+   * `acceptance_failed`. The hook journals `continuation.round` / `continuation.stopped` itself
+   * and enforces maxRounds and its budget cap. A new round gets a fresh iteration allowance.
+   */
+  nextRound(input: { missionId: string; round: number; open: OpenCriterion[] }): Promise<{ prompt: string } | null>;
 }
 
 /** Ends the run with one terminal event (thrown inside the loop, caught once at the top). */
@@ -63,6 +110,7 @@ interface Turn {
   toolCalls: AssembledToolCall[];
   reasoningDetails: unknown[];
   finish: string;
+  usage: UsageSummary | null;
 }
 
 const RUN_TOOLS = new Set(["run_tests", "run_command"]);
@@ -89,12 +137,15 @@ class MissionRun {
   private readonly evidence: AcceptanceEvidence[] = [];
   private readonly taskStates = new Map<string, MissionTask["state"]>();
   private readonly tasks: MissionTask[];
+  /** Model of the next call (A15: a handoff may switch it). */
+  private modelId: string;
 
   constructor(
     private readonly spec: MissionRunSpec,
     private readonly deps: Required<Omit<MissionLoopDeps, "limits">> & { limits: LoopLimits },
   ) {
     this.deadline = deps.now() + spec.contract.maxDurationMs;
+    this.modelId = spec.mission.modelId ?? "";
     // Criteria NOVA cannot check (no command given, or the mode has no tool to run it) are left to
     // the user, like `manual`.
     const canRun = spec.tools.some((tool) => RUN_TOOLS.has(tool.name));
@@ -202,23 +253,34 @@ class MissionRun {
     ]
       .filter(Boolean)
       .join("\n\n");
+    const { skillIndex } = this.spec;
     return [
-      { role: "system", content: system },
+      { role: "system", content: skillIndex ? `${system}\n\n${skillIndex}` : system },
       { role: "user", content: user },
     ];
   }
 
   private async loop(): Promise<void> {
     const messages = this.initialMessages();
+    const { context, continuation } = this.deps.extensions;
+    let modelId = this.modelId;
     let iterations = 0;
     let nudged = false;
+    let round = 0;
     for (;;) {
       await this.gate();
       if (iterations >= this.deps.limits.maxIterations) {
         throw this.fail("iteration_limit", `${this.deps.limits.maxIterations} appels au modèle sans conclure`);
       }
       iterations += 1;
+      const prepared = context ? await context.prepare({ missionId: this.missionId, modelId, messages }) : null;
+      if (prepared?.messages) messages.splice(0, messages.length, ...prepared.messages);
+      if (prepared?.modelId) {
+        modelId = prepared.modelId;
+        this.modelId = modelId;
+      }
       const turn = await this.callModel(messages);
+      context?.observe({ missionId: this.missionId, modelId, usage: turn.usage, messageCount: messages.length + 1 });
       messages.push({
         role: "assistant",
         content: turn.text,
@@ -246,6 +308,21 @@ class MissionRun {
             content: `Before finishing, the acceptance criteria must be verified with the tools (NOVA only trusts what it ran):\n${list}\nFix what fails, run the checks, or explain what blocks you.`,
           });
           continue;
+        }
+        if (continuation) {
+          const next = await continuation.nextRound({
+            missionId: this.missionId,
+            round: round + 1,
+            open: open.map((verdict) => ({ taskId: verdict.taskId, title: this.taskTitle(verdict.taskId), reason: verdict.reason })),
+          });
+          this.checkAborted();
+          if (next) {
+            round += 1;
+            iterations = 0;
+            nudged = false;
+            messages.push({ role: "user", content: next.prompt });
+            continue;
+          }
         }
         const detail = open.map((verdict) => `${this.taskTitle(verdict.taskId)} : ${verdict.reason}`).join(" ; ");
         throw this.fail("acceptance_failed", detail.slice(0, 1_000));
@@ -344,7 +421,7 @@ class MissionRun {
     const stream = this.deps.proxy.stream(
       {
         missionId: this.missionId,
-        modelId: this.spec.mission.modelId ?? "",
+        modelId: this.modelId,
         messages,
         tools: this.spec.tools,
         webSearch: false,
@@ -379,7 +456,7 @@ class MissionRun {
     if (finish === "content_filter") throw this.fail("provider_error", "réponse bloquée par le filtre du fournisseur");
     if (finish === "error") throw new ProxyError("provider_error", "generation ended with an error", true);
     this.emit({ type: "message.completed", missionId: this.missionId, messageId, content: text, usage });
-    return { text, toolCalls: assembler.finish(), reasoningDetails: mergeReasoningDetails(reasoning), finish };
+    return { text, toolCalls: assembler.finish(), reasoningDetails: mergeReasoningDetails(reasoning), finish, usage };
   }
 }
 
@@ -393,6 +470,7 @@ export class MissionLoop implements MissionRuntime {
       limits: { ...DEFAULT_LOOP_LIMITS, ...deps.limits },
       now: deps.now ?? Date.now,
       newId: deps.newId ?? randomUUID,
+      extensions: deps.extensions ?? {},
     };
   }
 

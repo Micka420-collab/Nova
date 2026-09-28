@@ -19,7 +19,7 @@ import { memoryFiles } from "../../../tools/src/__fixtures__/memory-files";
 import { createToolGateway, type ApprovalGate, type MissionToolContext } from "../gateway";
 import type { ProviderProxy, ProxyStreamEvent, ProxyStreamRequest } from "../index";
 import { createMissionJournal, type MissionEventRecordLike } from "../journal";
-import { MissionLoop } from "../loop";
+import { MissionLoop, type LoopExtensions } from "../loop";
 import { missionToolSet } from "../tool-set";
 
 export const WS = "11111111-1111-4111-8111-111111111111";
@@ -88,6 +88,8 @@ export interface HarnessOptions {
   maxDurationMs?: number;
   /** Clock of the loop (duration cap). */
   now?: () => number;
+  /** J2-B loop hooks (compaction, continuation). */
+  extensions?: LoopExtensions;
 }
 
 export const ALLOW: PermissionDecision = { decision: "allow", reason: "profile_allows", ruleId: "profile:test", rememberable: true, explanation: "Règle de test." };
@@ -203,6 +205,7 @@ export function createHarness(options: HarnessOptions) {
     systemPrompt: ({ mode: m, toolNames }) => `system ${m} ${toolNames.join(",")}`,
     limits: { retryDelayMs: 1 },
     ...(options.now ? { now: options.now } : {}),
+    ...(options.extensions ? { extensions: options.extensions } : {}),
   });
 
   const mission: Mission = {

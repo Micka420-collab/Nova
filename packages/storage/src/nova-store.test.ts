@@ -47,12 +47,18 @@ describe("settings", () => {
     expect(store.getSettings()).toEqual(DEFAULT_SETTINGS);
     store.updateSettings({ companion: { visible: false } });
     store.updateSettings({ theme: "dark", defaultModelId: "deepseek/deepseek-chat" });
-    const updated = store.updateSettings({ privacy: { providerDataCollection: "allow" } });
+    store.updateSettings({ display: { density: "all" }, onboarding: { profile: "code" } });
+    const updated = store.updateSettings({ privacy: { providerDataCollection: "allow" }, chat: { autopilot: true } });
     expect(updated).toEqual({
+      ...DEFAULT_SETTINGS,
       theme: "dark",
       defaultModelId: "deepseek/deepseek-chat",
       companion: { visible: false, motion: "system" },
       privacy: { providerDataCollection: "allow" },
+      // J2-B groups deep-merge like the others: a patch keeps the group's other fields.
+      onboarding: { profile: "code", completedAt: null },
+      display: { density: "all" },
+      chat: { autopilot: true, suggestVisionModel: true },
     });
     expect(store.getSettings()).toEqual(updated);
     expect(store.updateSettings({ defaultModelId: null }).defaultModelId).toBeNull();

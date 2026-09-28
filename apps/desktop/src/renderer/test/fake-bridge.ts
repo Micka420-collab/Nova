@@ -6,6 +6,7 @@ import {
   type AppSettings,
   type ChatStreamEvent,
   type Conversation,
+  type HarnessGroup,
   type IpcError,
   type IpcResult,
   type Message,
@@ -108,6 +109,46 @@ function unavailableAtelierBridge(record: (name: string) => void): Pick<NovaBrid
   };
 }
 
+/** J2-B groups answer `unavailable` like main before a lane is wired (seed.harness overrides). */
+function unavailableHarnessBridge(record: (name: string) => void): Pick<NovaBridge, HarnessGroup> {
+  const no = (name: string) => (): Promise<IpcResult<never>> => {
+    record(name);
+    return Promise.resolve({ ok: false, error: { code: "unavailable", message: `${name} is not available yet` } });
+  };
+  return {
+    processes: { list: no("processes.list"), output: no("processes.output"), stop: no("processes.stop"), onEvent: unsubscribeNothing },
+    context: {
+      usage: no("context.usage"),
+      compact: no("context.compact"),
+      decide: no("context.decide"),
+      list: no("context.list"),
+      handoff: no("context.handoff"),
+      onEvent: unsubscribeNothing,
+    },
+    skills: {
+      list: no("skills.list"),
+      get: no("skills.get"),
+      preview: no("skills.preview"),
+      install: no("skills.install"),
+      uninstall: no("skills.uninstall"),
+      setEnabled: no("skills.setEnabled"),
+    },
+    submissions: { tree: no("submissions.tree"), integrate: no("submissions.integrate"), discard: no("submissions.discard") },
+    schedules: {
+      list: no("schedules.list"),
+      create: no("schedules.create"),
+      update: no("schedules.update"),
+      setPaused: no("schedules.setPaused"),
+      remove: no("schedules.remove"),
+      runs: no("schedules.runs"),
+      onEvent: unsubscribeNothing,
+    },
+    desktop: { state: no("desktop.state"), onEvent: unsubscribeNothing },
+    autopilot: { classify: no("autopilot.classify") },
+    timeline: { search: no("timeline.search"), fork: no("timeline.fork") },
+  };
+}
+
 export type AtelierGroup =
   | "workspace"
   | "files"
@@ -206,7 +247,11 @@ export interface FakeSeed {
    * answering `unavailable`, like main before a group is wired.
    */
   atelier?: AtelierOverrides;
+  /** In-memory J2-B groups; methods left out answer `unavailable`. */
+  harness?: HarnessOverrides;
 }
+
+export type HarnessOverrides = { [G in HarnessGroup]?: Partial<NovaBridge[G]> };
 
 export type AtelierOverrides = { [G in AtelierGroup]?: Partial<NovaBridge[G]> };
 
@@ -252,7 +297,8 @@ export function createFakeBridge(seed: FakeSeed = {}): FakeBridge {
   const failures = new Map<string, IpcError>();
   const listeners = new Set<(event: ChatStreamEvent) => void>();
   let connection = seed.connection ?? ABSENT_CONNECTION;
-  let settings: AppSettings = { ...DEFAULT_SETTINGS, ...seed.settings };
+  // J2-B L7: app-level tests start after the first-run profile question (its own tests seed null).
+  let settings: AppSettings = { ...DEFAULT_SETTINGS, onboarding: { profile: "code", completedAt: 1 }, display: { density: "all" }, ...seed.settings };
   const conversations = new Map((seed.conversations ?? []).map((entry) => [entry.conversation.id, { ...entry }]));
   const active: ActiveStream[] = [];
   const catalog: ModelCatalog = {
@@ -283,7 +329,12 @@ export function createFakeBridge(seed: FakeSeed = {}): FakeBridge {
     return found;
   }
 
+  const harness: Record<string, unknown> = { ...unavailableHarnessBridge((name) => calls.push(name)) };
+  for (const [group, methods] of Object.entries(seed.harness ?? {})) {
+    harness[group] = { ...(harness[group] as object), ...methods };
+  }
   const bridge: NovaBridge = {
+    ...(harness as Pick<NovaBridge, HarnessGroup>),
     ...withAtelier(
       unavailableAtelierBridge((name) => calls.push(name)),
       seed.atelier,
@@ -312,6 +363,10 @@ export function createFakeBridge(seed: FakeSeed = {}): FakeBridge {
             ...patch,
             companion: { ...settings.companion, ...patch.companion },
             privacy: { ...settings.privacy, ...patch.privacy },
+            desktop: { ...settings.desktop, ...patch.desktop },
+            onboarding: { ...settings.onboarding, ...patch.onboarding },
+            display: { ...settings.display, ...patch.display },
+            chat: { ...settings.chat, ...patch.chat },
           };
           return settings;
         }),

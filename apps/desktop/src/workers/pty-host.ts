@@ -2,17 +2,22 @@
 // ports, scrollback and flow control, ./pty/protocol.ts for the methods main calls.
 // node-pty is a native N-API addon kept EXTERNAL to the bundle and unpacked from the asar
 // (ADR-012), so it is loaded lazily: a load failure answers `unavailable` instead of crashing.
+import { constants as osConstants } from "node:os";
 import type { MessagePortMain } from "electron";
 import type { ZodType } from "zod";
 import { redactSecrets } from "@nova/shared";
 import { resolveConfinedCwd } from "./pty/cwd";
-import { buildPtyEnv } from "./pty/env";
+import { buildAgentPtyEnv, buildPtyEnv } from "./pty/env";
 import { killTree } from "./pty/kill-tree";
 import {
   PTY_EVENTS,
   PTY_METHODS,
+  PtyAgentStartParamsSchema,
   PtyCreateParamsSchema,
   PtyListParamsSchema,
+  PtyMirrorCloseParamsSchema,
+  PtyMirrorOpenParamsSchema,
+  PtyMirrorWriteParamsSchema,
   PtyResizeParamsSchema,
   PtySessionParamsSchema,
 } from "./pty/protocol";
@@ -53,6 +58,13 @@ async function selfTest(): Promise<{ output: string; exitCode: number }> {
 let notify: HandlerContext["notify"] | null = null;
 let spawnPty: PtySpawn | null = null;
 
+/** Signal number → name (`SIGTERM`); null when unknown or none. */
+function signalName(signal: number | null): string | null {
+  if (!signal) return null;
+  const entry = Object.entries(osConstants.signals).find(([, value]) => value === signal);
+  return entry ? entry[0] : null;
+}
+
 const sessions = new PtySessions({
   spawn: (file, args, options) => {
     if (!spawnPty) throw new Error("node-pty not loaded");
@@ -61,6 +73,7 @@ const sessions = new PtySessions({
   resolveCwd: resolveConfinedCwd,
   shell: () => detectUserShell(process.env, process.platform),
   env: () => buildPtyEnv(process.env),
+  agentEnv: (extra) => buildAgentPtyEnv(process.env, extra),
   killTree: (pty: PtyProcess) => {
     if (process.platform === "win32") {
       pty.kill();
@@ -68,7 +81,10 @@ const sessions = new PtySessions({
     }
     return killTree(pty.pid);
   },
-  onExit: (session, outputTail) => notify?.(PTY_EVENTS.exit, { ...session, outputTail: redactSecrets(outputTail) }),
+  onExit: (session, outputTail, signal) =>
+    notify?.(PTY_EVENTS.exit, { ...session, outputTail: redactSecrets(outputTail), signal: signalName(signal) }),
+  // Raw output of agent programs: main keeps a bounded ring and redacts whatever it hands out.
+  onData: (sessionId, data) => notify?.(PTY_EVENTS.data, { sessionId, data }),
   onUpdate: (session) => notify?.(PTY_EVENTS.update, session),
 });
 
@@ -132,6 +148,23 @@ serveWorker("pty-host", {
   [PTY_METHODS.resize]: handler((params) => sessions.resize(parse(PtyResizeParamsSchema, params))),
   [PTY_METHODS.kill]: handler((params) => sessions.kill(parse(PtySessionParamsSchema, params).sessionId)),
   [PTY_METHODS.takeOver]: handler((params) => sessions.takeOver(parse(PtySessionParamsSchema, params).sessionId)),
+  [PTY_METHODS.startAgent]: handler(async (params) => {
+    const request = parse(PtyAgentStartParamsSchema, params);
+    const pty = await loadNodePty();
+    spawnPty ??= (file, args, options) => pty.spawn(file, args, options);
+    return sessions.startAgent(request);
+  }),
+  [PTY_METHODS.stop]: handler((params) => sessions.stop(parse(PtySessionParamsSchema, params).sessionId)),
+  // Mirrors need no node-pty: they work even when the native addon failed to load.
+  [PTY_METHODS.mirrorOpen]: handler((params) => sessions.openMirror(parse(PtyMirrorOpenParamsSchema, params))),
+  [PTY_METHODS.mirrorWrite]: handler((params) => {
+    const { sessionId, data } = parse(PtyMirrorWriteParamsSchema, params);
+    sessions.writeMirror(sessionId, data);
+  }),
+  [PTY_METHODS.mirrorClose]: handler((params) => {
+    const { sessionId, exitCode } = parse(PtyMirrorCloseParamsSchema, params);
+    sessions.closeMirror(sessionId, exitCode);
+  }),
 });
 
 // main stops workers with a kill (SIGTERM on POSIX) and waits for the exit: end every session's

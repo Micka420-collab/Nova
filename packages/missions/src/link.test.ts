@@ -245,3 +245,45 @@ describe("journal", () => {
     expect(pushed[1]).toEqual({ type: "mission.cancelled", missionId: "m", by: "user", id: rows[1]?.id, seq: 2, at: 5 });
   });
 });
+
+describe("J2-B loop hooks across the port", () => {
+  it("lets main's context and continuation handlers shape the run; the runtime only relays", async () => {
+    const [mainPort, runtimePort] = createPortPair();
+    serveRuntimeChannel(runtimePort, { systemPrompt: () => "system" });
+    const appended: MissionEventInput[] = [];
+    const modelRequests: ProxyStreamRequest[] = [];
+    const observed: (number | null)[] = [];
+    const rounds: number[] = [];
+    const checkable = spec();
+    const task = checkable.tasks[0];
+    if (task) task.acceptance = { kind: "file_exists", detail: "a.ts" };
+    const link = connectRuntime(mainPort, {
+      isRunning: (id) => id === MISSION_ID,
+      appendEvent: (event) => appended.push(event),
+      async streamModel(request, _signal, emit) {
+        modelRequests.push(request);
+        emit({ type: "text", text: "Fini." });
+        emit({ type: "usage", usage: { promptTokens: 10 * modelRequests.length, completionTokens: 1, reasoningTokens: null, cachedTokens: null, cost: null } });
+        emit({ type: "finish", reason: "stop" });
+      },
+      gateway: { run: async (request) => errorResult(request.id, "failed", "x") },
+      context: {
+        prepare: async ({ messages }) =>
+          messages.length > 3 ? { messages: [{ role: "system", content: "compacted" }, ...messages.slice(-1)], modelId: null } : null,
+        observe: ({ usage }) => observed.push(usage?.promptTokens ?? null),
+      },
+      continuation: {
+        nextRound: async ({ round }) => {
+          rounds.push(round);
+          return round < 2 ? { prompt: `round ${round}` } : null;
+        },
+      },
+    });
+    await link.start(checkable);
+    await until(() => appended.some((event) => event.type === "mission.failed"));
+    expect(rounds).toEqual([1, 2]);
+    expect(modelRequests.some((request) => request.messages[0]?.content === "compacted")).toBe(true);
+    await until(() => observed.length === modelRequests.length);
+    expect(observed[0]).toBe(10);
+  });
+});

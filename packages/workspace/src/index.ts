@@ -86,3 +86,15 @@ export {
   type WorkspaceFileOps,
   type WriteOptions,
 } from "./file-ops";
+export {
+  DEFAULT_DEPENDENCY_DIRS,
+  WORKTREES_DIR,
+  WORKTREE_CHANGES_MAX,
+  createWorktreeManager,
+  isWorktreeId,
+  type WorktreeChange,
+  type WorktreeChangeKind,
+  type WorktreeInfo,
+  type WorktreeManager,
+  type WorktreeManagerOptions,
+} from "./worktree";

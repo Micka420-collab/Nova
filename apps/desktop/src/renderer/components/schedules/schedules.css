@@ -1,0 +1,181 @@
+/* Scheduled missions (L6): manager, editor and run history. */
+
+.nova-sched {
+  display: grid;
+  gap: var(--nv-space-3);
+  min-width: 0;
+  max-width: 56rem;
+  /* Same inset as the other workbench documents (Extensions): nothing touches the panel edge. */
+  padding: var(--nv-panel-pad, var(--nv-space-4));
+}
+
+.nova-sched__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nv-space-2);
+}
+
+.nova-sched__title {
+  margin: 0;
+  font-size: var(--nv-text-lg);
+  font-weight: 600;
+}
+
+.nova-sched__subtitle {
+  margin: 0;
+  font-size: var(--nv-text-md);
+  font-weight: 600;
+}
+
+.nova-sched__list,
+.nova-sched-runs__list {
+  display: grid;
+  gap: var(--nv-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nova-sched__item {
+  display: grid;
+  gap: var(--nv-space-1);
+  padding: var(--nv-space-3);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-sm);
+  min-width: 0;
+}
+
+.nova-sched__row,
+.nova-sched__actions,
+.nova-sched__confirm,
+.nova-sched-runs__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-2);
+  min-width: 0;
+}
+
+.nova-sched__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nova-sched__meta {
+  margin: 0;
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.nova-sched__confirm p {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--nv-text-sm);
+}
+
+.nova-sched__error,
+.nova-sched-form__error {
+  margin: 0;
+  color: var(--nv-danger);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-sched-runs {
+  display: grid;
+  gap: var(--nv-space-2);
+  padding-top: var(--nv-space-2);
+  border-top: 1px solid var(--nv-border);
+}
+
+.nova-sched-form {
+  display: grid;
+  gap: var(--nv-space-3);
+  padding: var(--nv-space-3);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-md);
+  min-width: 0;
+}
+
+.nova-sched-form__row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--nv-space-3);
+}
+
+.nova-sched-form__label {
+  display: grid;
+  gap: var(--nv-space-1);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-sched-form__fieldset {
+  display: grid;
+  gap: var(--nv-space-2);
+  margin: 0;
+  padding: var(--nv-space-2) 0 0;
+  border: 0;
+  border-top: 1px solid var(--nv-border);
+  min-width: 0;
+}
+
+.nova-sched-form__fieldset > legend,
+.nova-sched-form__legend {
+  margin: 0;
+  padding: 0;
+  font-size: var(--nv-text-sm);
+  font-weight: 600;
+}
+
+.nova-sched-form__fieldset--inner {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.nova-sched-form__radio {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: var(--nv-space-2);
+  align-items: baseline;
+}
+
+.nova-sched-form__radio .nova-note {
+  grid-column: 2;
+}
+
+.nova-sched-form__days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nv-space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.nova-sched-form__days > legend {
+  margin-bottom: var(--nv-space-1);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-sched-form__day {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--nv-space-1);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-sched-form__preview ol {
+  margin: 0;
+  padding-left: var(--nv-space-4);
+  font-size: var(--nv-text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.nova-sched-form__actions {
+  display: flex;
+  gap: var(--nv-space-2);
+}

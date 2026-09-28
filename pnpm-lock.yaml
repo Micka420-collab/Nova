@@ -200,6 +200,9 @@ importers:
       '@nova/agent-runtime':
         specifier: workspace:*
         version: link:../../packages/agent-runtime
+      '@nova/chain':
+        specifier: workspace:*
+        version: link:../../packages/chain
       '@nova/companion':
         specifier: workspace:*
         version: link:../../packages/companion
@@ -215,9 +218,15 @@ importers:
       '@nova/providers':
         specifier: workspace:*
         version: link:../../packages/providers
+      '@nova/scheduler':
+        specifier: workspace:*
+        version: link:../../packages/scheduler
       '@nova/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@nova/skills':
+        specifier: workspace:*
+        version: link:../../packages/skills
       '@nova/storage':
         specifier: workspace:*
         version: link:../../packages/storage
@@ -280,7 +289,7 @@ importers:
         version: 30.1.1(@noble/hashes@2.4.0)
       lucide-react:
         specifier: ^1.48.0
-        version: 1.48.0
+        version: 1.48.0(react@19.3.0)
       react:
         specifier: ^19.3.0
         version: 19.3.0
@@ -317,6 +326,15 @@ importers:
       '@nova/storage':
         specifier: workspace:*
         version: link:../storage
+
+  packages/chain:
+    dependencies:
+      '@nova/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@nova/tools':
+        specifier: workspace:*
+        version: link:../tools
 
   packages/companion:
     dependencies:
@@ -363,11 +381,26 @@ importers:
         specifier: ^4.1.0
         version: 4.1.1
 
+  packages/scheduler:
+    dependencies:
+      '@nova/shared':
+        specifier: workspace:*
+        version: link:../shared
+
   packages/shared:
     dependencies:
       zod:
         specifier: ^4.6.0
         version: 4.6.5
+
+  packages/skills:
+    dependencies:
+      '@nova/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@nova/tools':
+        specifier: workspace:*
+        version: link:../tools
 
   packages/storage:
     dependencies:

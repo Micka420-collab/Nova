@@ -31,7 +31,7 @@ import {
 import { parseUnifiedDiff } from "../../renderer/components/diff/parse";
 import { ApprovalsService } from "./approvals-service";
 import { AuditService } from "./audit-service";
-import { createMissionsService, createReviewFsGate, type MissionsService } from "./missions-service";
+import { createMissionsService, createReviewFsGate, type MissionsService, type MissionsServiceDeps } from "./missions-service";
 import { PermissionsService } from "./permissions-service";
 
 const KEY = "sk-or-v1-0123456789abcdef0123456789abcdef";
@@ -100,7 +100,10 @@ function commands(options: { hang?: boolean } = {}): CommandRunner {
 /** Runtime ports of the current service: tests crash (close) or wedge them. */
 let runtimePorts: PortLike[];
 
-function build(options: { hang?: boolean; wedgedStop?: boolean; mcpTools?: McpToolOffer[] } = {}): void {
+/** J2-B lane hooks a test wires on top of the J2-A service (skills, continuation, sub-missions). */
+type LaneDeps = Pick<MissionsServiceDeps, "skillIndex" | "continuation" | "routeToolDeps" | "missionRootOf">;
+
+function build(options: { hang?: boolean; wedgedStop?: boolean; mcpTools?: McpToolOffer[]; lanes?: LaneDeps } = {}): void {
   const policies = createPolicyRepo(store.db);
   const audit = new AuditService({ repo: createAuditRepo(store.db) });
   const permissions = new PermissionsService({
@@ -119,7 +122,16 @@ function build(options: { hang?: boolean; wedgedStop?: boolean; mcpTools?: McpTo
   const matcher = createIgnoreMatcher(root);
   const files = createWorkspaceFileOps({ workspaceId, root, matcher, checkpoints, rgPath: null, trash: async () => undefined });
   const runner = commands(options);
-  const toolDeps: ToolDeps = { files, facts: async () => FACTS(workspaceId), commands: runner, git: null, web: null, mcp: null };
+  const toolDeps: ToolDeps = {
+    files,
+    facts: async () => FACTS(workspaceId),
+    commands: runner,
+    git: null,
+    web: null,
+    mcp: null,
+    // A skill runtime is wired: whether `skill` is offered depends on the mission's index only.
+    skills: { enabled: async () => [], load: () => Promise.reject(new Error("unused")) },
+  };
   const objects = createObjectStore(join(dir, "objects"));
   service = createMissionsService({
     store,
@@ -145,6 +157,7 @@ function build(options: { hang?: boolean; wedgedStop?: boolean; mcpTools?: McpTo
     isolationLevel: () => "L0",
     audit: (entry) => audit.recordToolExecution(entry),
     stopTimeoutMs: 100,
+    ...options.lanes,
     async openRuntimePort() {
       const [mainPort, runtimePort] = createPortPair();
       serveRuntimeChannel(runtimePort, { systemPrompt: buildMissionSystemPrompt });
@@ -266,6 +279,51 @@ describe("missions service (main + runtime over a port)", () => {
     expect(review).toEqual({ applied: [{ path: "src/cart.ts", hunkIndex: 0, decision: "reverted" }], conflicts: [] });
     expect(await readFile(join(root, "src/cart.ts"), "utf8")).toBe(CART);
     expect(stored("review.decided")).toHaveLength(1);
+  });
+
+  it("J2-B wiring: skill offered only with an index, routed tool deps, closing fact before the terminal, review after integration", async () => {
+    const routed: string[] = [];
+    const closing: string[] = [];
+    let index: { text: string; untrusted: boolean } | null = null;
+    build({
+      lanes: {
+        skillIndex: async () => index,
+        routeToolDeps: async (_workspaceId, missionId, base) => {
+          routed.push(missionId);
+          return base;
+        },
+        continuation: {
+          hook: { nextRound: async () => null },
+          // Journaled BEFORE the terminal event, which closes the journal.
+          beforeTerminal: (event) => {
+            closing.push(event.type);
+            service.controller.journal.append({ type: "continuation.stopped", missionId: event.missionId, reason: "proven", rounds: 1 });
+          },
+        },
+        missionRootOf: async (missionId) => (missionId === routed[0] ? "/worktrees/child" : null),
+      },
+    });
+    const run = async (goal: string): Promise<string> => {
+      turns = [{ text: PLAN }, { text: "Rien à faire." }];
+      const plan = await service.api.plan({ workspaceId, conversationId: null, goal, mode: "understand", modelId: MODEL, contract: null });
+      await service.api.start({ missionId: plan.mission.id, tasks: null, contract: CONTRACT });
+      await until(() => terminal().some((event) => event.missionId === plan.mission.id));
+      return plan.mission.id;
+    };
+
+    const first = await run("Explique le panier");
+    expect(requests.at(-1)?.tools?.map((tool) => tool.name)).not.toContain("skill");
+    index = { text: "<skills>…</skills>", untrusted: false };
+    await run("Explique encore le panier");
+    expect(requests.at(-1)?.tools?.map((tool) => tool.name)).toContain("skill");
+
+    expect(routed).toHaveLength(2);
+    expect(closing).toEqual(["mission.succeeded", "mission.succeeded"]);
+    const types = storedTypes(first);
+    expect(types.indexOf("continuation.stopped")).toBe(types.indexOf("mission.succeeded") - 1);
+    // A mission still working in its worktree: its review would read the project, so it waits.
+    await expect(service.api.review({ missionId: first, decisions: [] })).rejects.toMatchObject({ code: "conflict" });
+    await expect(service.api.diff({ missionId: first })).rejects.toMatchObject({ code: "conflict" });
   });
 
   it("stop while a call waits for approval: the approval expires, nothing runs, one cancelled terminal", async () => {
@@ -406,6 +464,32 @@ describe("missions service (main + runtime over a port)", () => {
     const decisions = new AuditService({ repo: createAuditRepo(store.db) }).list({ action: "permission.decision", missionId: plan.mission.id });
     expect(decisions).toMatchObject([{ dataSummary: { tool: "read_file", tainted: true } }]);
     await service.api.stop({ missionId: plan.mission.id });
+  });
+
+  it("starts tainted when third-party text is in its first prompt: user skill index, fork recap, tainted parent (W5)", async () => {
+    let index: { text: string; untrusted: boolean } | null = null;
+    build({ lanes: { skillIndex: async () => index } });
+    const taintOf = async (setup: (missionId: string) => void, start: (missionId: string) => Promise<unknown>): Promise<boolean> => {
+      turns = [{ text: PLAN }, { calls: [{ name: "read_file", args: { path: "src/cart.ts" } }] }, { text: "Lu." }];
+      const plan = await service.api.plan({ workspaceId, conversationId: null, goal: "Lis", mode: "build", modelId: MODEL, contract: null });
+      setup(plan.mission.id);
+      await start(plan.mission.id);
+      await until(() => stored("tool.finished").some((event) => event.missionId === plan.mission.id));
+      const decisions = new AuditService({ repo: createAuditRepo(store.db) }).list({ action: "permission.decision", missionId: plan.mission.id });
+      await until(() => terminal().some((event) => event.missionId === plan.mission.id));
+      return (decisions[0]?.dataSummary as { tainted?: boolean } | undefined)?.tainted === true;
+    };
+    const viaIpc = (missionId: string) => service.api.start({ missionId, tasks: null, contract: CONTRACT });
+
+    index = { text: "<skills>builtin only</skills>", untrusted: false };
+    expect(await taintOf(() => undefined, viaIpc)).toBe(false);
+    index = { text: "<skills>a project skill</skills>", untrusted: true };
+    expect(await taintOf(() => undefined, viaIpc)).toBe(true);
+    index = null;
+    const forked = (missionId: string): void => void service.controller.journal.append({ type: "mission.forked", missionId, fromMissionId: missionId, fromSeq: 1 });
+    expect(await taintOf(forked, viaIpc)).toBe(true);
+    const child = (missionId: string) => service.controller.start({ missionId, tasks: null, contract: CONTRACT, tainted: true });
+    expect(await taintOf(() => undefined, child)).toBe(true);
   });
 
   it("marks missions interrupted by a previous run as failed at startup", async () => {

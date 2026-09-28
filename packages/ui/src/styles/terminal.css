@@ -126,6 +126,18 @@
   flex: none;
 }
 
+/* Callouts of the panel (agent session, close confirmation): they wrap, never cut a sentence. */
+.nv-terminal-callout {
+  padding: var(--nv-space-2) var(--nv-space-3);
+  border-bottom: 1px solid var(--nv-border);
+  border-radius: 0;
+  font-size: var(--nv-text-xs);
+}
+
+.nv-terminal-callout .nv-callout__action {
+  margin-top: var(--nv-space-1);
+}
+
 .nv-terminal-notice {
   margin: 0;
   padding: 2px var(--nv-space-3);
