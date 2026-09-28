@@ -1,24 +1,28 @@
 // L2 (C7/A15) — compaction, pruning and handoff dossier. Owned by lane L2.
-// Main side: `CompactionService` backs the `context.*` IPC group (storage: compaction_summaries).
-// Runtime side: a `LoopContextHook` (../loop) applies APPLIED summaries and prunes big tool
-// results before each model call, and reports usage after it. Never compacts silently.
-import type {
-  CompactRequest,
-  CompactionDecideRequest,
-  CompactionSummary,
-  ContextEvent,
-  ContextTarget,
-  ContextUsage,
-  HandoffDossier,
-  HandoffRequest,
-} from "@nova/shared";
-
-export interface CompactionService {
-  usage(target: ContextTarget): Promise<ContextUsage>;
-  /** Writes a summary in `proposed` state (manual /compact or the automatic proposal). */
-  compact(request: CompactRequest): Promise<CompactionSummary>;
-  decide(request: CompactionDecideRequest): Promise<CompactionSummary>;
-  list(target: ContextTarget): Promise<CompactionSummary[]>;
-  handoff(request: HandoffRequest): Promise<HandoffDossier>;
-  onEvent(listener: (event: ContextEvent) => void): () => void;
-}
+// Main side: `createCompactionCore` backs the `context.*` IPC group (storage:
+// compaction_summaries) and serves the loop's context hook (`runtimeHook`, wired as
+// `MainRuntimeHandlers.context`): it applies APPLIED summaries and performs the handoff the user
+// asked for before a model call, and measures usage after it. Never compacts silently.
+export {
+  CompactionError,
+  createCompactionCore,
+  type AppliedConversationHistory,
+  type CompactionCore,
+  type CompactionErrorCode,
+  type CompactionPromptBuilder,
+  type CompactionServiceDeps,
+  type CompactionStoreLike,
+  type NewSummaryInput,
+  type SummarizeRequest,
+  type SummarizeResult,
+} from "./service";
+export { buildHandoffDossier, recentContext, renderHandoff, DOSSIER_LIMITS, type DossierDraft, type DossierInput } from "./dossier";
+export {
+  approxTokens,
+  conversationTranscript,
+  missionTranscript,
+  pruneText,
+  transcriptFingerprint,
+  type PruneLimits,
+  type TranscriptEntry,
+} from "./transcript";

@@ -25,8 +25,16 @@ export interface CompactionRepo {
   list(target: ContextTarget): CompactionSummary[];
   /** The most recent `applied` summary of the target (what replaces the history), if any. */
   latestApplied(target: ContextTarget): CompactionSummary | null;
+  /** The summary of the target still waiting for a decision (at most one is ever pending). */
+  pending(target: ContextTarget): CompactionSummary | null;
   /** Only a `proposed` summary can be decided; returns null otherwise (unknown or already decided). */
   decide(id: string, status: Exclude<CompactionStatus, "proposed">): CompactionSummary | null;
+  /**
+   * Stored position (`messages.seq`) of each message of a conversation, oldest first. A
+   * conversation summary's `coveredUntilSeq` is a message seq; the shared `Message` type carries
+   * no seq, so the history sent after a summary is cut by id through this map.
+   */
+  conversationMessageSeqs(conversationId: string): { id: string; seq: number }[];
 }
 
 function targetOf(row: Row): ContextTarget {
@@ -121,6 +129,18 @@ export function createCompactionRepo(db: DatabaseSync, now: () => number = Date.
     latestApplied(target) {
       const row = byTarget(target, "AND status = 'applied'", "decided_at DESC, rowid DESC", 1)[0];
       return row ? toSummary(row) : null;
+    },
+
+    pending(target) {
+      const row = byTarget(target, "AND status = 'proposed'", "created_at DESC, rowid DESC", 1)[0];
+      return row ? toSummary(row) : null;
+    },
+
+    conversationMessageSeqs(conversationId) {
+      return db
+        .prepare("SELECT id, seq FROM messages WHERE conversation_id = ? ORDER BY seq")
+        .all(conversationId)
+        .map((row) => ({ id: readText(row, "id"), seq: readNumber(row, "seq") }));
     },
 
     decide(id, status) {

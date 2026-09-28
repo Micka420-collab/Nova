@@ -8,7 +8,7 @@ export interface ContextView {
   /** Every summary of the mission, by id, oldest first (proposed, applied or dismissed). */
   summaries: CompactionSummary[];
   handoffs: HandoffDossier[];
-  modelSwitches: { at: number; fromModelId: string | null; toModelId: string }[];
+  modelSwitches: { at: number; fromModelId: string | null; toModelId: string; handoffSummaryId: string | null }[];
 }
 
 export type ContextMissionEvent = Extract<
@@ -53,7 +53,10 @@ export function reduceContextEvent(view: ContextView, event: ContextMissionEvent
     case "model.switched":
       return {
         ...view,
-        modelSwitches: [...view.modelSwitches, { at: event.at, fromModelId: event.fromModelId, toModelId: event.toModelId }],
+        modelSwitches: [
+          ...view.modelSwitches,
+          { at: event.at, fromModelId: event.fromModelId, toModelId: event.toModelId, handoffSummaryId: event.handoffSummaryId },
+        ],
       };
   }
 }
