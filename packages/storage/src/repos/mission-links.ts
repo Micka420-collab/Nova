@@ -12,6 +12,11 @@ export interface MissionLinkRepo {
   get(childMissionId: string): MissionLink | null;
   /** Children of a parent, oldest first; `kind` null = both kinds. */
   listChildren(parentMissionId: string, kind?: MissionLinkKind | null): MissionLink[];
+  /**
+   * Sub-mission links with something left to do: child running (integration null), integration
+   * pending/in progress/refused, or a worktree still on disk. Oldest first.
+   */
+  listUnsettled(): MissionLink[];
   setIntegration(childMissionId: string, integration: SubMissionIntegration): MissionLink | null;
   setWorktree(childMissionId: string, worktree: string | null): MissionLink | null;
 }
@@ -72,6 +77,18 @@ export function createMissionLinkRepo(db: DatabaseSync, now: () => number = Date
               .prepare("SELECT * FROM mission_links WHERE parent_mission_id = ? AND kind = ? ORDER BY created_at, rowid")
               .all(parentMissionId, kind);
       return rows.map(toLink);
+    },
+
+    listUnsettled() {
+      return db
+        .prepare(
+          `SELECT * FROM mission_links
+           WHERE kind = 'submission'
+             AND (integration IS NULL OR integration IN ('pending', 'testing', 'tests_failed', 'conflict') OR worktree IS NOT NULL)
+           ORDER BY created_at, rowid`,
+        )
+        .all()
+        .map(toLink);
     },
 
     setIntegration(childMissionId, integration) {
