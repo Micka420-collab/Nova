@@ -529,6 +529,12 @@ export type TimelineEntry =
 
 export const GROUP_MIN_RUN = 4;
 
+/**
+ * Only calls that ran as asked fold: a failure, a refusal or a cancellation stays its own card
+ * (it auto-expands), never hidden in a collapsed group whose status reads « terminé ».
+ */
+const STANDS_OUT: ReadonlySet<ToolItemState> = new Set(["failed", "denied", "cancelled"]);
+
 export function groupTimeline(items: readonly TimelineItem[]): TimelineEntry[] {
   const entries: TimelineEntry[] = [];
   let run: ToolItem[] = [];
@@ -544,18 +550,15 @@ export function groupTimeline(items: readonly TimelineItem[]): TimelineEntry[] {
   for (const item of items) {
     // A model turn that only called tools has no text: no empty « Nomi » bubble between the cards.
     if (item.kind === "message" && item.complete && item.text.trim() === "") continue;
+    const foldable = item.kind === "tool" && !STANDS_OUT.has(item.state);
     const sameRun =
-      item.kind === "tool" &&
-      item.state !== "failed" &&
-      run.length > 0 &&
-      run[0] !== undefined &&
-      toolCategory(run[0].call.name) === toolCategory(item.call.name);
-    if (item.kind === "tool" && item.state !== "failed" && (run.length === 0 || sameRun)) {
+      foldable && run.length > 0 && run[0] !== undefined && toolCategory(run[0].call.name) === toolCategory(item.call.name);
+    if (foldable && (run.length === 0 || sameRun)) {
       run.push(item);
       continue;
     }
     flush();
-    if (item.kind === "tool" && item.state !== "failed") run.push(item);
+    if (foldable) run.push(item);
     else entries.push({ kind: "item", item });
   }
   flush();

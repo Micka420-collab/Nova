@@ -227,6 +227,19 @@ describe("mission timeline reducer", () => {
     expect(entries.at(-1)).toMatchObject({ kind: "item", item: { id: "w1" } });
   });
 
+  it("never folds a denied or cancelled call into a group: it breaks the run and stays visible", () => {
+    const events = scenario().slice(0, 4);
+    for (const id of ["r1", "r2", "r3", "r4", "r5"]) {
+      events.push(ev({ type: "tool.requested", call: call(id, "read_file"), taskId: null }));
+    }
+    const display = { kind: "error" as const, code: "permission_denied" as const, message: "refusé" };
+    events.push(ev({ type: "tool.finished", callId: "r3", state: "denied", display, durationMs: 0 }));
+    const entries = groupTimeline(run(events).items);
+    // Two reads, the refusal, two reads: no run is long enough to fold.
+    expect(entries.some((entry) => entry.kind === "group")).toBe(false);
+    expect(entries).toContainEqual({ kind: "item", item: expect.objectContaining({ id: "r3", state: "denied" }) });
+  });
+
   it("shows no empty Nomi message between the calls of turns that only called tools", () => {
     const events = scenario().slice(0, 4);
     const usage = { promptTokens: 100, completionTokens: 20, reasoningTokens: null, cachedTokens: null, cost: 0.0001 };
