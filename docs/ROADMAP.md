@@ -119,6 +119,22 @@ Périmètre et critères détaillés : [`FEATURES.md`](FEATURES.md) (§4, J2-A).
 - [ ] CI trois OS verte sur la tête de la branche (Windows et macOS n'ont jamais exécuté les specs J2-A)
 - [ ] Appels d'outils, recherche web et serveurs MCP réels avec un vrai compte OpenRouter
 
+### J2-B — « Parité Harness » · intégré sur `feat/j2b-parite-harness`
+
+Périmètre : [`research/DEEPSEEK_HARNESS.md`](research/DEEPSEEK_HARNESS.md) (§2B, §3), carte des voies et contrats. Linux x64, faux serveur OpenRouter (2026-09-28 : lint, types, 2 212 tests unitaires, Playwright 42/42 ; détail dans [`STATUS.md`](STATUS.md)).
+
+- [x] L1 — Terminal de l'agent et processus en arrière-plan : session en lecture seule, « Prendre la main », `process_list` / `process_output` / `process_stop`, aucun orphelin à la sortie (`j2b-terminal-agent.spec.ts`)
+- [x] L2 — Compaction proposée puis appliquée par l'utilisateur, « /compact », dossier de passation au changement de modèle (`j2b-compaction.spec.ts`)
+- [x] L3 — Skills : aperçu, installation, activation par projet, chargement dans une mission, désinstallation sans résidu (`j2b-skills.spec.ts`)
+- [x] L4 — Mode « Chaîne » : hôte isolé, appels soumis au moteur et aux approbations, imbriqués sous leur programme (`j2b-chain.spec.ts`)
+- [x] L5 — Sous-missions bornées : worktree, intégration après tests, arbre dans la mission (`j2b-submissions.spec.ts`)
+- [x] L6 — Missions planifiées : exécution comme une mission normale, historique, pause (`j2b-schedules.spec.ts`)
+- [x] L7 — Présence bureau, accueil, densité, pilote automatique, vision (`j2b-desktop.spec.ts`)
+- [x] L8 — « Jusqu'à preuve », recherche dans la chronologie, « Bifurquer d'ici » (`j2b-proof-timeline.spec.ts`)
+- [ ] CI trois OS sur la tête de la branche (Windows et macOS n'ont jamais exécuté les specs J2-B)
+- [ ] Parcours J2-B avec un vrai compte OpenRouter (compaction, pilote automatique, vision, sous-missions)
+- [ ] Limites listées dans « Non vérifié » de `STATUS.md` (skills de projet invalides expliquées, conflits d'intégration listés, pilote automatique à l'accueil, 6 skills livrées)
+
 ## J3 — Extensibilité et reprise
 
 Dépend de : J2.

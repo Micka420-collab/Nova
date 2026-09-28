@@ -7,6 +7,7 @@ Page de reprise : ce qui marche, ce qui a réellement été testé, ce qui ne l'
 - **Jalons en cours** : J0 (fondations) et J1 (vraie conversation) ; J2-A (« l'atelier s'ouvre ») intégré sur la branche `feat/j2a-atelier` (tête vérifiée : `643b286`, non poussée, CI non rejouée sur cette tête). Voir [`ROADMAP.md`](ROADMAP.md).
 - **Verdict** : non prêt pour la production. La tranche verticale du jalon 1 et les parcours J2-A (a) à (j) fonctionnent sur Linux x64 contre un faux serveur OpenRouter ; rien n'a encore été parcouru avec une vraie clé, et J2-A n'a pas tourné sur Windows ni macOS.
 - **J2-B « parité Harness », phase 0 (2026-09-28, branche `feat/j2b-parite-harness`)** : contrats partagés des huit voies (processus et terminal de l'agent, compaction et dossier de passation, skills, mode « Chaîne », sous-missions, missions planifiées, présence bureau et pilote automatique, missions « jusqu'à preuve » et chronologie), migration v6, dépôts et points d'extension (boucle, passerelle d'outils, lien runtime). Aucune fonction J2-B n'est encore visible : les huit groupes IPC répondent `unavailable` et aucun outil J2-B n'est proposé au modèle tant que sa voie n'est pas branchée.
+- **J2-B « parité Harness », intégration (2026-09-28, branche `feat/j2b-parite-harness`, non poussée)** : les huit voies sont branchées dans le main (services, outils, crochets de la boucle, hôte `chain-host`) et dans l'interface (panneaux de mission, options du contrat, documents Extensions › Skills, Missions planifiées et Recherche dans les missions, palette, réglages « Bureau et affichage », accueil de profil). Plus aucun groupe IPC ne répond `unavailable`. Vérifié sur Linux x64 contre le faux serveur OpenRouter : lint, types, 2 212 tests unitaires, build, Playwright 42/42 (les 29 existants + 13 parcours J2-B). Détail et limites plus bas.
 - **Vérification finale J2-A (2026-09-28)** : lint, types, 1 746 tests unitaires, build, suite Playwright complète 29/29 deux fois de suite et `vault-smoke` `os` au vert, sans correctif nécessaire (détail dans « Testé réellement »).
 - **Code** : commits sur `main` : `b48b9e4` (monorepo et contrat partagé), `a08ad93` (tranche verticale : application desktop, adaptateur OpenRouter, store SQLite, runtime, interface, CI, E2E), `996fd02` (logo : le concept de ruban du propriétaire redessiné en un seul tracé plein, icônes régénérées). Puis un commit de correctifs issus d'une revue adversariale (6 axes, 42 signalements, 40 confirmés par deux contre-vérificateurs, tous corrigés avec test de non-régression).
 
@@ -41,6 +42,17 @@ Parcours J2-A par l'interface (specs `e2e/j2a-*.spec.ts`, faux serveur OpenRoute
 - (h) Nomi suit une mission en direct puis transforme un échec de tests en suggestion qui l'explique ;
 - (i) plafond de budget : suspension avant l'appel qui le franchirait, reprise après relèvement ; « Arrêter » donne un seul résultat terminal (scénario 10, un worker) ;
 - (j) NOVA tué après un effet externe : au redémarrage, pas de relance, un seul effet, action interrompue affichée comme telle (scénario 11).
+
+Parcours J2-B par l'interface (specs `e2e/j2b-*.spec.ts`, faux serveur OpenRouter) :
+
+- (L1) une mission lance deux serveurs en arrière-plan, approuvés dans leur carte ; le dock montre la session de Nomi en lecture seule (saisie ignorée), « Prendre la main » la rend saisissable ; `process_list`, `process_output`, `process_stop` (approuvé) ; quitter NOVA tue le serveur restant ;
+- (L2) une mission dépasse 80 % du contexte : carte « Résumé proposé », « Appliquer », la requête suivante porte le résumé ; « /compact » en Discuter ; changement de modèle en cours de mission par un dossier de passation, requête suivante sur le nouveau modèle ;
+- (L3) installer une skill depuis un dossier (aperçu avant « Installer »), l'activer pour le projet, carte « Skill chargée » dans une mission, désinstallation sans résidu (l'outil `skill` n'est alors plus proposé) ;
+- (L4) mode « Chaîne » : un programme lit deux fichiers puis en modifie un (approbation dans la carte), les trois appels sous la carte du programme, audit des trois exécutions ;
+- (L5) deux sous-missions (lecture et écriture) en arbre ; l'enfant écrivain intégré après ses tests, l'autre « rien à intégrer », aucun worktree restant ;
+- (L6) planification unique exécutée comme une mission normale, historique à jour, planification en pause sans exécution ;
+- (L7) accueil (profil et densité) enregistré ; pilote automatique affiché puis modifié avant l'envoi (l'effort choisi part au fournisseur) ; image collée avec un modèle texte : modèle vision proposé, image envoyée une fois, jamais stockée ; fenêtre fermée avec l'option active : la mission continue, quitter demande confirmation ;
+- (L8) « Jusqu'à preuve » : tests rouges au tour 0, verts au tour 1, `continuation.stopped proven` puis réussite ; recherche « panier » ; « Bifurquer d'ici » prépare une mission liée, rien de rejoué.
 
 Avec le vrai service OpenRouter : seuls la lecture du catalogue (458 modèles) et le traitement d'une clé refusée (HTTP 401 → `invalid_key`) ont été exercés.
 
@@ -78,6 +90,10 @@ Environnement commun, sauf mention contraire : Linux x64, Ubuntu 26.04, Node 24.
 | 2026-09-28 | J2-B phase 0 — `pnpm lint`, `pnpm typecheck` | Linux x64 | Code 0, aucun avertissement ni erreur | Architecte J2-B |
 | 2026-09-28 | J2-B phase 0 — `pnpm test` | Linux x64, Vitest 5.0.2 | 145 fichiers réussis, 1 ignoré ; 1 788 tests réussis, 2 ignorés (contrats J2-B, migration v6 et dépôts, crochets de boucle, appels imbriqués de la passerelle, tranches de la vue mission) | Architecte J2-B |
 | 2026-09-28 | J2-B phase 0 — `npx electron-vite build` puis `xvfb-run -a npx playwright test` (dans `apps/desktop`) | Linux x64, Electron 44.4.5, Xvfb 1440×900 | Build OK ; 29/29 réussis (pont exposé : 27 groupes, dont les 8 groupes J2-B) | Architecte J2-B |
+| 2026-09-28 | Intégration J2-B — `pnpm lint` ; `pnpm typecheck` | Linux x64, Node 24.20.0 | Code 0, aucun avertissement ni erreur | Intégration J2-B |
+| 2026-09-28 | Intégration J2-B — `pnpm test` | Linux x64, Vitest 5.0.2 | 208 fichiers réussis, 1 ignoré (209) ; 2 212 tests réussis, 2 ignorés (2 214) | Intégration J2-B |
+| 2026-09-28 | Intégration J2-B — `cd apps/desktop && npx electron-vite build` | Linux x64 | Build OK, 5 entrées worker dont `chain-host` ; seul avertissement : taille de bloc > 500 kB | Intégration J2-B |
+| 2026-09-28 | Intégration J2-B — `LD_LIBRARY_PATH=<.devdeps>/usr/lib/x86_64-linux-gnu xvfb-run -a npx playwright test` (dans `apps/desktop`) | Linux x64, Electron 44.4.5, Xvfb | 42/42 réussis (4,8 min) : les 29 existants (dont `atelier-foundations` qui exige désormais `chain: ok` du self-test) + `j2b-chain` 1, `j2b-compaction` 3, `j2b-desktop` 4, `j2b-proof-timeline` 1, `j2b-schedules` 1, `j2b-skills` 1, `j2b-submissions` 1, `j2b-terminal-agent` 1 | Intégration J2-B |
 | en attente | Scénario 1 manuel avec un vrai compte OpenRouter (réponse en continu réelle) | | à faire : demande une clé avec crédit | |
 
 ## Non vérifié
@@ -93,13 +109,22 @@ Environnement commun, sauf mention contraire : Linux x64, Ubuntu 26.04, Node 24.
 - J2-A, vérifié seulement contre le faux serveur : appels d'outils et recherche web avec le vrai OpenRouter ; serveurs MCP réels (seul un serveur de test du SDK a été exercé) ; xterm.js sans WebGL perd les couleurs « truecolor » sous la CSP à nonce (bandeau « mode dégradé ») ; isolation L0 seulement (bubblewrap détecté, jamais présenté comme actif).
 - J2-A, non fait (aucun groupe masqué : tous les groupes sont servis ; ce qui manque n'a pas de bouton) :
   - mémoriser une commande précise (`PermissionRule.argvPrefix`, demande une migration) ; journal des notifications de Nomi persistant (table `companion_notices`, migration) ;
-  - outils de suivi des processus en arrière-plan (`process_list` / `process_stop`) ; événement « modèle de secours utilisé » (Mo2) ;
+  - événement « modèle de secours utilisé » (Mo2) (les outils `process_list` / `process_output` / `process_stop` existent depuis J2-B) ;
   - inspecteur de contexte exact (`chat.previewContext`) et mentions transmises au plan de mission (`MissionPlanRequest.mentions`) ; « Relancer » repart sans les pièces jointes ;
   - recherche projet en flux (MessagePort), lecture paginée des fichiers de 5 à 50 Mo et aperçu hexadécimal ; `truncated` sur `files.list` ;
   - relancer directement une réponse échouée depuis la bulle de Nomi (elle ouvre la conversation) ; commandes de Nomi une à une dans la palette (la palette ouvre le menu de Nomi, Ctrl+Maj+N) ;
-  - commandes de l'agent dans le terminal (E13, partie agent) : `run_command` / `run_tests` s'exécutent dans main (`child_process`, L0), jamais dans le pty-host ; les sessions d'agent en lecture seule et « Prendre la main » existent dans le pty-host et le panneau, mais aucune mission n'en crée (`createAgentSession` n'a pas d'appelant) : le dock ne montre donc jamais de commande de l'agent ;
+  - (fait en J2-B L1 : les processus en arrière-plan tournent dans une session d'agent du pty-host, les commandes au premier plan y sont reflétées en lecture seule) ;
   - vue scindée du terminal, blocs OSC 133 ; editorconfig, minimap ; profils Vim/Emacs ; panneaux Ctrl+1…9 ;
   - jetons de l'atelier encore dans `packages/ui/src/styles/agent.css` (à déplacer dans `tokens.css` avec tests de contraste) ; contraste de `--nv-match-bg` en sombre (3,72:1) à corriger dans VISUAL.md.
+- J2-B, vérifié seulement contre le faux serveur et sur Linux x64 ; limites connues :
+  - Windows et macOS : aucun passage (le chemin pty d'un processus en arrière-plan sous Windows n'est testé qu'avec un faux spawn) ; barre système sous certains bureaux Linux sans hôte StatusNotifier : l'icône peut exister sans être visible ; une entrée « Missions en cours » du menu de la barre ouvre NOVA sans sélectionner la mission ;
+  - Chaîne : `vm` n'est pas une frontière de sécurité (ADR-022, risque résiduel V8) ;
+  - compaction : un résumé proposé ne peut plus s'appliquer après un redémarrage ; le coût d'un résumé de conversation n'entre pas dans les totaux de la conversation ; `tokensAfter` est une estimation ;
+  - skills : scripts des skills d'utilisateur et livrées non exécutables (hors du projet) ; dossier de skill de projet invalide absent de la liste sans explication ; « contenu changé depuis l'activation » dit seulement « désactivée » ; installation depuis un dossier seulement ; 3 skills livrées sur les 6 de M8 ;
+  - sous-missions : intégration toujours manuelle ; chemins en conflit non listés dans l'interface ; outils git et processus non proposés à un enfant écrivain ;
+  - pilote automatique : coût du classement affiché seulement (non enregistré) ; l'accueil (`HomeView`) n'a ni images collées ni pilote automatique (la conversation les a) ; « Relancer » ne renvoie pas les images ;
+  - « jusqu'à preuve » : la dépense d'un tour déjà lancé peut dépasser le plafond de la continuation d'au plus ce tour (jamais le budget de la mission) ; un fork dont la planification échoue n'est pas relié à l'original ;
+  - planifications : un échec de planification n'est pas relié à sa mission `failed`.
 - Avis de licence (OFL, ISC) présents dans le paquet.
 - Mesures de référence : taille de l'installeur, mémoire au repos, CPU du compagnon au repos (ADR-001).
 
@@ -146,6 +171,7 @@ Format attendu d'une cellule remplie : « Oui — 2026-mm-jj, commande ou run CI
 
 ## Historique de cette page
 
+- 2026-09-28 — intégration J2-B : les huit voies branchées (main, renderer, palette), demandes de contrat des voies appliquées (ADR-022, ADR-023) ; lint, types, 2 212 tests, build, Playwright 42/42.
 - 2026-09-28 — J2-B phase 0 : contrats, migration v6 (skills, plannings, liens de missions, résumés de compaction, recherche FTS du journal, parent des appels d'une chaîne), points d'extension, stubs `unavailable`.
 - 2026-09-28 — vérification finale J2-A sur `643b286` : lint, types, tests unitaires, build, Playwright 29/29 ×2, `vault-smoke` `os`.
 - 2026-09-27 — squelette initial.

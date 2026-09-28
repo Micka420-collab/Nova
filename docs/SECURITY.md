@@ -95,6 +95,16 @@ En mode `pnpm dev`, le renderer est servi par le serveur de développement de Vi
 
 **Honnêteté sur l'isolation.** NOVA dit exactement quel niveau d'isolation s'applique (par exemple « processus séparé, sans isolation du système de fichiers ») et ne présente jamais comme « sandbox » ce qui n'en est pas une.
 
+## Parité Harness (J2-B)
+
+- **Chaîne** : un programme tourne dans un hôte `utilityProcess` créé pour lui, contexte V8 sans Node ni génération de code, tas, durée et nombre d'appels bornés ; chaque appel d'outil repasse par le moteur de permissions et les approbations (ADR-022).
+- **Processus de l'agent** : argv sans shell, environnement nettoyé, dossier confiné ; session de terminal en lecture seule jusqu'à « Prendre la main » ; sortie envoyée au modèle expurgée et bornée ; tous tués à la sortie de NOVA.
+- **Skills** : les permissions déclarées n'accordent rien ; leur contenu est une donnée balisée (`skill`) ; les scripts ne passent que par `run_command` ; aucune écriture hors `<données>/skills` ; une skill de projet n'est jamais activée sans aperçu de son contenu actuel.
+- **Sous-missions** : profondeur 1, budget réservé sur le parent, contrat jamais plus large ; un enfant qui écrit travaille dans un worktree git (hooks et filtres neutralisés) ; rien n'entre dans le projet sans tests verts, point de reprise et clic « Intégrer ».
+- **Missions planifiées** : seulement quand NOVA tourne ; une approbation attend l'humain (jamais d'auto-approbation).
+- **Compaction** : un résumé n'est appliqué qu'après « Appliquer » ; l'historique stocké n'est jamais réécrit ; le raisonnement d'un modèle n'est ni stocké ni transmis au suivant (ADR-008).
+- **Images collées** : jamais stockées ; refusées si le modèle ne lit pas d'images.
+
 ## Réseau
 
 | Émetteur | Destination | Quand | Statut |
