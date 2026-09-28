@@ -2,7 +2,7 @@
 // `data-layout="converse"`: the thread is in the center, the workbench on the right.
 // `data-layout="build"`: the workbench (+ dock) is in the center, the agent panel on the right.
 // Below 900 px the explorer becomes a drawer and the workbench an overlay, so nothing is squeezed.
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { Dialog, IconButton, Lockup } from "@nova/ui";
 import { fr } from "../../copy/fr";
@@ -167,7 +167,7 @@ function NarrowWorkshop() {
         className="nova-drawer nova-drawer--right"
       >
         <aside aria-label={fr.atelier.shell.workbenchLabel} className="nova-zone nova-zone--context">
-          <Workbench />
+          <WorkbenchWithDock />
         </aside>
       </Dialog>
     </div>
@@ -179,6 +179,8 @@ export function Workshop() {
   const quickOpen = useApp((state) => state.ui.quickOpen);
   const hasWorkspace = useApp((state) => state.workspace.current !== null);
   const setUi = useApp((state) => state.setUi);
+  // The store routes « open this document / terminal » to the overlay only when it knows.
+  useEffect(() => setUi({ narrow }), [narrow, setUi]);
   return (
     <>
       {narrow ? <NarrowWorkshop /> : <WideWorkshop />}

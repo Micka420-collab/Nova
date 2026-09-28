@@ -22,6 +22,21 @@ async function storeWithStream() {
 }
 
 describe("store", () => {
+  it("opens the narrow layout's overlay for every document or terminal request, and only there", () => {
+    const store = createAppStore(createNovaClient(createFakeBridge({ connection: VALID_CONNECTION }).bridge));
+    store.getState().openDoc({ kind: "diff", missionId: "m1" });
+    expect(store.getState().ui.contextOverlayOpen).toBe(false);
+    store.getState().setUi({ narrow: true });
+    store.getState().openDoc({ kind: "diff", missionId: "m1" });
+    expect(store.getState().ui.contextOverlayOpen).toBe(true);
+    store.getState().setUi({ contextOverlayOpen: false });
+    store.getState().revealFile("src/a.ts", 3);
+    expect(store.getState().ui.contextOverlayOpen).toBe(true);
+    store.getState().setUi({ contextOverlayOpen: false });
+    store.getState().revealTerminal("session-1");
+    expect(store.getState().ui).toMatchObject({ contextOverlayOpen: true, dockOpen: true, dockTab: "terminal" });
+  });
+
   it("stop() treats a stream main no longer knows as already ended, and reports other failures", async () => {
     const { store, failNext, conversation } = await storeWithStream();
     failNext("chat.stop", { code: "not_found", message: "Active stream not found" });

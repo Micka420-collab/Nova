@@ -129,6 +129,11 @@ export interface UiState {
   /** Narrow layout only: navigation drawer and context overlay. */
   navOpen: boolean;
   contextOverlayOpen: boolean;
+  /**
+   * Below 900 px (set by the Workshop from NARROW_QUERY): the workbench and its dock exist only in
+   * the context overlay, so every request to show a document or a terminal opens it.
+   */
+  narrow: boolean;
   modelPicker: { open: boolean; target: ModelTarget };
   layout: ShellLayout;
   displayMode: DisplayMode;
@@ -321,6 +326,7 @@ export function initialData(): AppData {
       rightPanelOpen: true,
       navOpen: false,
       contextOverlayOpen: false,
+      narrow: false,
       modelPicker: { open: false, target: "new" },
       layout: "converse",
       displayMode: "create",
@@ -916,6 +922,7 @@ export function createAppStore(client: NovaApi): AppStore {
               docs,
               activeDoc: key,
               workbenchOpen: true,
+              ...(state.ui.narrow ? { contextOverlayOpen: true } : {}),
             },
           };
         });
@@ -950,7 +957,13 @@ export function createAppStore(client: NovaApi): AppStore {
 
       revealTerminal(sessionId) {
         set((state) => ({
-          ui: { ...state.ui, dockOpen: true, dockTab: "terminal", terminalRequest: { sessionId, nonce: nextNonce() } },
+          ui: {
+            ...state.ui,
+            dockOpen: true,
+            dockTab: "terminal",
+            terminalRequest: { sessionId, nonce: nextNonce() },
+            ...(state.ui.narrow ? { contextOverlayOpen: true } : {}),
+          },
         }));
       },
 
