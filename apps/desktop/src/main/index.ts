@@ -482,9 +482,9 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
         .stopEverything()
         .catch((error: unknown) => logger.warn("agent processes stop failed", { error: describeError(error) }));
       await mcp.shutdown().catch((error: unknown) => logger.warn("mcp shutdown failed", { error: describeError(error) }));
-      await Promise.race([commandsStopped, timeout]);
-      workers.stopAll();
-      await Promise.race([runner.idle(), timeout]);
+      // Workers exit after their own cleanup (the pty-host kills its terminals' trees): wait for it.
+      const workersStopped = workers.stopAll();
+      await Promise.race([Promise.all([commandsStopped, workersStopped, runner.idle()]), timeout]);
       store.close();
       logger.info("stopped");
     })()
@@ -511,7 +511,7 @@ if (process.argv.includes(SELFTEST_FLAG)) {
     .then(async () => {
       const pool = await createWorkerPool(logger);
       const report = await runWorkerSelfTest(pool);
-      pool.stopAll();
+      await pool.stopAll();
       process.stdout.write(`${JSON.stringify({ novaSelfTest: report })}\n`);
       app.exit(report.ok ? 0 : 1);
     })

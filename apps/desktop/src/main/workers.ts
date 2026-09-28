@@ -141,6 +141,7 @@ export class ManagedWorker {
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
   private startTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly listeners = new Set<(event: WorkerNotify) => void>();
+  private readonly exitListeners = new Set<() => void>();
   private readonly options: Required<Omit<WorkerSpec, "env" | "cwd">> & Pick<WorkerSpec, "env" | "cwd">;
 
   constructor(
@@ -169,20 +170,36 @@ export class ManagedWorker {
     this.spawn();
   }
 
-  /** Stops the worker for good (no restart) and rejects everything in flight. */
-  stop(): void {
+  /**
+   * Stops the worker for good (no restart) and rejects everything in flight. Resolves once the
+   * process exited: workers clean up on SIGTERM (the pty-host kills its terminals' process trees),
+   * so quitting must wait for that before main exits.
+   */
+  stop(): Promise<void> {
     this.clearTimers();
     this.stateValue = "stopped";
     const child = this.child;
     this.child = null;
     this.failAll(unavailable(this.name, "stopped"));
-    child?.kill();
+    if (!child) return Promise.resolve();
+    const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    child.kill();
+    return exited;
   }
 
   /** Worker events (`notify` messages). Returns an unsubscribe function. */
   onNotify(listener: (event: WorkerNotify) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /**
+   * The worker process died without stop() being called: everything it held in memory (sessions,
+   * connections, watchers) is gone, and a restarted worker starts empty. Returns an unsubscribe.
+   */
+  onExit(listener: () => void): () => void {
+    this.exitListeners.add(listener);
+    return () => this.exitListeners.delete(listener);
   }
 
   /** Calls `method` in the worker; rejects with ServiceError(`unavailable`) if it dies or times out. */
@@ -232,7 +249,7 @@ export class ManagedWorker {
     child.stdout?.on("data", log("stdout"));
     child.stderr?.on("data", log("stderr"));
     child.on("message", (message: unknown) => this.onMessage(child, message));
-    child.on("exit", (code) => this.onExit(child, code));
+    child.on("exit", (code) => this.handleExit(child, code));
     this.startTimer = setTimeout(() => {
       if (this.child === child && this.stateValue === "starting") {
         logger.error("worker start timed out", { worker: this.name });
@@ -271,13 +288,14 @@ export class ManagedWorker {
     }
   }
 
-  private onExit(child: UtilityProcess, code: number): void {
+  private handleExit(child: UtilityProcess, code: number): void {
     if (child !== this.child) return;
     this.child = null;
     if (this.startTimer) clearTimeout(this.startTimer);
     this.startTimer = null;
     this.failAll(unavailable(this.name, "exited"));
     if (this.stateValue === "stopped") return;
+    for (const listener of this.exitListeners) listener();
     const now = Date.now();
     this.restarts = this.restarts.filter((at) => now - at < this.options.restartWindowMs);
     if (this.restarts.length >= this.options.maxRestarts) {
@@ -342,7 +360,8 @@ export class WorkerPool {
     return worker;
   }
 
-  stopAll(): void {
-    for (const worker of this.workers.values()) worker.stop();
+  /** Resolves once every worker process exited. */
+  async stopAll(): Promise<void> {
+    await Promise.all([...this.workers.values()].map((worker) => worker.stop()));
   }
 }

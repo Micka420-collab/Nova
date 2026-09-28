@@ -131,6 +131,40 @@ describe("ManagedWorker", () => {
     expect(children).toHaveLength(4);
   });
 
+  it("tells subscribers when the process dies on its own, not when it is stopped", async () => {
+    const { worker, children } = setup();
+    const lost = vi.fn<() => void>();
+    worker.onExit(lost);
+    worker.start();
+    children[0]?.ready();
+    children[0]?.crash();
+    expect(lost).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(children).toHaveLength(2));
+    children[1]?.ready();
+    await worker.stop();
+    expect(lost).toHaveBeenCalledTimes(1);
+  });
+
+  it("stop() resolves only once the process exited", async () => {
+    const { worker, children } = setup();
+    worker.start();
+    children[0]?.ready();
+    const child = children[0] as FakeChild;
+    child.kill = () => {
+      child.killed = true;
+      return true;
+    };
+    let done = false;
+    const stopped = worker.stop().then(() => {
+      done = true;
+    });
+    await Promise.resolve();
+    expect(done).toBe(false);
+    child.emit("exit", 0);
+    await stopped;
+    expect(done).toBe(true);
+  });
+
   it("stop() kills the worker without restarting it", async () => {
     const { worker, children } = setup();
     worker.start();

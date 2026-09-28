@@ -134,8 +134,12 @@ serveWorker("pty-host", {
   [PTY_METHODS.takeOver]: handler((params) => sessions.takeOver(parse(PtySessionParamsSchema, params).sessionId)),
 });
 
-// main stops workers with a kill (SIGTERM on POSIX): end every session's process tree first, so a
-// dev server started in a terminal does not outlive NOVA.
-process.once("SIGTERM", () => {
+// main stops workers with a kill (SIGTERM on POSIX) and waits for the exit: end every session's
+// process tree first, so a dev server started in a terminal does not outlive NOVA. A repeated
+// SIGTERM must not take the default action (die) halfway through the kill pass.
+let shuttingDown = false;
+process.on("SIGTERM", () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
   void sessions.killAll().finally(() => process.exit(0));
 });
