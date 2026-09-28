@@ -4,7 +4,7 @@
 // (equal to the disk), reverts one file, keeps the other; the user's own edits — made before the
 // mission and during it — are never overwritten, and a file changed after the mission is not
 // reverted over the user's back.
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -62,12 +62,18 @@ test.afterEach(async () => {
   removeDir(project);
 });
 
+/**
+ * Exit status of the project's `npm test`. Through a shell: on Windows npm is a batch shim
+ * (npm.cmd) that Node refuses to spawn directly; a spawn failure is a null status, never "red".
+ */
+const npmTest = (cwd: string): number | null => spawnSync("npm test", { cwd, shell: true, stdio: "pipe" }).status;
+
 const sha256 = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
 
 test("(b) Corriger: approvals in the UI, real test run as proof, review reverts one file and keeps the other, user edits kept", async () => {
   test.setTimeout(150_000);
   // Scenario 4: the test is really red before the mission.
-  expect(() => execFileSync("npm", ["test"], { cwd: project, stdio: "pipe" })).toThrow();
+  expect(npmTest(project)).toBe(1);
   // Scenario 5: an uncommitted user change in a file the mission will touch.
   writeFileSync(join(project, "src/format.js"), FORMAT_USER);
 
@@ -124,7 +130,7 @@ test("(b) Corriger: approvals in the UI, real test run as proof, review reverts 
   expect(audit.filter((entry) => entry.action === "tool.executed").length).toBeGreaterThanOrEqual(5);
   expect(readFileSync(join(project, "src/cart.js"), "utf8")).toBe(CART_FIXED);
   expect(readFileSync(join(project, "src/format.js"), "utf8")).toBe(FORMAT_USER_DURING.replace('return amount + " EUR";', EUROS_NEW));
-  execFileSync("npm", ["test"], { cwd: project, stdio: "pipe" });
+  expect(npmTest(project)).toBe(0);
 
   // The review document: two modified files; the diff is what is on disk (hash for hash).
   await end.getByRole("button", { name: "Relire les changements" }).click();

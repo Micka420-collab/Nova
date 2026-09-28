@@ -59,8 +59,9 @@ export function toSearchMatch(data: RgMatchData): SearchMatch | null {
   const rawPath = data.path?.text;
   const rawLine = data.lines?.text;
   if (rawPath === undefined || rawLine === undefined || typeof data.line_number !== "number") return null;
-  const path = rawPath.startsWith("./") ? rawPath.slice(2) : rawPath;
-  const normalized = path.split("\\").join("/");
+  // ripgrep prints paths below the "." it was given with the platform separator (`.\src\a.ts` on Windows).
+  const slashed = rawPath.split("\\").join("/");
+  const normalized = slashed.startsWith("./") ? slashed.slice(2) : slashed;
   if (!isCanonicalRelativePath(normalized) || normalized === "") return null;
   const line = rawLine.replace(/\r?\n$/, "");
   const bytes = Buffer.from(line, "utf8");

@@ -7,7 +7,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { launchNova, makeUserDataDir, removeDir, type LaunchedNova } from "./fixtures";
+import { crashNova, launchNova, makeUserDataDir, removeDir, type LaunchedNova } from "./fixtures";
 import { connect, currentWorkspaceId, latestMission, launchOnFolder, missionEvents, planFromAgent, shot, TERMINAL_EVENTS, writeShopProject } from "./j2a-kit";
 import { startMockOpenRouter, type MissionScript, type MockOpenRouter } from "./mock-openrouter";
 
@@ -158,8 +158,7 @@ test("(j) crash after an external effect, then restart: no replay, one effect, t
   effectPid = Number(readFileSync(join(project, "effect.pid"), "utf8"));
   const missionId = (await latestMission(page, workspaceId)).id;
   const requestsBefore = completions(mock).length;
-  nova.app.process().kill("SIGKILL");
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  await crashNova(nova);
 
   nova = await launchNova({ userDataDir, mock });
   const restarted = nova.page;

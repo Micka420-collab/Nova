@@ -30,15 +30,21 @@ test("every worker answers ping; node-pty and ripgrep run inside them", () => {
   for (const [name, value] of Object.entries(process.env)) if (value !== undefined) env[name] = value;
   env["NOVA_USER_DATA_DIR"] = userDataDir;
   const sandboxArgs = process.platform === "linux" ? ["--no-sandbox"] : [];
-  const stdout = execFileSync(electronBinary, [appDir, ...sandboxArgs, "--nova-selftest=workers"], {
-    env,
-    timeout: 60_000,
-    encoding: "utf8",
-  });
+  let stdout: string;
+  try {
+    stdout = execFileSync(electronBinary, [appDir, ...sandboxArgs, "--nova-selftest=workers"], {
+      env,
+      timeout: 60_000,
+      encoding: "utf8",
+    });
+  } catch (error) {
+    // A failed self-test exits 1 after printing its report: keep it, it says which part failed.
+    stdout = String((error as { stdout?: unknown }).stdout ?? "");
+  }
   const line = stdout.split("\n").find((candidate) => candidate.startsWith('{"novaSelfTest"'));
   expect(line).toBeDefined();
   const report = JSON.parse(line ?? "{}").novaSelfTest;
-  expect(report.ok).toBe(true);
+  expect(report, JSON.stringify(report)).toMatchObject({ ok: true });
   for (const name of ["pty-host", "fs-worker", "agent-runtime", "mcp-host"]) {
     expect(report.workers[name]).toMatchObject({ ok: true, error: null });
   }

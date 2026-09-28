@@ -45,10 +45,10 @@ test("(a) open a folder, browse, edit and save; an external change is detected, 
 
   // Edit and save with Ctrl+S: the disk holds the new text.
   await editor.click();
-  await page.keyboard.press("Control+End");
+  await page.keyboard.press("ControlOrMeta+End");
   await page.keyboard.type("// relu dans NOVA\n");
   await expect(page.getByRole("tab", { name: /src\/cart\.js, non enregistré/ })).toBeVisible();
-  await page.keyboard.press("Control+s");
+  await page.keyboard.press("ControlOrMeta+s");
   await expect(page.getByText("cart.js enregistré")).toBeVisible();
   await expect.poll(() => readFileSync(join(project, "src/cart.js"), "utf8")).toContain("// relu dans NOVA");
   // The status bar counts the saved file (Git status re-read on the file event).
@@ -61,7 +61,7 @@ test("(a) open a folder, browse, edit and save; an external change is detected, 
 
   // Unsaved edits + external change: NOVA asks, the disk and the buffer are both kept.
   await editor.click();
-  await page.keyboard.press("Control+End");
+  await page.keyboard.press("ControlOrMeta+End");
   await page.keyboard.type("// ma version\n");
   writeFileSync(join(project, "src/cart.js"), `${readFileSync(join(project, "src/cart.js"), "utf8")}// changé dehors 2\n`);
   await expect(page.getByText("Le fichier a changé sur le disque")).toBeVisible();
@@ -69,7 +69,7 @@ test("(a) open a folder, browse, edit and save; an external change is detected, 
   expect(readFileSync(join(project, "src/cart.js"), "utf8")).toContain("// changé dehors 2");
   expect(readFileSync(join(project, "src/cart.js"), "utf8")).not.toContain("// ma version");
   // Ctrl+S never picks a side while the conflict is open.
-  await page.keyboard.press("Control+s");
+  await page.keyboard.press("ControlOrMeta+s");
   expect(readFileSync(join(project, "src/cart.js"), "utf8")).not.toContain("// ma version");
   await shot(page, "j2a-04-external-conflict");
 
