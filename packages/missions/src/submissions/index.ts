@@ -175,6 +175,20 @@ function sameBytes(a: Uint8Array | null, b: Uint8Array | null): boolean {
   return true;
 }
 
+/**
+ * The worktree's checkout may convert line endings (`core.autocrlf` on Windows) where the project's
+ * file does not have them: the integrated text keeps the line endings of the project's file, so an
+ * integration never rewrites every line. Mixed or absent line endings: the child's text as is.
+ */
+function withLineEndingsOf(current: string | null, text: string): string {
+  const lines = current?.match(/\n/g)?.length ?? 0;
+  if (current === null || lines === 0) return text;
+  const crlf = current.match(/\r\n/g)?.length ?? 0;
+  const lf = text.replace(/\r\n/g, "\n");
+  if (crlf === 0) return lf;
+  return crlf === lines ? lf.replace(/\n/g, "\r\n") : text;
+}
+
 const utf8 = new TextDecoder("utf-8", { fatal: true });
 function textOf(bytes: Uint8Array): string | null {
   if (bytes.includes(0)) return null;
@@ -537,8 +551,11 @@ export function createSubmissionsController(deps: SubmissionsControllerDeps): Su
       if (item.change !== "deleted" && incoming === null) return "conflict";
       if (sameBytes(current, incoming)) continue; // already there
       if (item.change === "added" ? current !== null : touchedSinceBase.has(item.path)) return "conflict";
-      const next = incoming === null ? null : textOf(incoming);
-      if (incoming !== null && next === null) return "conflict";
+      const text = incoming === null ? null : textOf(incoming);
+      if (incoming !== null && text === null) return "conflict";
+      const currentText = current === null ? null : textOf(current);
+      const next = text === null ? null : withLineEndingsOf(currentText, text);
+      if (next !== null && next === currentText) continue; // only the checkout's line endings differ
       writes.push({ path: item.path, change: item.change, current, next });
     }
     for (const write of writes) {

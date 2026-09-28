@@ -574,6 +574,24 @@ describe("integration", () => {
     expect(h.project.get("src/b.txt")).toBe("beta\n");
   });
 
+  it("keeps the project's line endings when the worktree's checkout converted them (core.autocrlf)", async () => {
+    const h = harness();
+    h.project.set("src/crlf.txt", "one\r\ntwo\r\n");
+    const child = await pendingChild(h, (files) => {
+      // LF file checked out as CRLF, then edited by the child.
+      files.set("src/a.txt", "alpha 2\r\nmore\r\n");
+      // CRLF file edited through an LF view.
+      files.set("src/crlf.txt", "one\ntwo\nthree\n");
+      // Converted only: nothing to write.
+      files.set("src/b.txt", "beta\r\n");
+    });
+    await h.controller.integrate(child);
+    expect(h.project.get("src/a.txt")).toBe("alpha 2\nmore\n");
+    expect(h.project.get("src/crlf.txt")).toBe("one\r\ntwo\r\nthree\r\n");
+    expect(h.project.get("src/b.txt")).toBe("beta\n");
+    expect(h.evaluated.map((request) => request.path)).toEqual(["src/a.txt", "src/crlf.txt"]);
+  });
+
   it("serializes integrations: one at a time, in the order asked", async () => {
     const h = harness();
     const first = await pendingChild(h, (files) => files.set("src/a.txt", "one\n"));
