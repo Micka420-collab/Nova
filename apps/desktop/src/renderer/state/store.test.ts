@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { createNovaClient, NovaIpcError } from "@nova/shared";
+import { createNovaClient, NovaIpcError, type Mission } from "@nova/shared";
 import { createFakeBridge, makeConversation, makeMessage, VALID_CONNECTION } from "../test/fake-bridge";
+import { makeWorkspace } from "../test/atelier-fake";
 import { createAppStore } from "./store";
 
 const MODEL = "vendor/model-a";
@@ -22,6 +23,35 @@ async function storeWithStream() {
 }
 
 describe("store", () => {
+  it("refuses to close or switch the folder while one of its missions runs, and leaves it on screen", async () => {
+    const fake = createFakeBridge({ connection: VALID_CONNECTION });
+    const store = createAppStore(createNovaClient(fake.bridge));
+    const workspace = makeWorkspace();
+    const running: Mission = {
+      id: "00000000-0000-4000-8000-00000000a001",
+      workspaceId: workspace.id,
+      conversationId: null,
+      title: "Corriger le panier",
+      goal: "g",
+      mode: "fix",
+      state: "running",
+      modelId: null,
+      createdAt: 1,
+      startedAt: 1,
+      endedAt: null,
+      updatedAt: 1,
+    };
+    store.setState((state) => ({
+      workspace: { ...state.workspace, current: workspace, status: "ready" },
+      missions: { ...state.missions, list: [running], listStatus: "ready" },
+    }));
+    await expect(store.getState().closeWorkspace()).rejects.toMatchObject({ code: "conflict" });
+    await expect(store.getState().openWorkspace()).rejects.toMatchObject({ code: "conflict" });
+    await expect(store.getState().reopenWorkspace(workspace.id)).rejects.toMatchObject({ code: "conflict" });
+    expect(fake.calls.filter((call) => call.startsWith("workspace."))).toEqual([]);
+    expect(store.getState().missions.list).toEqual([running]);
+  });
+
   it("puts a terminal explanation in the chat draft and shows that chat, even with a mission selected", () => {
     const store = createAppStore(createNovaClient(createFakeBridge({ connection: VALID_CONNECTION }).bridge));
     store.setState((state) => ({

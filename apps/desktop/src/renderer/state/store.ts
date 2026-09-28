@@ -639,6 +639,18 @@ export function createAppStore(client: NovaApi): AppStore {
       void get().refreshApprovals();
     };
 
+    /**
+     * Closing or switching the folder empties the missions of the atelier, while main keeps running
+     * them (and billing): refuse while one is active, so it is stopped from its card first.
+     */
+    const refuseWhileMissionRuns = (): void => {
+      const { list, views } = get().missions;
+      const states = [...list.map((mission) => mission.state), ...Object.values(views).map((view) => view.mission.state)];
+      if (states.some((state) => state === "running" || state === "waiting_approval")) {
+        throw new NovaIpcError({ code: "conflict", message: "a mission is running in this folder" });
+      }
+    };
+
     const resetAtelier = (): Partial<AppData> => {
       const initial = initialData();
       return { workspace: initial.workspace, missions: initial.missions, approvals: {} };
@@ -1023,16 +1035,19 @@ export function createAppStore(client: NovaApi): AppStore {
       },
 
       async openWorkspace() {
+        refuseWhileMissionRuns();
         await activateWorkspace(() => client.workspace.open());
       },
 
       async reopenWorkspace(workspaceId) {
+        refuseWhileMissionRuns();
         await activateWorkspace(() => client.workspace.reopen({ workspaceId }));
       },
 
       async closeWorkspace() {
         const current = get().workspace.current;
         if (!current) return;
+        refuseWhileMissionRuns();
         await client.workspace.close({ workspaceId: current.id });
         set((state) => ({
           ...resetAtelier(),

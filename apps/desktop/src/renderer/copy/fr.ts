@@ -117,7 +117,7 @@ export const PROVIDER_ERROR_COPY: Record<ProviderErrorCode, ErrorCopy> = {
 export const IPC_ERROR_COPY: Record<IpcErrorCode, string> = {
   invalid_request: "La demande a été refusée : ses données ne sont pas valides.",
   not_found: "Élément introuvable : il a peut-être été supprimé.",
-  conflict: "Action impossible pour l'instant : une génération est déjà en cours ici.",
+  conflict: "Action impossible pour l'instant : une génération ou une mission est en cours ici. Arrête-la d'abord.",
   vault_unavailable: "Ce mode de stockage n'est pas disponible sur ce système.",
   no_key: "Aucune clé OpenRouter n'est enregistrée.",
   key_unreadable:

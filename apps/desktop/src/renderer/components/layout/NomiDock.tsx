@@ -163,7 +163,17 @@ export function NomiDock() {
             const state = appStore.getState();
             state.openModelPicker(state.activeId ? "conversation" : "new");
           },
-          openWorkspace: () => void appStore.getState().openWorkspace(),
+          openWorkspace: () =>
+            void appStore
+              .getState()
+              .openWorkspace()
+              .catch((error: unknown) =>
+                companionStore.getState().showOutcome({
+                  ok: false,
+                  reason: "failed",
+                  message: NOMI_COPY.outcome.failed(describeUiError(toUiError(error)).title),
+                }),
+              ),
           showOutcome: (outcome) => companionStore.getState().showOutcome(outcome),
         }
       : null,
