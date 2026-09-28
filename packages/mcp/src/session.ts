@@ -7,6 +7,7 @@
 // Not enabled on purpose: sampling, elicitation, roots (no client capabilities are declared, so
 // server→client requests of those kinds are answered "method not found" by the SDK).
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
   ErrorCode,
@@ -99,6 +100,7 @@ const CLIENT_INFO = { name: "NOVA", version: "0.1.0" };
  */
 class VersionRecordingTransport implements Transport {
   protocolVersion: string | null = null;
+  private readonly failedSends = new WeakSet<object>();
   onclose?: () => void;
   onerror?: (error: Error) => void;
   onmessage?: <T extends JSONRPCMessage>(message: T, extra?: MessageExtraInfo) => void;
@@ -116,8 +118,24 @@ class VersionRecordingTransport implements Transport {
     return this.inner.start();
   }
 
-  send(message: JSONRPCMessage, options?: Parameters<Transport["send"]>[1]): Promise<void> {
-    return this.inner.send(message, options);
+  async send(message: JSONRPCMessage, options?: Parameters<Transport["send"]>[1]): Promise<void> {
+    try {
+      await this.inner.send(message, options);
+    } catch (error) {
+      if (typeof error === "object" && error !== null) this.failedSends.add(error);
+      throw error;
+    }
+  }
+
+  /**
+   * `error` is a send that never reached a live session: the endpoint is unreachable (fetch
+   * failed) or the HTTP session is gone (404/410, spec: start a new session). The SDK's HTTP
+   * transport never reports these through onclose, so the caller must drop the connection.
+   * Any other HTTP status is one failed request from a server that still answers.
+   */
+  lostConnection(error: unknown): boolean {
+    if (typeof error !== "object" || error === null || !this.failedSends.has(error)) return false;
+    return !(error instanceof StreamableHTTPError) || error.code === 404 || error.code === 410;
   }
 
   close(): Promise<void> {
@@ -349,6 +367,12 @@ export async function connectMcpSession(options: McpSessionOptions): Promise<Mcp
             return fail("unavailable", "Le serveur s'est arrêté pendant l'appel.");
           }
           if (error.code === ErrorCode.InvalidParams) return fail("invalid_arguments", error.message);
+        }
+        if (transport.lostConnection(error) && !closing) {
+          // Unoffered until reconnected: the manager drops its tools and the next mission reconnects.
+          closing = true;
+          await client.close().catch(() => {});
+          setInfo({ state: "error", lastError: "La connexion au serveur a été perdue." });
         }
         if (info.state !== "connected") return fail("unavailable", "Le serveur s'est arrêté pendant l'appel.");
         return fail("failed", errorMessage(error));
