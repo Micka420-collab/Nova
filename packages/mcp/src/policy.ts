@@ -25,9 +25,11 @@ export function effectivePermission(
  * `external` (never rememberable), like one that declares destructive or open-world effects.
  * Only a tool that explicitly declares itself closed-world and non-destructive falls back to the
  * transport's class (a local process for stdio, the network for HTTP).
+ * A read-only hint never lowers an HTTP tool below `network`: its arguments leave the machine
+ * whatever it reads, so the tainted-context and mode rules for outbound traffic must apply.
  */
 export function mcpOperation(annotations: McpToolAnnotations, transport: "stdio" | "http"): OperationClass {
-  if (annotations.readOnlyHint === true) return "read";
+  if (annotations.readOnlyHint === true) return transport === "stdio" ? "read" : "network";
   const destructive = annotations.destructiveHint ?? true;
   const openWorld = annotations.openWorldHint ?? true;
   if (destructive || openWorld) return "external";

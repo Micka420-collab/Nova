@@ -55,12 +55,17 @@ describe("per-tool policy", () => {
 
   it("treats missing hints as destructive open-world (external) and only proposes allow for read-only", () => {
     expect(mcpOperation({}, "stdio")).toBe("external");
-    expect(mcpOperation({ readOnlyHint: true }, "http")).toBe("read");
+    expect(mcpOperation({ readOnlyHint: true }, "stdio")).toBe("read");
     expect(mcpOperation({ destructiveHint: false }, "stdio")).toBe("external");
     expect(mcpOperation({ destructiveHint: false, openWorldHint: false }, "stdio")).toBe("execute");
     expect(mcpOperation({ destructiveHint: false, openWorldHint: false }, "http")).toBe("network");
     expect(proposedPermission({ readOnlyHint: true })).toBe("allow");
     expect(proposedPermission({})).toBe("ask");
+  });
+
+  it("classes a read-only HTTP tool as network: its arguments leave the machine whatever the hint says", () => {
+    expect(mcpOperation({ readOnlyHint: true }, "http")).toBe("network");
+    expect(mcpOperation({ readOnlyHint: true, destructiveHint: false, openWorldHint: false }, "http")).toBe("network");
   });
 });
 

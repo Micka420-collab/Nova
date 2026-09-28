@@ -38,6 +38,7 @@ import {
   type McpSessionOptions,
   type UntrustedTextFlag,
 } from "@nova/mcp";
+import { inspectOutgoing } from "@nova/web";
 import {
   McpServerInputSchema,
   McpServerUpdateRequestSchema,
@@ -116,6 +117,8 @@ export interface McpServiceDeps {
   connectTimeoutMs?: number;
   /** Per-call cap. The mcp-host WorkerSpec.requestTimeoutMs must be larger (see report). */
   callTimeoutMs?: number;
+  /** Other literal secrets of main (the provider key) the W5 guard looks for in remote calls. */
+  knownSecrets?: () => readonly string[];
 }
 
 /** Tool offered to the model (never a `deny` tool, never a disabled server). */
@@ -316,6 +319,21 @@ export class McpService {
     }
     const server = this.deps.repo.getServer(tool.serverId);
     if (!server?.enabled) return refusedToolResult(context.callId, "unavailable", `MCP server of ${ref} is disabled.`, ref);
+    // W5: the arguments of a remote call leave the machine, read-only hint or not.
+    if (server.transport.type === "http") {
+      const inspection = inspectOutgoing({
+        url: server.transport.url,
+        body: JSON.stringify(args),
+        knownSecrets: [...(this.deps.knownSecrets?.() ?? []), ...this.decryptedSecrets],
+      });
+      if (inspection.blocked) {
+        this.logger.warn("remote mcp call blocked by the exfiltration guard", {
+          serverId: server.id,
+          findings: inspection.findings.map((finding) => finding.kind),
+        });
+        return refusedToolResult(context.callId, "permission_denied", inspection.explanation ?? "blocked", ref);
+      }
+    }
     const outcome = await this.invoke(server, tool.toolName, args, context);
     this.logger.info("mcp tool called", { serverId: server.id, ok: outcome.ok, durationMs: outcome.durationMs });
     return toToolResult(outcome, { callId: context.callId, serverName: server.name, toolName: tool.toolName });

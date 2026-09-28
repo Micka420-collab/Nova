@@ -346,6 +346,7 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
     vault,
     host: workers.instance("mcp-host"),
     workspaceRoot: (workspaceId) => workspaceRepo.get(workspaceId)?.rootPath ?? null,
+    knownSecrets: () => (knownKey ? [knownKey] : []),
     logger,
   });
 

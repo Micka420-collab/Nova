@@ -332,6 +332,24 @@ describe("McpService (Streamable HTTP from main)", () => {
     expect(fixture.received.every((auth) => auth === "Bearer http-secret-123456")).toBe(true);
   });
 
+  it("classes a read-only remote tool as network and never sends a known secret in its arguments", async () => {
+    fixture = await startHttpFixture("Bearer http-secret-123456");
+    await service.api().add({
+      name: "Remote",
+      transport: { type: "http", url: fixture.url, headers: { Authorization: { kind: "secret", value: "Bearer http-secret-123456" } } },
+      scope: "workspace",
+      workspaceId,
+      enabled: true,
+    });
+    const offered = await service.listToolsForModel(workspaceId);
+    expect(offered.find((tool) => tool.toolName === "ping")?.definition.operation).toBe("network");
+    const sent = fixture.received.length;
+    const result = await call("mcp__Remote__ping", { q: "context: Bearer http-secret-123456" });
+    expect(result).toMatchObject({ ok: false, display: { kind: "error", code: "permission_denied" } });
+    expect(result.content).toContain("Rien n'a été envoyé");
+    expect(fixture.received.length).toBe(sent);
+  });
+
   it("refuses to send a secret header over clear-text http to a non-loopback host", async () => {
     await expect(
       service.api().add({
