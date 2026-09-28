@@ -1,6 +1,7 @@
 // The native question asked before quitting while something runs. Pure: built from the desktop
 // snapshot; null when nothing would stop (then NOVA quits without asking).
-import { activityCount, type DesktopSnapshot } from "../services/desktop-service";
+import type { DesktopSource } from "@nova/shared";
+import type { DesktopSnapshot } from "../services/desktop-service";
 import { desktopCopy } from "./copy";
 
 export interface QuitWarning {
@@ -23,9 +24,19 @@ function formatNext(at: number, now: number): string {
   return `le ${day} à ${time}`;
 }
 
+/**
+ * What quitting would interrupt: missions, their approvals and processes, schedules. The user's own
+ * terminals are not asked about: an open shell is almost always idle at its prompt (NOVA cannot tell
+ * whether a program runs in it), and a question on every quit with a terminal open teaches to click
+ * through it. Their process trees are still killed at quit (pty-host), never left behind.
+ */
+const QUIT_SOURCES: ReadonlySet<DesktopSource> = new Set(["missions", "approvals", "processes", "schedules"]);
+
 export function buildQuitWarning(snapshot: DesktopSnapshot, now: number = Date.now()): QuitWarning | null {
   const { activity } = snapshot.state;
-  if (activityCount(activity) === 0 && snapshot.state.unreadable.length === 0) return null;
+  const unreadable = snapshot.state.unreadable.filter((source) => QUIT_SOURCES.has(source));
+  const running = activity.runningMissions + activity.waitingApprovals + activity.runningProcesses + activity.activeSchedules;
+  if (running === 0 && unreadable.length === 0) return null;
   const copy = desktopCopy.quit;
   const lines: string[] = [];
   if (activity.runningMissions > 0) {
@@ -34,13 +45,12 @@ export function buildQuitWarning(snapshot: DesktopSnapshot, now: number = Date.n
     lines.push(copy.missions(activity.runningMissions, more > 0 ? `${shown.join(", ")}…` : shown.join(", ")));
   }
   if (activity.waitingApprovals > 0) lines.push(copy.approvals(activity.waitingApprovals));
-  if (activity.runningTerminals > 0) lines.push(copy.terminals(activity.runningTerminals));
   if (activity.runningProcesses > 0) lines.push(copy.processes(activity.runningProcesses));
   if (activity.activeSchedules > 0) {
     const next = activity.nextScheduledAt === null ? null : formatNext(activity.nextScheduledAt, now);
     lines.push(copy.schedules(activity.activeSchedules, next));
   }
   const detail = [copy.intro, ...lines.map((line) => `• ${line}`)];
-  if (snapshot.state.unreadable.length > 0) detail.push("", copy.unreadable);
+  if (unreadable.length > 0) detail.push("", copy.unreadable);
   return { title: copy.title, message: copy.message, detail: detail.join("\n"), buttons: [copy.cancel, copy.confirm] };
 }

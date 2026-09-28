@@ -28,7 +28,6 @@ export const desktopCopy = {
     intro: "Si tu quittes maintenant, ceci s'arrêtera :",
     missions: (count: number, titles: string) => `${plural(count, "mission en cours", "missions en cours")}${titles ? ` : ${titles}` : ""}`,
     approvals: (count: number) => `${plural(count, "approbation en attente", "approbations en attente")} (la mission ne pourra pas continuer)`,
-    terminals: (count: number) => `${plural(count, "terminal ouvert", "terminaux ouverts")}`,
     processes: (count: number) => `${plural(count, "processus lancé par une mission", "processus lancés par des missions")}`,
     schedules: (count: number, next: string | null) =>
       `${plural(count, "planning actif", "plannings actifs")} : aucune exécution tant que NOVA est fermé${next ? ` (prochaine prévue ${next})` : ""}`,

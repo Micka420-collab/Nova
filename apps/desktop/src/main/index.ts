@@ -46,6 +46,7 @@ import { registerIpcRoutes } from "./ipc";
 import { buildIpcRoutes } from "./ipc-routes";
 import { createFileLogger, describeError, type Logger } from "./logger";
 import { handleAppProtocol, registerAppScheme } from "./protocol";
+import { runQuitSequence } from "./quit-sequence";
 import { hardenSession, hardenWebContents, isTrustedSender, type SecurityContext } from "./security";
 import {
   CORRUPT_DATABASE_CHOICES,
@@ -91,8 +92,10 @@ import { createElectronVault } from "./vault";
 
 const APP_NAME = "NOVA";
 const APP_USER_MODEL_ID = "io.github.micka420collab.nova";
-/** Longest wait at quit for generations to persist their stopped state. */
-const QUIT_IDLE_TIMEOUT_MS = 3_000;
+/** Longest wait at quit for servers, agent processes, workers and generations to stop. */
+const QUIT_TIMEOUT_MS = 5_000;
+/** Share of it MCP servers get: the workers (whose exit kills terminal trees) are stopped after them. */
+const QUIT_MCP_TIMEOUT_MS = 2_000;
 
 const overrides = resolveLaunchOverrides(app.isPackaged, process.env);
 const devOrigin = overrides.rendererDevUrl ? new URL(overrides.rendererDevUrl).origin : null;
@@ -768,27 +771,35 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
       window.close();
       return;
     }
-    shutdown ??= (async () => {
-      presence?.dispose();
-      desktop?.dispose();
-      // No scheduled run starts during the quit.
-      scheduleService.stop();
-      runner.stopAll();
-      companion?.dispose();
-      contextService.dispose();
-      const timeout = new Promise<void>((resolve) => setTimeout(resolve, QUIT_IDLE_TIMEOUT_MS));
-      // Agent processes run in detached groups: nothing else kills them once NOVA exits.
-      const commandsStopped = Promise.all([processes.stopEverything(), submissions?.stopEverything(), chain.stopAll()]).catch(
-        (error: unknown) => logger.warn("agent processes stop failed", { error: describeError(error) }),
-      );
-      await mcp.shutdown().catch((error: unknown) => logger.warn("mcp shutdown failed", { error: describeError(error) }));
-      // Workers exit after their own cleanup (the pty-host kills its terminals' trees): wait for it.
-      const workersStopped = workers.stopAll();
-      await Promise.race([Promise.all([commandsStopped, workersStopped, runner.idle()]), timeout]);
-      store.close();
-      logger.info("stopped");
-    })()
-      .catch((error: unknown) => logger.error("shutdown failed", { error: describeError(error) }))
+    shutdown ??= runQuitSequence({
+      halt: [
+        () => presence?.dispose(),
+        () => desktop?.dispose(),
+        // No scheduled run starts during the quit.
+        () => scheduleService.stop(),
+        () => runner.stopAll(),
+        () => companion?.dispose(),
+        () => contextService.dispose(),
+      ],
+      async stop() {
+        // Agent processes run in detached groups: nothing else kills them once NOVA exits.
+        const commandsStopped = Promise.all([processes.stopEverything(), submissions?.stopEverything(), chain.stopAll()]).catch(
+          (error: unknown) => logger.warn("agent processes stop failed", { error: describeError(error) }),
+        );
+        // Stdio servers are closed through the mcp-host worker, so before the workers stop.
+        const mcpTimeout = new Promise<void>((resolve) => setTimeout(resolve, QUIT_MCP_TIMEOUT_MS).unref());
+        await Promise.race([mcp.shutdown().catch((error: unknown) => logger.warn("mcp shutdown failed", { error: describeError(error) })), mcpTimeout]);
+        // Workers exit after their own cleanup (the pty-host kills its terminals' trees): wait for it.
+        await Promise.all([commandsStopped, workers.stopAll(), runner.idle()]);
+      },
+      finish() {
+        store.close();
+        logger.info("stopped");
+      },
+      timeoutMs: QUIT_TIMEOUT_MS,
+      logger,
+    })
+      .then(() => undefined)
       .finally(() => {
         closed = true;
         app.quit();

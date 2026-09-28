@@ -44,6 +44,8 @@ export interface DesktopPresenceDeps {
   /** One system notification (the first time the window hides instead of closing). */
   notify?(body: string): void;
   platform: NodeJS.Platform;
+  /** Longest wait for the activity check before quitting; default QUIT_CHECK_TIMEOUT_MS. */
+  quitCheckTimeoutMs?: number;
   now?: () => number;
   logger?: RuntimeLogger;
 }
@@ -64,6 +66,12 @@ export interface DesktopPresence {
   view(): TrayView | null;
   dispose(): void;
 }
+
+/**
+ * The activity check reads other services (the pty-host among them): a hung one must not make the
+ * quit hang with it. Past this delay the check counts as failed, and quitting goes on.
+ */
+export const QUIT_CHECK_TIMEOUT_MS = 2_000;
 
 function toTemplate(entries: TrayMenuEntry[], run: (action: TrayAction) => void): MenuItemConstructorOptions[] {
   return entries.map((entry): MenuItemConstructorOptions => {
@@ -146,7 +154,11 @@ export function createDesktopPresence(deps: DesktopPresenceDeps): DesktopPresenc
       // Several quit requests while the question is open share its answer.
       pendingQuestion ??= (async () => {
         try {
-          const snapshot = await deps.desktop.snapshot();
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const timedOut = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error("activity check timed out")), deps.quitCheckTimeoutMs ?? QUIT_CHECK_TIMEOUT_MS);
+          });
+          const snapshot = await Promise.race([deps.desktop.snapshot(), timedOut]).finally(() => clearTimeout(timer));
           const warning = buildQuitWarning(snapshot, (deps.now ?? Date.now)());
           if (!warning) return true;
           deps.showWindow();

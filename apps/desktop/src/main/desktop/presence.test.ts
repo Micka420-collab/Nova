@@ -4,7 +4,7 @@ import type { MenuItemConstructorOptions } from "electron";
 import type { DesktopActivity } from "@nova/shared";
 import { describe, expect, it, vi } from "vitest";
 import type { ActiveMission, DesktopSnapshot } from "../services/desktop-service";
-import { createDesktopPresence, type ClosableWindow, type DesktopPresenceDeps, type TrayLike } from "./presence";
+import { createDesktopPresence, QUIT_CHECK_TIMEOUT_MS, type ClosableWindow, type DesktopPresenceDeps, type TrayLike } from "./presence";
 import { buildQuitWarning, QUIT_CANCEL } from "./quit-warning";
 import { buildTrayView } from "./tray-menu";
 import { decideWindowClose } from "./window-close";
@@ -68,7 +68,6 @@ describe("quit warning", () => {
       "Si tu quittes maintenant, ceci s'arrêtera :",
       "• 4 missions en cours : « A », « B », « C »…",
       "• 1 approbation en attente (la mission ne pourra pas continuer)",
-      "• 1 terminal ouvert",
       "• 2 processus lancés par des missions",
       "• 1 planning actif : aucune exécution tant que NOVA est fermé (prochaine prévue à 14:30)",
     ]);
@@ -76,6 +75,15 @@ describe("quit warning", () => {
 
   it("asks anyway when a source could not be read", () => {
     expect(buildQuitWarning(snapshot({}, [], ["missions"]))?.detail).toContain("NOVA n'a pas pu tout vérifier");
+  });
+
+  it("does not ask for the user's own terminals: an open shell is not a task that quitting interrupts", () => {
+    expect(buildQuitWarning(snapshot({ runningTerminals: 2 }))).toBeNull();
+    expect(buildQuitWarning(snapshot({}, [], ["terminals"]))).toBeNull();
+    expect(buildQuitWarning(snapshot({ runningTerminals: 1, runningProcesses: 1 }))?.detail.split("\n")).toEqual([
+      "Si tu quittes maintenant, ceci s'arrêtera :",
+      "• 1 processus lancé par une mission",
+    ]);
   });
 });
 
@@ -132,7 +140,9 @@ class FakeWindow implements ClosableWindow {
   }
 }
 
-function presenceSetup(options: { current?: DesktopSnapshot; keep?: boolean; trayFails?: boolean; answer?: boolean; platform?: NodeJS.Platform } = {}) {
+function presenceSetup(
+  options: { current?: DesktopSnapshot; keep?: boolean; trayFails?: boolean; answer?: boolean; platform?: NodeJS.Platform; hangingCheck?: boolean } = {},
+) {
   const tray = new FakeTray();
   let current = options.current ?? snapshot();
   const listeners: ((snapshot: DesktopSnapshot) => void)[] = [];
@@ -142,7 +152,7 @@ function presenceSetup(options: { current?: DesktopSnapshot; keep?: boolean; tra
   let menus: MenuItemConstructorOptions[][] = [];
   const deps: DesktopPresenceDeps = {
     desktop: {
-      snapshot: async () => current,
+      snapshot: () => (options.hangingCheck ? new Promise<DesktopSnapshot>(() => {}) : Promise.resolve(current)),
       onChange: (listener) => {
         listeners.push(listener);
         return () => undefined;
@@ -245,5 +255,26 @@ describe("desktop presence", () => {
 
     const confirmed = presenceSetup({ current: snapshot({ runningProcesses: 1 }), answer: true });
     expect(await confirmed.presence.confirmQuit()).toBe(true);
+
+    // Only an idle shell open (the e2e teardown case): no question, the quit goes through.
+    const shell = presenceSetup({ current: snapshot({ runningTerminals: 1 }), answer: false });
+    expect(await shell.presence.confirmQuit()).toBe(true);
+    expect(shell.questions).toEqual([]);
+  });
+
+  it("quits after a bounded wait when the activity check hangs, without asking", async () => {
+    vi.useFakeTimers();
+    try {
+      const hung = presenceSetup({ hangingCheck: true, answer: false });
+      let answer: boolean | null = null;
+      void hung.presence.confirmQuit().then((value) => (answer = value));
+      await vi.advanceTimersByTimeAsync(QUIT_CHECK_TIMEOUT_MS - 1);
+      expect(answer).toBeNull();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(answer).toBe(true);
+      expect(hung.questions).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

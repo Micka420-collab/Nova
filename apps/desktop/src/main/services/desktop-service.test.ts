@@ -2,7 +2,7 @@
 // changed state is pushed.
 import type { DesktopEvent } from "@nova/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { activityCount, createDesktopService, type ActiveMission, type DesktopActivitySources } from "./desktop-service";
+import { createDesktopService, type ActiveMission, type DesktopActivitySources } from "./desktop-service";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -63,7 +63,7 @@ describe("desktop.state", () => {
   it("counts 0 for a feature that is not wired, and lists a failing source as unreadable", async () => {
     const { service, warnings } = setup({ terminals: () => Promise.reject(new Error("pty-host down")) }, { tray: false });
     const snapshot = await service.snapshot();
-    expect(activityCount(snapshot.state.activity)).toBe(0);
+    expect(snapshot.state.activity).toEqual({ runningMissions: 0, waitingApprovals: 0, runningTerminals: 0, runningProcesses: 0, activeSchedules: 0, nextScheduledAt: null });
     expect(snapshot.state.trayAvailable).toBe(false);
     // Carried in the state itself: the renderer and the tray say « inconnu », not 0.
     expect(snapshot.state.unreadable).toEqual(["terminals"]);

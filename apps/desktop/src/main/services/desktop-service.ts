@@ -78,13 +78,6 @@ const EMPTY_ACTIVITY: DesktopActivity = {
   nextScheduledAt: null,
 };
 
-/** Total of what would stop with NOVA (schedules included: they only run while NOVA runs). */
-export function activityCount(activity: DesktopActivity): number {
-  return (
-    activity.runningMissions + activity.waitingApprovals + activity.runningTerminals + activity.runningProcesses + activity.activeSchedules
-  );
-}
-
 function sameState(a: DesktopState | null, b: DesktopState): boolean {
   return a !== null && JSON.stringify(a) === JSON.stringify(b);
 }
