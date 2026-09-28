@@ -68,19 +68,28 @@ const MISSING_FROM_MAIN = {
   no_change: "no_change",
 } as const;
 
-/** The mission's own diff from main (`missions.diff`); files the events name but main does not know stay listed. */
+/**
+ * The mission's own diff from main (`missions.diff`), which is authoritative: files the events name
+ * but main does not know stay listed, and files main knows but the loaded events do not name (a
+ * long mission's log comes back cut to its last 2 000 events) are added from main's projection.
+ */
 export function missionDiffSource(client: NovaApi): MissionDiffSource {
   return {
     kind: "mission",
     async load(missionId, files) {
       const diff = await client.missions.diff({ missionId });
       const byPath = new Map(diff.files.map((file) => [file.path, file]));
-      return files.map((touch): MissionDiffFile => {
+      const named = new Set(files.map((touch) => touch.path));
+      const fromMain = diff.files
+        .filter((file) => !named.has(file.path))
+        .map((file): FileTouch => ({ path: file.path, change: file.change, fromPath: null, additions: 0, deletions: 0, checkpointId: null }));
+      return [...files, ...fromMain].map((touch): MissionDiffFile => {
         const file = byPath.get(touch.path);
         if (!file) return { touch, diff: null, missing: "no_change", truncated: false };
         if (file.patch === null) return { touch, diff: null, missing: file.missing ? MISSING_FROM_MAIN[file.missing] : "unreadable", truncated: false };
         const parsed = parseUnifiedDiff(file.patch)[0] ?? null;
-        return { touch, diff: parsed, missing: parsed ? null : "unreadable", truncated: false };
+        const counted = named.has(touch.path) || !parsed ? touch : { ...touch, additions: parsed.additions, deletions: parsed.deletions };
+        return { touch: counted, diff: parsed, missing: parsed ? null : "unreadable", truncated: false };
       });
     },
   };

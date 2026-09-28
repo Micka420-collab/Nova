@@ -267,6 +267,7 @@ export function MissionCard({ missionId }: { missionId: string }) {
             </div>
           ) : null}
           <p className="nova-note">
+            {facts.partial ? `${copy.end.logCut} ` : ""}
             {copy.end.counts(facts.created, facts.modified, facts.deleted, facts.moved)}
             {facts.commands > 0 ? ` · ${copy.end.commands(facts.commands)}` : ""}
           </p>

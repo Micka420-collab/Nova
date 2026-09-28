@@ -76,6 +76,34 @@ describe("DiffReview", () => {
     expect(within(reloaded).getByRole("region", { name: "bloc 1 sur 2, lignes 1 à 3" })).toBeTruthy();
   });
 
+  it("reviews the files main's diff has even when the loaded (cut) log names none of them", async () => {
+    const reviewed: ReviewDecision[][] = [];
+    renderWithMission({
+      edits: [],
+      overrides: (base) => ({
+        ...base,
+        missions: {
+          ...base.missions,
+          diff: ({ missionId }): Promise<IpcResult<MissionDiff>> =>
+            Promise.resolve({
+              ok: true,
+              value: { missionId, files: [{ path: "src/early.ts", change: "modified", beforeHash: null, currentHash: null, patch: PATCH.replaceAll("cart", "early"), missing: null }] },
+            }),
+          review: ({ decisions }): Promise<IpcResult<ReviewResult>> => {
+            reviewed.push(decisions);
+            return Promise.resolve({ ok: true, value: { applied: decisions, conflicts: [] } });
+          },
+        },
+      }),
+      ui: (missionId) => <DiffReview missionId={missionId} />,
+    });
+    await screen.findByText(/^Diff — 1 fichier/);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Tout garder" }));
+    });
+    expect(reviewed).toEqual([[{ path: "src/early.ts", hunkIndex: null, decision: "kept" }]]);
+  });
+
   it("reloads the diff after a hunk revert, so the next decision names the hunk that is really there", async () => {
     const hunk = (line: number, text: string) => `@@ -${line},2 +${line},3 @@\n a${line}\n+${text}\n b${line}\n`;
     const all = [hunk(1, "// H0"), hunk(20, "// H1"), hunk(40, "// H2")];

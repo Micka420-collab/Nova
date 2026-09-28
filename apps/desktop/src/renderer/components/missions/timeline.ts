@@ -103,6 +103,11 @@ export interface MissionView {
   suspended: { reason: MissionSuspendReason; detail: string | null } | null;
   /** Highest persisted event applied: older or repeated persisted events are ignored. */
   lastSeq: number;
+  /**
+   * The loaded log does not start at `mission.created` (main returns the last 2 000 events): facts
+   * derived from events are then lower bounds, and main's projections (diff, proofs) are the truth.
+   */
+  logTruncated: boolean;
 }
 
 function emptyView(mission: Mission, contract: MissionContract | null): MissionView {
@@ -119,6 +124,7 @@ function emptyView(mission: Mission, contract: MissionContract | null): MissionV
     review: null,
     suspended: null,
     lastSeq: 0,
+    logTruncated: false,
   };
 }
 
@@ -350,6 +356,7 @@ export function viewFromDetail(detail: MissionDetail): MissionView {
     tasks: detail.tasks.length > 0 ? detail.tasks.toSorted((a, b) => a.seq - b.seq) : view.tasks,
     budget: detail.budget,
     proofs,
+    logTruncated: !detail.events.some((event) => event.type === "mission.created"),
   };
 }
 
@@ -413,6 +420,8 @@ export interface MissionFacts {
   messagesWithoutUsage: number;
   webSearchCostUsd: number;
   webSearchesWithoutCost: number;
+  /** The loaded log is cut (MissionView.logTruncated): every count above is a lower bound. */
+  partial: boolean;
   /** Tasks proven by the runtime (state `verified`), and the others with their state. */
   verified: MissionTask[];
   unverified: MissionTask[];
@@ -487,6 +496,7 @@ export function missionFacts(view: MissionView): MissionFacts {
     messagesWithoutUsage,
     webSearchCostUsd,
     webSearchesWithoutCost,
+    partial: view.logTruncated,
     verified: view.tasks.filter((task) => task.state === "verified"),
     unverified: view.tasks.filter((task) => task.state !== "verified"),
   };

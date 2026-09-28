@@ -45,7 +45,8 @@ export function EndCard({ view }: { view: MissionView }) {
   const title = outcome.type === "succeeded" ? copy.succeeded : outcome.type === "failed" ? copy.failed : copy.cancelled;
   const elapsed = view.mission.startedAt !== null ? formatElapsed(outcome.at - view.mission.startedAt) : null;
   const estimateText = estimate ? formatEstimate(estimate) : null;
-  const changed = facts.files.length > 0;
+  // A cut log may not name the files: the review (main's diff) still has them.
+  const changed = facts.files.length > 0 || facts.partial;
 
   return (
     <section className={`nova-endcard nova-endcard--${outcome.type}`} aria-labelledby={`end-${view.mission.id}`}>
@@ -65,6 +66,7 @@ export function EndCard({ view }: { view: MissionView }) {
         </Callout>
       ) : null}
       <p className="nova-endcard__counts">
+        {facts.partial ? `${copy.logCut} ` : ""}
         {changed ? copy.counts(facts.created, facts.modified, facts.deleted, facts.moved) : copy.noChanges}
         {facts.commands > 0 ? ` · ${copy.commands(facts.commands)}` : ""}
       </p>

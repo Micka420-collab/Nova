@@ -24,6 +24,11 @@ function Ended({ missionId, extra }: { missionId: string; extra: Parameters<type
   return view ? <EndCard view={ended(view, extra)} /> : null;
 }
 
+function Truncated({ missionId }: { missionId: string }) {
+  const view = useApp((state) => state.missions.views[missionId]);
+  return view ? <EndCard view={{ ...ended(view, () => []), logTruncated: true }} /> : null;
+}
+
 describe("EndCard", () => {
   it("counts a moved file, like the review button it shows", () => {
     renderWithMission({
@@ -31,6 +36,16 @@ describe("EndCard", () => {
       ui: (missionId) => <Ended missionId={missionId} extra={() => []} />,
     });
     expect(screen.getByText(/0 fichier créé, 0 modifié, 0 supprimé, 1 déplacé/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Relire les changements" })).toBeTruthy();
+  });
+
+  it("with a cut log, never says « Aucun fichier modifié » and keeps the review open", () => {
+    renderWithMission({
+      edits: [],
+      ui: (missionId) => <Truncated missionId={missionId} />,
+    });
+    expect(screen.queryByText("Aucun fichier modifié.")).toBeNull();
+    expect(screen.getByText(/Journal affiché incomplet/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Relire les changements" })).toBeTruthy();
   });
 

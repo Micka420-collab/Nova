@@ -153,6 +153,11 @@ describe("mission timeline reducer", () => {
     expect(stored.items).toEqual(live.items);
     expect(stored.mission.state).toBe(live.mission.state);
     expect(stored.lastSeq).toBe(live.lastSeq);
+    expect(stored.logTruncated).toBe(false);
+    // A long mission's log comes back cut: without its creation, the facts are lower bounds.
+    const cut = viewFromDetail({ ...detail, events: events.filter((event) => event.type !== "mission.created") });
+    expect(cut.logTruncated).toBe(true);
+    expect(missionFacts(cut).partial).toBe(true);
   });
 
   it("does not create a view from an event of an unknown mission other than its creation", () => {

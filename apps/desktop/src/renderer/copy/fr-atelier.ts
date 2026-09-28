@@ -473,6 +473,7 @@ export const atelierCopy = {
     billingNote: "Le montant final chez OpenRouter peut différer ; ce qui est affiché est ce que le fournisseur a rapporté.",
     review: "Relire les changements",
     noChanges: "Aucun fichier modifié.",
+    logCut: "Journal affiché incomplet (mission longue), au moins :",
     approvals: (asked: number, denied: number) =>
       `${plural(asked, "confirmation demandée", "confirmations demandées")} · ${plural(denied, "refusée", "refusées")}`,
     tokens: (sent: string, received: string, lowerBound: boolean) =>
