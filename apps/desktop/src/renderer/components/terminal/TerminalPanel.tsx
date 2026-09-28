@@ -322,7 +322,7 @@ export function TerminalPanel(props: TerminalPanelProps) {
       {active && confirmClose === active.id ? (
         <Callout
           tone="warning"
-          className="nv-terminal-notice"
+          className="nv-terminal-callout"
           action={
             <span className="nv-terminal-actions">
               <Button size="sm" variant="danger" onClick={() => void close(active.id)}>
@@ -341,7 +341,7 @@ export function TerminalPanel(props: TerminalPanelProps) {
       {active && active.owner === "agent" ? (
         <Callout
           tone="info"
-          className="nv-terminal-notice"
+          className="nv-terminal-callout"
           action={
             active.state === "running" && takeOverable(active) ? (
               <Button size="sm" onClick={() => void takeOver(active.id)}>

@@ -5,6 +5,8 @@
   gap: var(--nv-space-3);
   min-width: 0;
   max-width: 56rem;
+  /* Same inset as the other workbench documents (Extensions): nothing touches the panel edge. */
+  padding: var(--nv-panel-pad, var(--nv-space-4));
 }
 
 .nova-sched__header {
