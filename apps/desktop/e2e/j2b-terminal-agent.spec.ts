@@ -127,11 +127,11 @@ test("agent terminal: background servers read-only until « Prendre la main », 
     { argv: ["node", "server.js", "b.pid"], state: "running", hosted: true },
   ]);
 
-  // The dock shows the server's agent session, read-only: typing reaches nothing.
+  // The dock shows server B's agent session, read-only: typing reaches nothing.
   await page.keyboard.press("Control+j");
   const panel = page.getByRole("region", { name: "Terminal", exact: true });
   await expect(panel).toBeVisible();
-  await panel.getByRole("tab", { name: /server\.js a\.pid/ }).click();
+  await panel.getByRole("tab", { name: /server\.js b\.pid/ }).click();
   await expect(panel.getByText(/Session de Nomi en lecture seule/)).toBeVisible();
   await expect.poll(() => screenText(page)).toContain("serveur pret");
   const view = panel.locator(".nv-terminal-view:not([hidden])");
@@ -141,7 +141,8 @@ test("agent terminal: background servers read-only until « Prendre la main », 
   expect(await screenText(page)).not.toContain("recu: ignore");
   await shot(page, "j2b-l1-01-agent-terminal-read-only");
 
-  // « Prendre la main »: the session is the user's, the server receives the line.
+  // « Prendre la main »: the session is the user's (server B leaves the mission), the server
+  // receives the line.
   await panel.getByRole("button", { name: "Prendre la main" }).click();
   await expect(panel.getByText(/Session de Nomi en lecture seule/)).toHaveCount(0);
   await view.click();
@@ -158,7 +159,11 @@ test("agent terminal: background servers read-only until « Prendre la main », 
   await expect(agent.getByRole("region", { name: "Processus en arrière-plan" }).getByText("Arrêté").first()).toBeVisible();
   const events = await missionEvents(page, mission.id);
   const ended = events.filter((event) => event.type === "process.ended") as unknown as { process: { argv: string[]; state: string } }[];
-  expect(ended.map((event) => [event.process.argv.at(-1), event.process.state])).toEqual([["a.pid", "stopped"]]);
+  // B was handed over to the user (journaled for the mission), A stopped by the mission.
+  expect(ended.map((event) => [event.process.argv.at(-1), event.process.state])).toEqual([
+    ["b.pid", "handed_over"],
+    ["a.pid", "stopped"],
+  ]);
   expect(events.filter((event) => event.type === "process.started")).toHaveLength(2);
   expect(events.filter((event) => event.type === "tool.terminal").length).toBeGreaterThanOrEqual(2);
   const output = events.find((event) => event.type === "tool.finished" && (event as { display?: { action?: string } }).display?.action === "output") as
@@ -166,7 +171,8 @@ test("agent terminal: background servers read-only until « Prendre la main », 
     | undefined;
   expect(output?.display.outputTail).toContain("serveur pret");
 
-  // The mission now waits on another approval; quitting NOVA must not leave server B behind.
+  // The mission now waits on another approval; its end would spare B (the user's now), but quitting
+  // NOVA must not leave it behind.
   await expect(approveOnce).toBeVisible({ timeout: 30_000 });
   expect(alive(serverB)).toBe(true);
   await nova.app.close();
