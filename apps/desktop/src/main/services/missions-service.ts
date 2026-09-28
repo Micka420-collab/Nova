@@ -56,7 +56,10 @@ export interface MissionsServiceDeps {
   permissions: PermissionGate;
   /** L1 `ApprovalsService`; its `emit` must be wired to `service.onApprovalEvent`. */
   approvals: ApprovalServiceLike;
-  /** L2 checkpoints: `store.create` and `api.list`. Null disables writes and the review. */
+  /**
+   * L2 checkpoints: `store.create` and `api.list`. Null disables writes and the review. In process,
+   * `list` is not bound by the IPC's 500: the review reads every restore point of a mission.
+   */
   checkpoints: {
     create(input: { workspaceId: string; missionId: string | null; label: string; reason: CheckpointReason }): Checkpoint;
     list(req: CheckpointsListRequest): Promise<Checkpoint[]>;

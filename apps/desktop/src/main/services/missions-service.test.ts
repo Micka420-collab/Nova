@@ -349,6 +349,25 @@ describe("missions service (main + runtime over a port)", () => {
     expect(storedTypes(testing.mission.id).slice(-2)).toEqual(["tool.finished", "mission.failed"]);
   });
 
+  it("reviews a mission from all its restore points, beyond the newest 500", async () => {
+    build();
+    turns = [{ text: PLAN }];
+    const plan = await service.api.plan({ workspaceId, conversationId: null, goal: "x", mode: "fix", modelId: MODEL, contract: null });
+    const missionId = plan.mission.id;
+    const index = createCheckpointRepo(store.db);
+    const write = (path: string, beforeHash: string, afterHash: string): void => {
+      const checkpoint = checkpoints.create({ workspaceId, missionId, label: path, reason: "tool_write" });
+      index.upsertFile({ checkpointId: checkpoint.id, path, beforeHash, afterHash, userHashSeen: null });
+    };
+    const [A, B, C] = ["a", "b", "c"].map((letter) => letter.repeat(64)) as [string, string, string];
+    write("src/first.ts", A, B);
+    for (let i = 0; i < 510; i += 1) write(`src/other-${i}.ts`, A, C);
+    write("src/first.ts", B, C);
+    const first = (await service.controller.reviewModel(missionId)).files.find((file) => file.path === "src/first.ts");
+    expect(first).toMatchObject({ beforeHash: A, afterHash: C, chained: true });
+    expect(first?.checkpointIds).toHaveLength(2);
+  });
+
   it("marks missions interrupted by a previous run as failed at startup", async () => {
     build();
     turns = [{ text: PLAN }];

@@ -192,6 +192,12 @@ export interface MissionController {
 }
 
 const MAX_EVENTS = 2_000;
+/**
+ * Restore points read for a mission's review: all of them (40 iterations × 32 calls, plus review
+ * and restore safety points, stay far below). A review built from part of the history would take
+ * an intermediate state for "before" and revert only part of the mission.
+ */
+const MAX_REVIEW_CHECKPOINTS = 20_000;
 
 function toMission(record: MissionRecordLike): Mission {
   const { contract: _contract, ...mission } = record;
@@ -415,6 +421,12 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
     },
   };
 
+  const missionCheckpoints = async (record: MissionRecordLike, checkpoints: NonNullable<MissionControllerDeps["checkpoints"]>): Promise<Checkpoint[]> => {
+    const list = await checkpoints.list({ workspaceId: record.workspaceId, missionId: record.id, limit: MAX_REVIEW_CHECKPOINTS + 1 });
+    if (list.length > MAX_REVIEW_CHECKPOINTS) throw new MissionError("unavailable", "too many restore points to review this mission");
+    return list;
+  };
+
   const summaryOf = (missionId: string): string => {
     const events = deps.store.listEvents(missionId).map(eventFromRecord);
     const plan = events.reverse().find((event) => event.type === "mission.plan");
@@ -575,7 +587,7 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
       const record = mission(req.missionId);
       if (!isTerminalMissionState(record.state)) throw new MissionError("conflict", "review happens after the mission ends");
       if (!deps.checkpoints || !deps.reviewFs) throw new MissionError("unavailable", "review needs restore points");
-      const checkpoints = await deps.checkpoints.list({ workspaceId: record.workspaceId, missionId: record.id, limit: 500 });
+      const checkpoints = await missionCheckpoints(record, deps.checkpoints);
       const result = await applyReview({ workspaceId: record.workspaceId, missionId: record.id, model: buildReview(checkpoints), decisions: req.decisions, fs: deps.reviewFs });
       if (result.applied.length > 0) {
         deps.store.reviews.record(record.id, result.applied);
@@ -647,7 +659,7 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
     async reviewModel(missionId) {
       const record = mission(missionId);
       if (!deps.checkpoints) return { files: [] };
-      return buildReview(await deps.checkpoints.list({ workspaceId: record.workspaceId, missionId: record.id, limit: 500 }));
+      return buildReview(await missionCheckpoints(record, deps.checkpoints));
     },
 
     recoverInterrupted() {
