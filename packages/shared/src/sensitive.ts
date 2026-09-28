@@ -55,7 +55,17 @@ function segmentRegex(glob: string): RegExp {
     else if (char === "?") source += "[^/]";
     else source += /[.+^${}()|[\]\\]/.test(char) ? `\\${char}` : char;
   }
-  return new RegExp(`^${source}$`);
+  // Case-insensitive on every platform: NTFS and default APFS open `.ENV` as `.env`, and a
+  // security default must not depend on the filesystem the workspace sits on.
+  return new RegExp(`^${source}$`, "i");
+}
+
+// Windows opens `.env.` / `.env ` as `.env` (trailing dots and spaces are dropped) and `.env::$DATA`
+// as its main stream: compare the name the OS resolves to, not the spelling. Harmless elsewhere
+// (at worst a real `a.pem.` file on Linux is also treated as sensitive).
+function resolvedSegmentName(segment: string): string {
+  const stream = segment.indexOf(":");
+  return (stream === -1 ? segment : segment.slice(0, stream)).replace(/[. ]+$/, "");
 }
 
 // Every default is a single-segment pattern (no inner `/`): it matches a path component at any depth.
@@ -69,10 +79,12 @@ const PARSED_PATTERNS: readonly ParsedPathPattern[] = SENSITIVE_PATH_PATTERNS.ma
  * True when a canonical relative path ("a/b/c") is excluded by the defaults. gitignore semantics:
  * last matching pattern wins per component, and nothing below an excluded folder can be
  * re-included. The last component is tested as a file and as a folder (`.ssh` itself is excluded).
+ * Components are compared as the OS resolves them: case-insensitively, without a Windows stream
+ * suffix or trailing dots and spaces.
  */
 export function isSensitivePath(path: string): boolean {
   if (path === "" || path === ".") return false;
-  for (const segment of path.split("/")) {
+  for (const segment of path.split("/").map(resolvedSegmentName)) {
     let excluded = false;
     for (const pattern of PARSED_PATTERNS) if (pattern.regex.test(segment)) excluded = !pattern.negate;
     if (excluded) return true;

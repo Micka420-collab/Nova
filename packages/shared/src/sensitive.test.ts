@@ -26,6 +26,29 @@ describe("isSensitivePath (C8 canonical list)", () => {
     expect(isSensitivePath(path)).toBe(expected);
   });
 
+  it.each([
+    ".ENV",
+    "apps/.Env.Production",
+    ".Git/hooks/pre-commit",
+    "NODE_MODULES/x/index.js",
+    "keys/ID_RSA",
+    "Credentials.json",
+    "certs/server.PEM",
+    ".SSH/config",
+    ".env::$DATA",
+    ".env:secret",
+    ".env.",
+    ".env ",
+    ".git./hooks/pre-commit",
+    "certs/site.pem. .",
+  ])("matches %j as the OS resolves it (case-insensitive FS, NTFS names)", (path) => {
+    expect(isSensitivePath(path)).toBe(true);
+  });
+
+  it.each([".ENV.Example", "keys/ID_RSA.PUB", "src/Env.ts"])("keeps %j re-included / unrelated", (path) => {
+    expect(isSensitivePath(path)).toBe(false);
+  });
+
   it("cannot re-include a file below an excluded folder", () => {
     expect(isSensitivePath(".ssh/id_ed25519.pub")).toBe(true);
   });
