@@ -19,7 +19,7 @@ import {
   openNovaStore,
   type NovaStore,
 } from "@nova/storage";
-import type { CommandRunner, ToolDeps } from "@nova/tools";
+import type { CommandRunner, McpToolOffer, ToolDeps } from "@nova/tools";
 import {
   createCheckpointStore,
   createIgnoreMatcher,
@@ -100,7 +100,7 @@ function commands(options: { hang?: boolean } = {}): CommandRunner {
 /** Runtime ports of the current service: tests crash (close) or wedge them. */
 let runtimePorts: PortLike[];
 
-function build(options: { hang?: boolean; wedgedStop?: boolean } = {}): void {
+function build(options: { hang?: boolean; wedgedStop?: boolean; mcpTools?: McpToolOffer[] } = {}): void {
   const policies = createPolicyRepo(store.db);
   const audit = new AuditService({ repo: createAuditRepo(store.db) });
   const permissions = new PermissionsService({
@@ -127,6 +127,7 @@ function build(options: { hang?: boolean; wedgedStop?: boolean } = {}): void {
     resolveApiKey: async () => KEY,
     push: (event) => pushed.push(event),
     toolDeps: async () => toolDeps,
+    ...(options.mcpTools ? { mcpTools: async () => options.mcpTools ?? [] } : {}),
     permissions,
     approvals,
     checkpoints: { create: (input) => checkpoints.create(input), list: async (req) => checkpoints.list(req) },
@@ -386,6 +387,24 @@ describe("missions service (main + runtime over a port)", () => {
     await expect(handlers.streamModel({ ...request, modelId: "acme/unpriced" }, signal, () => undefined)).rejects.toThrow(/not allowed/);
     await handlers.streamModel(request, signal, () => undefined);
     expect(seen).toEqual([{ ...request, webSearch: false, maxTokens: DEFAULT_LOOP_LIMITS.maxTokensPerCall, purpose: "step" }]);
+    await service.api.stop({ missionId: plan.mission.id });
+  });
+
+  it("starts a mission offered MCP tools as tainted: their descriptions are untrusted context (W5)", async () => {
+    const offer: McpToolOffer = {
+      definition: { name: "mcp__srv__lookup", description: "untrusted", inputSchema: { type: "object" }, operation: "read" },
+      serverId: "srv-id",
+      serverName: "srv",
+      toolName: "lookup",
+      permission: "allow",
+    };
+    build({ mcpTools: [offer] });
+    turns = [{ text: PLAN }, { calls: [{ name: "read_file", args: { path: "src/cart.ts" } }] }, { text: "Lu." }];
+    const plan = await service.api.plan({ workspaceId, conversationId: null, goal: "Lis", mode: "build", modelId: MODEL, contract: null });
+    await service.api.start({ missionId: plan.mission.id, tasks: null, contract: CONTRACT });
+    await until(() => stored("tool.finished").length === 1);
+    const decisions = new AuditService({ repo: createAuditRepo(store.db) }).list({ action: "permission.decision", missionId: plan.mission.id });
+    expect(decisions).toMatchObject([{ dataSummary: { tool: "read_file", tainted: true } }]);
     await service.api.stop({ missionId: plan.mission.id });
   });
 

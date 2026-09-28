@@ -5,6 +5,7 @@ import {
   DEFAULT_MISSION_BUDGET_USD,
   DEFAULT_MISSION_MAX_DURATION_MS,
   OPERATION_CLASSES,
+  isMcpToolName,
   isTerminalMissionState,
   type Checkpoint,
   type CheckpointsListRequest,
@@ -512,7 +513,8 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
         allowedTools,
         registry,
         seenVersions: new Map(),
-        tainted: false,
+        // W5: MCP tool descriptions are untrusted text in the model's context from the first turn.
+        tainted: tools.some((tool) => isMcpToolName(tool.name)),
         signal: lifetime.signal,
       });
       append({ type: "mission.started", missionId: record.id, contract });
