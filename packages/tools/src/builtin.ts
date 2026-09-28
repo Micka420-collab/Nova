@@ -528,16 +528,20 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
   const gitCommit = builtin({
     name: "git_commit",
     operation: "git_mutation",
-    description: "Commit changes with a clear message (only the given paths when provided, else every tracked change). Never pushes.",
+    description:
+      "Commit changes with a clear message: only the given paths when provided, else every change of the workspace INCLUDING new untracked files (pass paths to leave scratch files out). Refused if it would include an excluded sensitive file. Never pushes. The result lists the committed files.",
     schema: z.object({ message: z.string().trim().min(1).max(2_000), paths: z.array(entryPath).max(500).default([]) }).strict(),
     facts: (args) => (args.paths.length > 0 ? args.paths.map((path) => ({ path })) : [{}]),
     async run(args, context, started) {
-      const { sha } = await requireDep(deps.git, "git").commit(context.workspaceId, {
+      const { sha, files: committed } = await requireDep(deps.git, "git").commit(context.workspaceId, {
         message: args.message,
         paths: args.paths.length > 0 ? args.paths : "all",
       });
+      const listed = committed.slice(0, 200).join("\n");
+      const more = committed.length > 200 ? `\n[${committed.length - 200} more files]` : "";
       return makeResult({
-        callId: context.callId, ok: true, content: `Committed ${sha.slice(0, 12)}: ${args.message.split("\n")[0] ?? ""}`,
+        callId: context.callId, ok: true,
+        content: `Committed ${sha.slice(0, 12)}: ${args.message.split("\n")[0] ?? ""}\nFiles (${committed.length}):\n${listed}${more}`,
         display: { kind: "git_commit", sha, message: args.message },
         provenance: provenance("nova", null), durationMs: Date.now() - started,
       });

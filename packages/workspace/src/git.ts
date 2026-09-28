@@ -72,6 +72,8 @@ export async function findGitExecutable(env: Readonly<Record<string, string | un
 export interface GitCommitResult {
   sha: string;
   message: string;
+  /** Files the commit changed, relative to the workspace (outside ones omitted). */
+  files: RelativePath[];
 }
 
 export interface GitClient {
@@ -88,7 +90,8 @@ export interface GitClient {
   /** Current branch, null on a detached HEAD or outside a repository. */
   branch(root: string): Promise<string | null>;
   /**
-   * Stages `paths` (or every change under the workspace when "all") then commits. Hooks of the
+   * Stages `paths` (or every change under the workspace when "all", untracked files included)
+   * then commits. Hooks of the
    * repository run as they would for the user; the caller has obtained the permission first.
    */
   commit(root: string, request: GitCommitRequest): Promise<GitCommitResult>;
@@ -474,7 +477,10 @@ export function createGitClient(options: GitClientOptions = {}): GitClient {
         throw new WorkspaceError("failed", "git commit failed");
       }
       const head = await run(root, ["rev-parse", "HEAD"]);
-      return { sha: head.stdout.trim(), message: trimmed };
+      const sha = head.stdout.trim();
+      const shown = await run(root, ["show", "--no-renames", "--relative", "--name-only", "--format=", "-z", sha]);
+      const files = shown.code === 0 ? shown.stdout.split("\0").filter((path) => path !== "" && isCanonicalRelativePath(path)) : [];
+      return { sha, message: trimmed, files };
     },
   };
   return client;

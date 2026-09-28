@@ -184,6 +184,25 @@ describe("file executors", () => {
   });
 });
 
+describe("git executors", () => {
+  it("says a commit without paths includes untracked files and lists what it committed", async () => {
+    const requests: unknown[] = [];
+    const git = {
+      status: () => Promise.reject(new Error("unused")),
+      diff: () => Promise.reject(new Error("unused")),
+      async commit(_workspaceId: string, request: unknown) {
+        requests.push(request);
+        return { sha: "0123456789abcdef", files: ["src/a.ts", "scratch.txt"] };
+      },
+    };
+    const { registry, run } = setup({}, { git });
+    expect(registry.get("git_commit")?.definition.description).toMatch(/untracked/i);
+    const result = await run("git_commit", { message: "Update" });
+    expect(requests).toEqual([{ message: "Update", paths: "all" }]);
+    expect(result).toMatchObject({ ok: true, content: expect.stringContaining("Files (2):\nsrc/a.ts\nscratch.txt") });
+  });
+});
+
 describe("tests executor", () => {
   it("asks the engine about the exact argv, runs it and reports parsed counts", async () => {
     const report = JSON.stringify({ numTotalTests: 3, numPassedTests: 3, numFailedTests: 0, numPendingTests: 0, testResults: [] });

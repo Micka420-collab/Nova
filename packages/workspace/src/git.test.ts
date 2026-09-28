@@ -82,6 +82,7 @@ describe("git client", () => {
     await repo.write("other.txt", "not committed");
     const commit = await client.commit(repo.path, { message: "  Met à jour le fichier  ", paths: ["tracked.txt"], isExcluded: () => false });
     expect(commit.message).toBe("Met à jour le fichier");
+    expect(commit.files).toEqual(["tracked.txt"]);
     expect(git("rev-parse", "HEAD").trim()).toBe(commit.sha);
     expect(git("show", "--name-only", "--format=", "HEAD").trim()).toBe("tracked.txt");
     await expect(client.commit(repo.path, { message: "vide", paths: [], isExcluded: () => false })).rejects.toMatchObject({ code: "conflict" });
@@ -158,6 +159,7 @@ describe("git client", () => {
     });
     expect(git("diff", "--cached", "--name-only").trim()).toBe("");
     const ok = await client.commit(repo.path, { message: "tracked only", paths: ["tracked.txt"], isExcluded });
+    expect(ok.files).toEqual(["tracked.txt"]);
     expect(git("show", "--name-only", "--format=", ok.sha).trim()).toBe("tracked.txt");
   });
 

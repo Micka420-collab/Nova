@@ -134,8 +134,11 @@ export interface CommandRunner {
 export interface GitApi {
   status(req: { workspaceId: string }): Promise<GitStatus>;
   diff(req: { workspaceId: string; path: RelativePath | null; staged: boolean }): Promise<GitDiff>;
-  /** Commits the given paths (`"all"` = every tracked change). Never pushes. */
-  commit(workspaceId: string, request: { message: string; paths: RelativePath[] | "all" }): Promise<{ sha: string }>;
+  /**
+   * Commits the given paths (`"all"` = every change under the workspace, untracked files included;
+   * refused when it would include an excluded file). Never pushes.
+   */
+  commit(workspaceId: string, request: { message: string; paths: RelativePath[] | "all" }): Promise<{ sha: string; files: RelativePath[] }>;
 }
 
 // ---------------------------------------------------------------------------
