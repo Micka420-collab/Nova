@@ -58,13 +58,14 @@ interface Reservation {
   settled: number;
 }
 
-function harness(options: { parentContract?: MissionContract; worktrees?: boolean; tests?: () => Promise<ChildTestsOutcome> } = {}) {
+function harness(options: { parentContract?: MissionContract; worktrees?: boolean; tests?: () => Promise<ChildTestsOutcome>; parentTainted?: boolean } = {}) {
   let clock = 1_000;
   let ids = 0;
   const missions = new Map<string, Mission>();
   const contracts = new Map<string, MissionContract>();
   const events: MissionEventInput[] = [];
   const planned: MissionPlanRequest[] = [];
+  const startedTainted = new Map<string, boolean>();
   const reservations: Reservation[] = [];
   const childCost = new Map<string, number>();
   const project = new Map<string, string>([["src/a.txt", "alpha\n"], ["src/b.txt", "beta\n"]]);
@@ -189,6 +190,7 @@ function harness(options: { parentContract?: MissionContract; worktrees?: boolea
         return { mission: { ...mission, title }, contract: c, tasks: [], summary: "", estimate: { minUsd: null, maxUsd: null, assumptions: "" } };
       },
       async start(req) {
+        startedTainted.set(req.missionId, req.tainted);
         setState(req.missionId, "running");
         return missions.get(req.missionId) as Mission;
       },
@@ -197,6 +199,7 @@ function harness(options: { parentContract?: MissionContract; worktrees?: boolea
         if (mission && !["succeeded", "failed", "cancelled"].includes(mission.state)) end(req.missionId, "cancelled");
         return missions.get(req.missionId) as Mission;
       },
+      isTainted: (id) => id === "parent" && options.parentTainted === true,
     },
     cost: {
       reserve(input) {
@@ -273,6 +276,7 @@ function harness(options: { parentContract?: MissionContract; worktrees?: boolea
     contracts,
     events,
     planned,
+    startedTainted,
     reservations,
     childCost,
     project,
@@ -371,6 +375,18 @@ describe("shared budget", () => {
     h.end(link.childMissionId, "failed");
     await flush();
     expect(h.committed("parent")).toBeCloseTo(0.01);
+  });
+});
+
+describe("untrusted content (W5)", () => {
+  it("starts the child tainted when the parent read untrusted content: its goal is the parent model's text", async () => {
+    const tainted = harness({ parentTainted: true });
+    const { link } = await tainted.start("build", 0.1);
+    expect(tainted.startedTainted.get(link.childMissionId)).toBe(true);
+
+    const clean = harness();
+    const second = await clean.start("build", 0.1);
+    expect(clean.startedTainted.get(second.link.childMissionId)).toBe(false);
   });
 });
 

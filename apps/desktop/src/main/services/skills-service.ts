@@ -10,7 +10,7 @@
 //   project skill must be previewed (again) before enabling it.
 import type { RuntimeLogger } from "@nova/agent-runtime";
 import type { SkillRef } from "@nova/shared";
-import { SkillError, createSkillsRuntime, type SkillsRepoPort, type SkillsRuntime } from "@nova/skills";
+import { SkillError, createSkillsRuntime, type SkillIndex, type SkillsRepoPort, type SkillsRuntime } from "@nova/skills";
 import type { SkillsApi } from "@nova/tools";
 import { createIgnoreMatcher, type IgnoreMatcher } from "@nova/workspace";
 import type { MainApi } from "../api";
@@ -35,7 +35,7 @@ export interface SkillsService {
   /** `ToolDeps.skills` of every workspace (the runtime takes the workspace id per call). */
   tools: SkillsApi;
   /** `MissionControllerDeps.skillIndex`: null when no skill is enabled or on failure (logged). */
-  skillIndex(workspaceId: string): Promise<string | null>;
+  skillIndex(workspaceId: string): Promise<SkillIndex | null>;
   /** Startup repair of the skills folder (crash leftovers, orphans). Never throws. */
   init(): Promise<void>;
 }

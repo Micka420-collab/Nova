@@ -19,6 +19,7 @@ import type {
   SkillsListRequest,
 } from "@nova/shared";
 import type { SkillsApi } from "@nova/tools";
+import type { SkillIndex } from "./skill-index";
 
 export type SkillPreviewSource =
   /** A folder the user picked in main's native dialog (absolute path never leaves main). */
@@ -35,7 +36,7 @@ export interface SkillsRuntime extends SkillsApi {
   /** Removes crash leftovers and folder/row mismatches under the skills folder. Idempotent. */
   init(): Promise<void>;
   /** Index of the enabled skills for a mission's system prompt; null = none enabled. */
-  skillIndex(workspaceId: string): Promise<string | null>;
+  skillIndex(workspaceId: string): Promise<SkillIndex | null>;
 }
 
 export { BUILTIN_SKILLS, type BuiltinSkill } from "./builtin";
@@ -52,4 +53,4 @@ export {
   type SkillsRuntimeDeps,
 } from "./runtime";
 export { SKILL_MD, analyzeSkill, readSkillFolder, type AnalyzedSkill, type SkillFileEntry } from "./scan";
-export { SKILL_INDEX_MAX_CHARS, SKILL_INDEX_MAX_SKILLS, formatSkillIndex } from "./skill-index";
+export { SKILL_INDEX_MAX_CHARS, SKILL_INDEX_MAX_SKILLS, formatSkillIndex, type SkillIndex } from "./skill-index";

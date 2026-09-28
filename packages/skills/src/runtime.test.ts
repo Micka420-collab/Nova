@@ -146,9 +146,10 @@ describe("SkillsRuntime", () => {
 
     const enabled = await runtime.enabled(WS);
     expect(enabled.map((skill) => skill.ref)).toEqual(["builtin:comprendre-un-depot", "user:notes"]);
-    const index = await runtime.skillIndex(WS);
-    expect(index).not.toBeNull();
-    expect(await runtime.skillIndex(WS)).toBe(index);
+    const indexed = await runtime.skillIndex(WS);
+    expect(indexed?.untrusted).toBe(true);
+    expect((await runtime.skillIndex(WS))?.text).toBe(indexed?.text);
+    const index = indexed?.text;
     const fence = /<skills id="([0-9a-f]{12})">/.exec(index ?? "")?.[1];
     expect(fence).toBeDefined();
     expect(index?.split("\n").filter((line) => line.startsWith("- "))).toEqual([

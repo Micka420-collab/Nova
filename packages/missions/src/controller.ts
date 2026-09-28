@@ -147,8 +147,9 @@ export interface MissionControllerDeps {
   /**
    * L3: index of the skills enabled for the workspace (names + descriptions, bounded, labeled as
    * data), appended to the mission's system prompt; null = none. Loaded in full only by `skill`.
+   * `untrusted`: it lists a user or project skill, whose description is third-party text (W5).
    */
-  skillIndex?(workspaceId: string): Promise<string | null>;
+  skillIndex?(workspaceId: string): Promise<{ text: string; untrusted: boolean } | null>;
   /**
    * J2-B L8: called just before a terminal event (succeeded, failed, cancelled) is journaled,
    * whether the runtime or main ends the mission, so a lane can journal its own closing fact first
@@ -176,7 +177,11 @@ export interface MissionControllerDeps {
 
 export interface MissionController {
   plan(req: MissionPlanRequest): Promise<MissionPlanResult>;
-  start(req: MissionStartRequest): Promise<Mission>;
+  /**
+   * `tainted` (in-process only, never from the IPC contract): the goal was written by a mission
+   * whose context held untrusted content (a sub-mission of a tainted parent); it starts tainted.
+   */
+  start(req: MissionStartRequest & { tainted?: boolean }): Promise<Mission>;
   pause(req: MissionIdRequest): Promise<Mission>;
   /**
    * `budgetUsd` (in-process until the IPC contract carries it) raises the mission budget before
@@ -200,6 +205,11 @@ export interface MissionController {
   /** Marks missions left running by a previous process as failed (call once at startup). */
   recoverInterrupted(): number;
   isRunning(missionId: string): boolean;
+  /**
+   * W5: whether untrusted content entered this mission's context. A mission not running in this
+   * process is reported tainted (unknown is never trusted).
+   */
+  isTainted(missionId: string): boolean;
   /** Contract of a mission (L1 `PermissionsService.contractOf`); null when unknown. */
   contractOf(missionId: string): MissionContract | null;
   /** A11: files the mission changed, before/after hashes, from its restore points. */
@@ -462,6 +472,7 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
     gateway,
     journal,
     isRunning: (missionId) => running.has(missionId),
+    isTainted: (missionId) => running.get(missionId)?.tainted ?? true,
 
     async plan(req) {
       const workspace = deps.workspaces.get(req.workspaceId);
@@ -526,6 +537,11 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
       // A failing skill index never blocks a mission: it starts without skills. Without an index the
       // `skill` tool is not offered either (its refs would be invented, its schema wasted).
       const skillIndex = (await deps.skillIndex?.(record.workspaceId).catch(() => null)) ?? null;
+      // W5 from the first turn: MCP tool descriptions and user/project skill descriptions are
+      // third-party text in the prompt; a fork's goal carries a recap of another mission's context
+      // (whose taint is not journaled, so it is assumed), and a sub-mission's goal is written by a
+      // parent whose context may hold untrusted content (`req.tainted`).
+      const forked = deps.store.listEvents(record.id).some((row) => row.type === "mission.forked");
       const allowedTools = new Set(missionToolSet(record.mode, { webSearch: contract.webSearch, mcpTools, harness: missionHarnessOf(contract) }));
       if (skillIndex === null) allowedTools.delete("skill");
       const tools = registry.definitions(allowedTools);
@@ -539,8 +555,7 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
         allowedTools,
         registry,
         seenVersions: new Map(),
-        // W5: MCP tool descriptions are untrusted text in the model's context from the first turn.
-        tainted: tools.some((tool) => isMcpToolName(tool.name)),
+        tainted: req.tainted === true || forked || skillIndex?.untrusted === true || tools.some((tool) => isMcpToolName(tool.name)),
         signal: lifetime.signal,
       });
       append({ type: "mission.started", missionId: record.id, contract });
@@ -553,7 +568,7 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
           tasks,
           tools,
           planSummary: summaryOf(record.id),
-          ...(skillIndex ? { skillIndex } : {}),
+          ...(skillIndex ? { skillIndex: skillIndex.text } : {}),
         });
       } catch {
         append({ type: "mission.failed", missionId: record.id, reason: "internal", detail: "le runtime de l'agent est indisponible" });

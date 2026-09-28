@@ -284,7 +284,7 @@ describe("missions service (main + runtime over a port)", () => {
   it("J2-B wiring: skill offered only with an index, routed tool deps, closing fact before the terminal, review after integration", async () => {
     const routed: string[] = [];
     const closing: string[] = [];
-    let index: string | null = null;
+    let index: { text: string; untrusted: boolean } | null = null;
     build({
       lanes: {
         skillIndex: async () => index,
@@ -313,7 +313,7 @@ describe("missions service (main + runtime over a port)", () => {
 
     const first = await run("Explique le panier");
     expect(requests.at(-1)?.tools?.map((tool) => tool.name)).not.toContain("skill");
-    index = "<skills>…</skills>";
+    index = { text: "<skills>…</skills>", untrusted: false };
     await run("Explique encore le panier");
     expect(requests.at(-1)?.tools?.map((tool) => tool.name)).toContain("skill");
 
@@ -464,6 +464,32 @@ describe("missions service (main + runtime over a port)", () => {
     const decisions = new AuditService({ repo: createAuditRepo(store.db) }).list({ action: "permission.decision", missionId: plan.mission.id });
     expect(decisions).toMatchObject([{ dataSummary: { tool: "read_file", tainted: true } }]);
     await service.api.stop({ missionId: plan.mission.id });
+  });
+
+  it("starts tainted when third-party text is in its first prompt: user skill index, fork recap, tainted parent (W5)", async () => {
+    let index: { text: string; untrusted: boolean } | null = null;
+    build({ lanes: { skillIndex: async () => index } });
+    const taintOf = async (setup: (missionId: string) => void, start: (missionId: string) => Promise<unknown>): Promise<boolean> => {
+      turns = [{ text: PLAN }, { calls: [{ name: "read_file", args: { path: "src/cart.ts" } }] }, { text: "Lu." }];
+      const plan = await service.api.plan({ workspaceId, conversationId: null, goal: "Lis", mode: "build", modelId: MODEL, contract: null });
+      setup(plan.mission.id);
+      await start(plan.mission.id);
+      await until(() => stored("tool.finished").some((event) => event.missionId === plan.mission.id));
+      const decisions = new AuditService({ repo: createAuditRepo(store.db) }).list({ action: "permission.decision", missionId: plan.mission.id });
+      await until(() => terminal().some((event) => event.missionId === plan.mission.id));
+      return (decisions[0]?.dataSummary as { tainted?: boolean } | undefined)?.tainted === true;
+    };
+    const viaIpc = (missionId: string) => service.api.start({ missionId, tasks: null, contract: CONTRACT });
+
+    index = { text: "<skills>builtin only</skills>", untrusted: false };
+    expect(await taintOf(() => undefined, viaIpc)).toBe(false);
+    index = { text: "<skills>a project skill</skills>", untrusted: true };
+    expect(await taintOf(() => undefined, viaIpc)).toBe(true);
+    index = null;
+    const forked = (missionId: string): void => void service.controller.journal.append({ type: "mission.forked", missionId, fromMissionId: missionId, fromSeq: 1 });
+    expect(await taintOf(forked, viaIpc)).toBe(true);
+    const child = (missionId: string) => service.controller.start({ missionId, tasks: null, contract: CONTRACT, tainted: true });
+    expect(await taintOf(() => undefined, child)).toBe(true);
   });
 
   it("marks missions interrupted by a previous run as failed at startup", async () => {

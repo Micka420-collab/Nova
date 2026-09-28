@@ -83,7 +83,7 @@ describe("skills service", () => {
     await service.api.setEnabled({ workspaceId, ref: "user:release-notes", enabled: true });
     expect((await service.api.list({ workspaceId })).find((skill) => skill.ref === "user:release-notes")?.enabled).toBe(true);
     expect((await service.tools.enabled(workspaceId)).map((skill) => skill.ref)).toEqual(["user:release-notes"]);
-    expect(await service.skillIndex(workspaceId)).toContain("- user:release-notes (release-notes): The release-notes skill.");
+    expect(await service.skillIndex(workspaceId)).toMatchObject({ untrusted: true, text: expect.stringContaining("- user:release-notes (release-notes): The release-notes skill.") });
     expect((await service.tools.load(workspaceId, "user:release-notes", "scripts/check.sh")).content).toBe("echo ok\n");
 
     await service.api.uninstall({ ref: "user:release-notes" });

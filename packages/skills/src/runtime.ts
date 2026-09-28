@@ -32,7 +32,7 @@ import type { SkillLoadOutcome } from "@nova/tools";
 import { BUILTIN_SKILLS, builtinEntries, type BuiltinSkill } from "./builtin";
 import { SkillError } from "./errors";
 import { SKILL_MD, analyzeSkill, readSkillFolder, skillFileText, type AnalyzedSkill, type SkillFileEntry } from "./scan";
-import { formatSkillIndex } from "./skill-index";
+import { formatSkillIndex, type SkillIndex } from "./skill-index";
 import type { SkillPreviewSource, SkillsRuntime } from "./index";
 
 /** Where project skills live, relative to the workspace root. */
@@ -532,7 +532,7 @@ export function createSkillsRuntime(deps: SkillsRuntimeDeps): SkillsRuntime {
       return { meta, content: text.text, path, truncated: text.truncated };
     },
 
-    async skillIndex(workspaceId: string): Promise<string | null> {
+    async skillIndex(workspaceId: string): Promise<SkillIndex | null> {
       return formatSkillIndex(await runtime.enabled(workspaceId));
     },
   };

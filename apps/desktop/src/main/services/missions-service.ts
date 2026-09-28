@@ -17,6 +17,7 @@ import {
   type LoopContextHook,
   type LoopContinuationHook,
   type MissionController,
+  type MissionControllerDeps,
   type MissionEventInput,
   type PermissionGate,
   type PortLike,
@@ -84,7 +85,7 @@ export interface MissionsServiceDeps {
   openRuntimePort(): Promise<PortLike>;
   logger?: RuntimeLogger;
   /** J2-B L3: index of the skills enabled for a workspace (null = none, mission without skills). */
-  skillIndex?(workspaceId: string): Promise<string | null>;
+  skillIndex?: MissionControllerDeps["skillIndex"];
   /** J2-B L2: context preparation/observation of each model call (`ContextService.runtimeHook`). */
   contextHook?: LoopContextHook;
   /** J2-B L8: « jusqu'à preuve » rounds and the closing fact journaled before a terminal event. */

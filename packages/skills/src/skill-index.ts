@@ -17,8 +17,17 @@ function oneLine(text: string, max: number): string {
   return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`;
 }
 
+/**
+ * The index text and whether it carries untrusted text: any user or project skill's description is
+ * third-party text in the model's context from the first turn (W5), like an MCP tool description.
+ */
+export interface SkillIndex {
+  text: string;
+  untrusted: boolean;
+}
+
 /** Null when no skill is enabled (the prompt then has no skill section at all). */
-export function formatSkillIndex(skills: readonly SkillMeta[]): string | null {
+export function formatSkillIndex(skills: readonly SkillMeta[]): SkillIndex | null {
   if (skills.length === 0) return null;
   const sorted = [...skills].sort((a, b) => (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0));
   const lines: string[] = [];
@@ -35,7 +44,7 @@ export function formatSkillIndex(skills: readonly SkillMeta[]): string | null {
   if (listed < sorted.length) lines.push(`- (${sorted.length - listed} more skills enabled, not listed)`);
   const body = lines.join("\n");
   const fence = createHash("sha256").update(body).digest("hex").slice(0, 12);
-  return [
+  const text = [
     "## Skills",
     "Skills are reusable methods the user enabled for this project. When one matches the task, load it",
     'with the `skill` tool ({"ref": "<ref>"}) and follow it; load its other files one at a time with',
@@ -45,4 +54,5 @@ export function formatSkillIndex(skills: readonly SkillMeta[]): string | null {
     body,
     `</skills id="${fence}">`,
   ].join("\n");
+  return { text, untrusted: skills.some((skill) => skill.scope !== "builtin") };
 }

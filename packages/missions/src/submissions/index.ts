@@ -135,8 +135,11 @@ export interface SubmissionsControllerDeps {
     get(missionId: string): Mission | null;
     contractOf(missionId: string): MissionContract | null;
     plan(req: MissionPlanRequest): Promise<MissionPlanResult>;
-    start(req: MissionStartRequest): Promise<Mission>;
+    /** `tainted`: the child starts with its parent's W5 taint (its goal is the parent model's text). */
+    start(req: MissionStartRequest & { tainted: boolean }): Promise<Mission>;
     stop(req: MissionIdRequest): Promise<Mission>;
+    /** W5: untrusted content entered this mission's context (`MissionController.isTainted`). */
+    isTainted(missionId: string): boolean;
   };
   cost: SubmissionCostStore;
   /** Parent journal (`MissionController.journal.append`): `submission.updated`. */
@@ -400,7 +403,9 @@ export function createSubmissionsController(deps: SubmissionsControllerDeps): Su
       });
       active += 1;
       if (signal.aborted) throw new SubmissionError("conflict", "cancelled");
-      await deps.missions.start({ missionId: childId, tasks: null, contract: derived.input });
+      // The goal is free text from the parent's model: after untrusted content it may carry an
+      // injected instruction, so the child inherits the taint (no W5 laundering through delegation).
+      await deps.missions.start({ missionId: childId, tasks: null, contract: derived.input, tainted: deps.missions.isTainted(parent.id) });
       return { link: deps.links.get(childId) ?? link, title: plan.mission.title };
     } catch (error) {
       await abandonStart(childId, reservationId, projectRoot, worktree);

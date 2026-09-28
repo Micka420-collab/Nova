@@ -39,7 +39,7 @@ const INTEGRATION_FILE_MAX_BYTES = 5 * 1024 * 1024;
 export interface SubmissionsServiceDeps {
   store: NovaStore;
   /** The mission controller: children are planned, started and stopped like any mission. */
-  missions: Pick<MissionController, "plan" | "start" | "stop" | "contractOf" | "journal">;
+  missions: Pick<MissionController, "plan" | "start" | "stop" | "contractOf" | "journal" | "isTainted">;
   /** `createWorktreeManager({ dataDir })` (@nova/workspace); null = git unavailable (read-only children only). */
   worktrees: SubmissionWorktrees | null;
   /** Canonical project root (`workspaceService.rootOf`). */
@@ -142,6 +142,7 @@ export function createSubmissionsService(deps: SubmissionsServiceDeps): Submissi
       plan: (req) => deps.missions.plan(req),
       start: (req) => deps.missions.start(req),
       stop: (req) => deps.missions.stop(req),
+      isTainted: (id) => deps.missions.isTainted(id),
     },
     cost,
     journal: { append: (event) => deps.missions.journal.append(event) },

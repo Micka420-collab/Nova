@@ -154,6 +154,7 @@ beforeEach(async () => {
         return mission;
       },
       contractOf: (id) => contracts.get(id) ?? null,
+      isTainted: () => false,
       journal: {
         append(event) {
           const stored = { ...event, id: `j${(seq += 1)}`, seq, at: Date.now() } as MissionEvent;
