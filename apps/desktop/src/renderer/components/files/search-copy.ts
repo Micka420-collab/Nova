@@ -51,6 +51,8 @@ export const projectSearchCopy = {
   skippedDirty: (path: string) => `${path} : non enregistré dans l'éditeur, ignoré.`,
   skippedConflict: (path: string) => `${path} : modifié entre-temps, rien n'a été écrit.`,
   skippedUnreadable: (path: string) => `${path} : fichier binaire ou trop volumineux, ignoré.`,
+  skippedMismatch: (path: string, previewed: number, found: number) =>
+    `${path} : ${found} occurrence${found > 1 ? "s" : ""} dans le fichier, ${previewed} dans l'aperçu (résultats tronqués ou ligne coupée) : rien n'a été écrit.`,
   skippedError: (path: string, reason: string) => `${path} : ${reason}`,
   checkpointLabel: (pattern: string) => `Remplacer « ${pattern.length > 60 ? `${pattern.slice(0, 59)}…` : pattern} »`,
   checkpointFailed: (reason: string) => `Le point de reprise n'a pas pu être créé : rien n'a été remplacé (${reason}).`,

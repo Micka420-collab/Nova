@@ -33,6 +33,15 @@ describe("buildSearchRegExp", () => {
     expect(regexOf("cat", { wholeWord: true }).test("a cat")).toBe(true);
   });
 
+  it("uses Unicode word boundaries for whole word, like ripgrep", () => {
+    expect(regexOf("caf", { wholeWord: true }).test("café")).toBe(false);
+    expect(regexOf("caf", { wholeWord: true }).test("caf x")).toBe(true);
+    expect(regexOf("déjà", { wholeWord: true }).test("c'est déjà fait")).toBe(true);
+    expect(regexOf("é", { wholeWord: true, isRegex: true }).test("été")).toBe(false);
+    expect(replaceInText("caf x\ncafé", regexOf("caf", { wholeWord: true }), "bar", false)).toEqual({ text: "bar x\ncafé", count: 1 });
+    expect(regexOf("a-b").test("a-b")).toBe(true);
+  });
+
   it("reports an invalid regular expression", () => {
     const result = buildSearchRegExp({ pattern: "(", isRegex: true, caseSensitive: false, wholeWord: false });
     expect(result.ok).toBe(false);

@@ -27,20 +27,27 @@ export interface SearchOptions {
 
 export type RegExpResult = { ok: true; regex: RegExp } | { ok: false; error: string };
 
+/** Escapes syntax characters only: under the `u` flag, escaping anything else is an error. */
 function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\/-]/g, "\\$&");
+  return text.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 }
 
 /**
+ * ripgrep's `\w` (Unicode, UTS #18): `--word-regexp` needs a non-word character or a line edge on
+ * each side. JavaScript's ASCII `\b` would treat « é » as a boundary: `caf` would match « café ».
+ */
+const WORD_CHAR = String.raw`[\p{Alphabetic}\p{M}\p{Nd}\p{Pc}\p{Join_Control}]`;
+
+/**
  * JavaScript equivalent of the ripgrep query. `m`: ^ and $ match at line boundaries, as ripgrep is
- * line-oriented. Regex dialects differ at the edges (look-behind, \p classes): the replace preview
- * shows exactly what will be written, so a divergence is visible before applying.
+ * line-oriented; `u`: Unicode classes and word boundaries, as ripgrep's default. Dialects still
+ * differ at the edges, so a file whose match count differs from the preview is not rewritten.
  */
 export function buildSearchRegExp(query: SearchOptions): RegExpResult {
   const source = query.isRegex ? query.pattern : escapeRegExp(query.pattern);
-  const wrapped = query.wholeWord ? `\\b(?:${source})\\b` : source;
+  const wrapped = query.wholeWord ? `(?<!${WORD_CHAR})(?:${source})(?!${WORD_CHAR})` : source;
   try {
-    return { ok: true, regex: new RegExp(wrapped, query.caseSensitive ? "gm" : "gim") };
+    return { ok: true, regex: new RegExp(wrapped, query.caseSensitive ? "gmu" : "gimu") };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }

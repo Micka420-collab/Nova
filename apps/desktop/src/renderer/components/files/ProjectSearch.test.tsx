@@ -120,6 +120,31 @@ describe("ProjectSearch", () => {
     expect(screen.getByText("Annulable depuis Points de reprise.")).toBeTruthy();
   });
 
+  it("never rewrites a file whose occurrences were not all previewed (truncated results)", async () => {
+    const { fake } = await setup();
+    // A capped search listed only the first occurrence of src/a.ts.
+    fake.textAnswer = async () => ({
+      matches: [
+        { path: "src/a.ts", line: 1, lineText: "// TODO one", ranges: [{ start: 3, end: 7 }] },
+        { path: "src/b.ts", line: 1, lineText: "const b = 2; // TODO three", ranges: [{ start: 16, end: 20 }] },
+      ],
+      truncated: true,
+      durationMs: 1,
+    });
+    search("todo");
+    fireEvent.change(screen.getByRole("textbox", { name: "Remplacer" }), { target: { value: "x" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Aperçu du remplacement" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Remplacer dans 2 fichiers" }));
+    });
+    expect(await screen.findByText("1 remplacement dans 1 fichier")).toBeTruthy();
+    expect(
+      screen.getByText("src/a.ts : 2 occurrences dans le fichier, 1 dans l'aperçu (résultats tronqués ou ligne coupée) : rien n'a été écrit."),
+    ).toBeTruthy();
+    expect(fake.disk.get("src/a.ts")).toBe(FILES["src/a.ts"]);
+    expect(fake.writes.map((write) => write.path)).toEqual(["src/b.ts"]);
+  });
+
   it("can leave a file out of the replacement", async () => {
     const { fake } = await setup();
     search("todo");

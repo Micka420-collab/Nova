@@ -213,7 +213,13 @@ export function ProjectSearch({ onClose }: { onClose?: () => void }) {
           continue;
         }
         const replaced = replaceInText(file.content, regex, replacement, isRegex);
-        if (replaced.count === 0) continue;
+        // Only what the preview showed is written: a truncated result, a cut line or a dialect
+        // difference with ripgrep would otherwise rewrite occurrences nobody saw (or skip silently).
+        const previewed = group.matches.reduce((sum, match) => sum + match.ranges.length, 0);
+        if (replaced.count !== previewed) {
+          result.notes.push(copy.skippedMismatch(group.path, previewed, replaced.count));
+          continue;
+        }
         const written = await client.files.write({
           workspaceId,
           path: group.path,
