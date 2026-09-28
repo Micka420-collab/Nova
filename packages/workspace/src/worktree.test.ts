@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { chmod, mkdir, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { isWorkspaceError } from "./errors";
 import { makeTempDir, type TempDir } from "./test-support";
@@ -102,6 +102,23 @@ describe("worktree manager", () => {
     await writeFile(join(info.root, "a.txt"), "changed\n");
     expect((await manager.changes(info)).changes).toEqual([{ path: "a.txt", change: "modified" }]);
     expect(await manager.changedInProject(sub, info.baseSha, ["a.txt", "b.txt"])).toEqual(new Set());
+  });
+
+  it("reports changes when the data dir is reached through a symlink (macOS /var), refuses a checkout elsewhere", async () => {
+    const link = join(data.path, "..", `${basename(data.path)}-link`);
+    await symlink(data.path, link, process.platform === "win32" ? "junction" : "dir");
+    try {
+      const linked = createWorktreeManager({ dataDir: link, env: GIT_ENV });
+      const info = await linked.add(project.path, ID);
+      expect(info.path).toBe(join(data.path, "worktrees", ID));
+      await writeFile(join(info.root, "src/a.txt"), "changed\n");
+      expect((await linked.changes(info)).changes).toEqual([{ path: "src/a.txt", change: "modified" }]);
+      await expect(linked.changes({ ...info, path: project.path, root: project.path })).rejects.toSatisfy((error: unknown) =>
+        isWorkspaceError(error, "outside_workspace"),
+      );
+    } finally {
+      await unlink(link);
+    }
   });
 
   it("tells which files the user changed in the project since the base", async () => {

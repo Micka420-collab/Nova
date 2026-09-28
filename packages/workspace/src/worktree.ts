@@ -267,7 +267,9 @@ export function createWorktreeManager(options: WorktreeManagerOptions): Worktree
     },
 
     async changes(info) {
-      if (!isInsideRoot(dir, info.path)) throw new WorkspaceError("outside_workspace", "worktree outside the data dir");
+      // `info.path` is canonical (realpath): so must the data dir be, which may sit behind a symlink
+      // (macOS /var → /private/var, a linked home). Compared raw, every worktree is refused.
+      if (!isInsideRoot(await realpath(dir), info.path)) throw new WorkspaceError("outside_workspace", "worktree outside the data dir");
       const filters = await noFiltersEnv(info.root);
       const diff = await run(
         info.root,
