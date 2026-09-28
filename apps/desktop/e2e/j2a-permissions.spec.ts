@@ -4,9 +4,9 @@
 // and never widen what the mission may do. Everything is checked on disk and in the audit log.
 import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { makeUserDataDir, removeDir, type LaunchedNova } from "./fixtures";
-import { CART_BUGGY, currentWorkspaceId, latestMission, launchOnFolder, missionEvents, planFromAgent, shot, TERMINAL_EVENTS, writeShopProject } from "./j2a-kit";
+import { auditOf, CART_BUGGY, launchOnFolder, missionEvents, runMission, shot, TERMINAL_EVENTS, writeShopProject } from "./j2a-kit";
 import { MOCK_KEYS, startMockOpenRouter, type MissionScript, type MockOpenRouter, type ScriptStep } from "./mock-openrouter";
 
 const WITNESS = "contenu témoin hors de l'espace";
@@ -76,67 +76,76 @@ test.afterEach(async () => {
   removeDir(outside);
 });
 
-interface AuditRow {
-  action: string;
-  tool: string | null;
-  decision: string | null;
-  reason: string | null;
-  target: string | null;
-}
-
-async function auditOf(page: Page, missionId: string): Promise<AuditRow[]> {
-  return page.evaluate(async (id) => {
-    const listed = await window.novaBridge.audit.list({ workspaceId: null, missionId: id, actor: null, action: null, decision: null, operation: null, since: null, until: null, beforeSeq: null, limit: 200 });
-    if (!listed.ok) throw new Error(listed.error.message);
-    return listed.value.map((entry) => {
-      const row = entry as unknown as Record<string, unknown>;
-      const str = (key: string) => (typeof row[key] === "string" ? (row[key] as string) : null);
-      return { action: str("action") ?? "", tool: str("tool"), decision: str("decision"), reason: str("reason"), target: str("target") };
-    });
-  }, missionId);
-}
-
-/** Runs a scripted mission from the agent panel until it ends; `onApproval` answers each card. */
-async function runMission(page: Page, mode: string, goal: string, onApproval: (index: number) => Promise<void>): Promise<string> {
-  const workspaceId = await currentWorkspaceId(page);
-  await page.getByRole("button", { name: "Confier une mission à Nomi" }).click();
-  await planFromAgent(page, mode, goal);
-  await page.getByRole("button", { name: "Lancer la mission" }).click();
-  const agent = page.getByRole("region", { name: "Panneau Agent" });
-  const end = agent.locator(".nova-endcard");
-  const card = agent.getByRole("button", { name: "Refuser" });
-  let approvals = 0;
-  for (let round = 0; round < 200; round += 1) {
-    if (await end.isVisible()) break;
-    if (await card.isVisible()) {
-      await onApproval(approvals);
-      approvals += 1;
-      continue;
-    }
-    await page.waitForTimeout(100);
-  }
-  await expect(end).toBeVisible();
-  return (await latestMission(page, workspaceId)).id;
-}
-
 test("(c) scenario 6: `..`, absolute and symlink paths are refused by the engine; a denied write never runs", async () => {
   nova = await launchOnFolder({ userDataDir, mock, folder: project });
   const { page } = nova;
   const agent = page.getByRole("region", { name: "Panneau Agent" });
   const missionId = await runMission(page, "Corriger", "Lis le témoin [script:escape]", async () => {
+    await expect(agent.getByText(/Nomi veut modifier/).last()).toBeVisible();
     await shot(page, "j2a-10-deny-approval");
     await agent.getByRole("button", { name: "Refuser" }).click();
   });
+
+  // The three refusals are visible with their reason, in French, without opening anything.
+  const refused = agent.getByText("Permission : hors du dossier du projet");
+  await expect(refused).toHaveCount(3);
+  await expect(agent.getByText(/stay inside the project/)).toHaveCount(0);
   await shot(page, "j2a-11-refusals");
 
   const events = await missionEvents(page, missionId);
-  const finished = events.filter((event) => event.type === "tool.finished") as unknown as { state: string; display: { kind: string; code?: string } }[];
-  console.log(JSON.stringify(finished));
-  console.log(JSON.stringify(await auditOf(page, missionId)));
   expect(events.filter((event) => TERMINAL_EVENTS.includes(event.type))).toHaveLength(1);
+  const finished = events.filter((event) => event.type === "tool.finished") as unknown as { state: string; display: { code?: string } }[];
+  expect(finished.map((event) => [event.state, event.display.code])).toEqual([
+    ["denied", "permission_denied"],
+    ["denied", "permission_denied"],
+    ["denied", "permission_denied"],
+    ["denied", "permission_denied"],
+  ]);
+
+  // Journal: each escape is a recorded `deny` of the engine (reason outside_workspace); nothing ran.
+  const audit = await auditOf(page, missionId);
+  const denials = audit.filter((row) => row.action === "permission.decision" && row.decision === "deny");
+  expect(denials.map((row) => [row.target, row.reason])).toEqual([
+    ["../temoin.txt", "outside_workspace"],
+    [join(outside, "temoin.txt"), "outside_workspace"],
+    ["lien/temoin.txt", "outside_workspace"],
+  ]);
+  expect(audit.filter((row) => row.action === "tool.executed").map((row) => row.outcome)).toEqual(["denied", "denied", "denied", "denied"]);
+  expect(audit.some((row) => row.action === "approval.decided" && row.decision === "deny" && row.target === "src/cart.js")).toBe(true);
   expect(readFileSync(join(project, "src/cart.js"), "utf8")).toBe(CART_BUGGY);
   // No content of the witness reached the model.
+  expect(JSON.stringify(mock.requests.map((request) => request.body))).not.toContain(WITNESS);
+});
+
+test("(d) scenario 7 (file): hostile instructions read in a file are data; every action they ask for stays under the policy", async () => {
+  nova = await launchOnFolder({ userDataDir, mock, folder: project });
+  const { page } = nova;
+  const agent = page.getByRole("region", { name: "Panneau Agent" });
+  const cards: string[] = [];
+  const missionId = await runMission(page, "Corriger", "Résume les notes [script:injection]", async (index) => {
+    const card = agent.locator(".nv-approval:not(.nv-approval--decided)").first();
+    // The card shows where the request comes from: after reading untrusted content.
+    await expect(card).toContainText("Cette demande suit la lecture d'un contenu non fiable");
+    cards.push((await card.innerText()).split("\n")[0] ?? "");
+    if (index === 0) await shot(page, "j2a-12-injection-approval");
+    await card.getByRole("button", { name: "Refuser" }).click();
+  });
+  await shot(page, "j2a-13-injection-end");
+
+  // The hostile file was read, then nothing it asked for happened.
+  const audit = await auditOf(page, missionId);
+  const executed = audit.filter((row) => row.action === "tool.executed");
+  expect(executed.filter((row) => row.outcome === "succeeded").map((row) => row.target)).toEqual(["NOTES.md"]);
+  // `.env` is refused by the engine itself (sensitive file), never offered for approval.
+  expect(audit.some((row) => row.action === "permission.decision" && row.decision === "deny" && row.target === ".env" && row.reason === "excluded_path")).toBe(true);
+  // Delete, command and outside fetch each needed the user, and were refused.
+  expect(cards.length).toBeGreaterThanOrEqual(2);
+  expect(audit.filter((row) => row.action === "approval.decided").every((row) => row.decision === "deny")).toBe(true);
+  expect(readFileSync(join(project, "src/cart.js"), "utf8")).toBe(CART_BUGGY);
+  const events = await missionEvents(page, missionId);
+  expect(events.filter((event) => TERMINAL_EVENTS.includes(event.type))).toHaveLength(1);
+  // The key and the .env value never appear in what went to the model.
   const bodies = JSON.stringify(mock.requests.map((request) => request.body));
-  expect(bodies).not.toContain(WITNESS);
-  void MOCK_KEYS;
+  expect(bodies).not.toContain(MOCK_KEYS.valid);
+  expect(bodies).not.toContain("never-read-e2e");
 });

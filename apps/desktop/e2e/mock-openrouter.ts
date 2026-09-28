@@ -38,8 +38,8 @@ export interface ScriptedToolCall {
 
 /** What the scripted model does on one turn of a mission. */
 export type ScriptStep =
-  | { kind: "tools"; calls: ScriptedToolCall[]; text?: string; costUsd?: number }
-  | { kind: "answer"; text: string; costUsd?: number }
+  | { kind: "tools"; calls: ScriptedToolCall[]; text?: string; costUsd?: number; delayMs?: number }
+  | { kind: "answer"; text: string; costUsd?: number; delayMs?: number }
   /** Streams nothing useful and never ends until the client goes away (crash / stop tests). */
   | { kind: "hang" };
 
@@ -286,6 +286,9 @@ export async function startMockOpenRouter(options: MockOptions = {}): Promise<Mo
         if (!client.gone) res.end();
         return;
       }
+      // A model that takes its time (the UI is observed while the mission runs).
+      if (step.delayMs) await sleep(step.delayMs);
+      if (client.gone) return;
       if (step.kind === "answer") {
         for (const piece of step.text.match(/.{1,16}/gs) ?? []) {
           chunk({ role: "assistant", content: piece });
@@ -379,6 +382,29 @@ export async function startMockOpenRouter(options: MockOptions = {}): Promise<Mo
         chunk({ role: "assistant", content: piece });
         await sleep(15);
       }
+    }
+    // Web plugin on a streamed chat answer: the citations arrive as `url_citation` annotations on
+    // a delta (as OpenRouter streams them), before the final usage chunk.
+    if (body.plugins?.some((plugin) => plugin.id === "web")) {
+      const web = options.webSearch ?? DEFAULT_WEB_SEARCH;
+      send({
+        id,
+        model,
+        provider: "MockProvider",
+        choices: [
+          {
+            index: 0,
+            delta: {
+              content: "",
+              annotations: web.citations.map((citation) => ({
+                type: "url_citation",
+                url_citation: { url: citation.url, title: citation.title, content: citation.content, start_index: 0, end_index: 10 },
+              })),
+            },
+            finish_reason: null,
+          },
+        ],
+      });
     }
     const usage = {
       prompt_tokens: 42,

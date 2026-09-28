@@ -128,3 +128,78 @@ export async function latestMission(page: Page, workspaceId: string): Promise<{ 
 }
 
 export const TERMINAL_EVENTS = ["mission.succeeded", "mission.failed", "mission.cancelled"];
+
+export interface AuditRow {
+  action: string;
+  decision: string | null;
+  target: string | null;
+  outcome: string | null;
+  tool: string | null;
+  reason: string | null;
+}
+
+/** The audit log of a mission, oldest first (through the bridge, as the audit viewer reads it). */
+export async function auditOf(page: Page, missionId: string): Promise<AuditRow[]> {
+  const rows = await page.evaluate(async (id) => {
+    const listed = await window.novaBridge.audit.list({
+      workspaceId: null,
+      missionId: id,
+      actor: null,
+      action: null,
+      decision: null,
+      operation: null,
+      since: null,
+      until: null,
+      beforeSeq: null,
+      limit: 500,
+    });
+    if (!listed.ok) throw new Error(listed.error.message);
+    return listed.value.map((entry) => ({
+      seq: entry.seq,
+      action: entry.action,
+      decision: entry.decision,
+      target: entry.target,
+      outcome: entry.outcome,
+      tool: typeof entry.dataSummary?.["tool"] === "string" ? entry.dataSummary["tool"] : null,
+      reason: typeof entry.dataSummary?.["reason"] === "string" ? entry.dataSummary["reason"] : null,
+    }));
+  }, missionId);
+  return rows.sort((a, b) => a.seq - b.seq).map(({ seq: _seq, ...row }) => row);
+}
+
+/**
+ * Runs a scripted mission from the agent panel until its end card shows; `onApproval` answers
+ * each approval card (index = order of the card). Returns the mission id.
+ */
+export async function runMission(
+  page: Page,
+  mode: string,
+  goal: string,
+  onApproval: (index: number) => Promise<void>,
+  options: { until?: "end" | "suspended" } = {},
+): Promise<string> {
+  const workspaceId = await currentWorkspaceId(page);
+  await page.getByRole("navigation", { name: "Espaces" }).getByRole("button", { name: "Accueil" }).click();
+  await page.getByRole("button", { name: "Confier une mission à Nomi" }).click();
+  await planFromAgent(page, mode, goal);
+  await page.getByRole("button", { name: "Lancer la mission" }).click();
+  const agent = page.getByRole("region", { name: "Panneau Agent" });
+  const done = options.until === "suspended" ? agent.getByText(/Mission suspendue/).first() : agent.locator(".nova-endcard");
+  const pending = agent.locator(".nv-approval:not(.nv-approval--decided)");
+  let approvals = 0;
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    if (await done.isVisible()) break;
+    if (await pending.first().isVisible()) {
+      const id = await pending.first().getAttribute("id");
+      await onApproval(approvals);
+      approvals += 1;
+      // Cards come one after the other: wait until THIS one is answered.
+      if (id) await expect(agent.locator(`[id="${id}"]:not(.nv-approval--decided)`)).toHaveCount(0);
+      continue;
+    }
+    await page.waitForTimeout(100);
+  }
+  await expect(done).toBeVisible();
+  return (await latestMission(page, workspaceId)).id;
+}
