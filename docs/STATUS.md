@@ -4,8 +4,8 @@ Page de reprise : ce qui marche, ce qui a réellement été testé, ce qui ne l'
 
 ## État au 2026-09-28
 
-- **Jalons en cours** : J0 (fondations) et J1 (vraie conversation) ; J2-A (« l'atelier s'ouvre ») intégré sur la branche `feat/j2a-atelier` (tête vérifiée : `643b286`, non poussée, CI non rejouée sur cette tête). Voir [`ROADMAP.md`](ROADMAP.md).
-- **Verdict** : non prêt pour la production. La tranche verticale du jalon 1 et les parcours J2-A (a) à (j) fonctionnent sur Linux x64 contre un faux serveur OpenRouter ; rien n'a encore été parcouru avec une vraie clé, et J2-A n'a pas tourné sur Windows ni macOS.
+- **Jalons en cours** : J0 (fondations) et J1 (vraie conversation) ; J2-A (« l'atelier s'ouvre ») intégré sur la branche `feat/j2a-atelier` (poussée ; CI verte sur les trois OS à la tête `3034377`, run 36404932780). Voir [`ROADMAP.md`](ROADMAP.md).
+- **Verdict** : non prêt pour la production. La tranche verticale du jalon 1 et les parcours J2-A (a) à (j) fonctionnent sur Linux x64, Windows x64 et macOS arm64 (CI) contre un faux serveur OpenRouter ; rien n'a encore été parcouru avec une vraie clé.
 - **Vérification finale J2-A (2026-09-28)** : lint, types, 1 746 tests unitaires, build, suite Playwright complète 29/29 deux fois de suite et `vault-smoke` `os` au vert, sans correctif nécessaire (détail dans « Testé réellement »).
 - **Code** : commits sur `main` : `b48b9e4` (monorepo et contrat partagé), `a08ad93` (tranche verticale : application desktop, adaptateur OpenRouter, store SQLite, runtime, interface, CI, E2E), `996fd02` (logo : le concept de ruban du propriétaire redessiné en un seul tracé plein, icônes régénérées). Puis un commit de correctifs issus d'une revue adversariale (6 axes, 42 signalements, 40 confirmés par deux contre-vérificateurs, tous corrigés avec test de non-régression).
 
@@ -74,18 +74,20 @@ Environnement commun, sauf mention contraire : Linux x64, Ubuntu 26.04, Node 24.
 | 2026-09-28 | Vérification finale J2-A — `cd apps/desktop && npx electron-vite build` | Linux x64 | Build OK (13,1 s) ; seul avertissement : taille de bloc > 500 kB | Vérification finale J2-A |
 | 2026-09-28 | Vérification finale J2-A — `LD_LIBRARY_PATH=<.devdeps>/usr/lib/x86_64-linux-gnu timeout 1800 xvfb-run -a -s "-screen 0 1440x900x24" npx playwright test` (dans `apps/desktop`), lancé deux fois de suite | Linux x64, Electron 44.4.5, Xvfb 1440×900 | Passage 1 : 29/29 (2,5 min) ; passage 2 : 29/29 (2,4 min). `atelier-foundations` 3, `atelier-wiring` 3, `bridge-security` 7, `j2a-budget-crash` 2, `j2a-mcp` 1, `j2a-mission` 1, `j2a-permissions` 2, `j2a-terminal` 1, `j2a-web-nomi` 2, `j2a-workspace` 1, `ui-journey` 6 ; aucune relance | Vérification finale J2-A |
 | 2026-09-28 | Vérification finale J2-A — `NOVA_KEYRING_ROOT=<.devdeps> dbus-run-session -- bash e2e/run-with-keyring.sh xvfb-run -a node e2e/vault-smoke.mjs --expect os` | Linux x64, trousseau gnome-keyring privé | Code 0 : `level=os backend=gnome_libsecret expected=os` | Vérification finale J2-A |
+| 2026-09-28 | CI GitHub Actions, run 36401616257 (tête `b5f30f8`, premier passage J2-A hors Linux) | ubuntu, windows, macos | Linux vert ; Windows E2E 24/29, macOS 25/29. Causes : recherche vide sous Windows (chemins ripgrep `.\src\…` rejetés), aucun événement de fichier sous Windows (racine chokidar `C:/…` prise pour « hors espace »), terminal impossible sous macOS (`spawn-helper` de node-pty 1.1.0 publié sans bit exécutable), et quatre hypothèses de test (npm sans shell, texte du terminal lu dans le DOM alors que WebGL dessine, raccourcis Ctrl au lieu de Cmd, arrêt brutal du seul processus principal sous Windows) | CI J2-A |
+| 2026-09-28 | CI GitHub Actions, run 36404932780 (tête `3034377`) | ubuntu, windows, macos | 4 jobs verts : lint/types/unitaires ; sur chaque OS E2E 29/29, `vault-smoke`, installeurs et `--nova-selftest=workers` sur l'app empaquetée (`win-unpacked`, `mac-arm64` : `ok: true`) | CI J2-A |
 | en attente | Scénario 1 manuel avec un vrai compte OpenRouter (réponse en continu réelle) | | à faire : demande une clé avec crédit | |
 
 ## Non vérifié
 
 - **Réponse en continu avec une vraie clé OpenRouter** : seuls le catalogue et le refus d'une clé ont été testés contre le vrai service.
 - **Coffre `os` de bout en bout sous Linux** : le chargeur Electron de Playwright force `--password-store=basic`, donc les E2E Playwright sous Linux n'exercent que le coffre faible ou la clé de session. Le niveau `os` n'est vérifié que par `vault-smoke.mjs` (application réelle hors Playwright), qui constate le niveau détecté. Chiffrer une clé au coffre `os`, redémarrer et la relire n'est pas couvert par un test versionné (un essai ponctuel de la voie principale a réussi, non consigné comme test).
-- **Windows et macOS** : aucun résultat tant que la CI n'a pas tourné ; `node:sqlite` dans l'application empaquetée sur ces systèmes non vérifié.
+- **Windows et macOS** : vérifiés par la CI seulement (run 36404932780) ; installeurs NSIS et DMG jamais installés.
 - **Lecteur d'écran** (Orca, NVDA, VoiceOver) : aucun passage manuel.
 - **Signature des installeurs** : aucune (question Q3).
 - **Effacement sur disque** : `PRAGMA secure_delete` et le point de contrôle WAL après suppression sont en place et testés au niveau du store (absence des octets dans les fichiers) ; les limites physiques (SSD, instantanés) restent hors de portée — voir [`SECURITY.md`](SECURITY.md#effacement-des-données).
-- Paquet : depuis ADR-012, `node_modules` contient uniquement `node-pty` et `@vscode/ripgrep` (+ binaire de la plateforme), désarchivés ; vérifié sous Linux (`release/linux-unpacked`), **pas encore sous Windows et macOS** (prébuilds de `node-pty`, `spawn-helper` sous macOS) : la CI et la release rejouent désormais `--nova-selftest=workers` sur l'app empaquetée (`e2e/packaged-selftest.mjs`), et chaque arch mac est construite sur son propre runner (`macos-latest` arm64, `macos-15-intel` x64) car pnpm n'installe le binaire ripgrep que pour le cpu hôte — non encore observé en CI.
-- J2-A, pas encore vérifié sur la tête `643b286` : CI trois OS (branche non poussée ; Windows et macOS n'ont jamais exécuté les specs `j2a-*`) ; `vault-smoke --expect weak` et `--nova-selftest=workers` sur le paquet `electron-builder --dir` (non relancés le 2026-09-28) ; démonstration J2-A sur le build empaqueté (le dépôt de test `e2e/fixtures/vite-bug` n'existe pas) ; scénarios 15 et 16 rejoués sur le périmètre de l'atelier (l'audit axe-core ne couvre que le parcours de conversation ; journal d'audit et exports de mission non inspectés pour les secrets par un E2E) ; mesures initiales de performance (tableau §3 de `FEATURES.md`).
+- Paquet : depuis ADR-012, `node_modules` contient uniquement `node-pty` et `@vscode/ripgrep` (+ binaire de la plateforme), désarchivés ; vérifié sous Linux, Windows x64 et macOS arm64 par `--nova-selftest=workers` sur l'app empaquetée (CI, run 36404932780 ; le `postinstall` racine rend exécutable le `spawn-helper` de node-pty) ; l'arch mac x64 (`macos-15-intel`, workflow de release) n'a pas encore été observée.
+- J2-A, pas encore vérifié : `vault-smoke --expect weak` et `--nova-selftest=workers` sur le paquet `electron-builder --dir` (non relancés le 2026-09-28) ; démonstration J2-A sur le build empaqueté (le dépôt de test `e2e/fixtures/vite-bug` n'existe pas) ; scénarios 15 et 16 rejoués sur le périmètre de l'atelier (l'audit axe-core ne couvre que le parcours de conversation ; journal d'audit et exports de mission non inspectés pour les secrets par un E2E) ; mesures initiales de performance (tableau §3 de `FEATURES.md`).
 - J2-A, vérifié seulement contre le faux serveur : appels d'outils et recherche web avec le vrai OpenRouter ; serveurs MCP réels (seul un serveur de test du SDK a été exercé) ; xterm.js sans WebGL perd les couleurs « truecolor » sous la CSP à nonce (bandeau « mode dégradé ») ; isolation L0 seulement (bubblewrap détecté, jamais présenté comme actif).
 - J2-A, non fait (aucun groupe masqué : tous les groupes sont servis ; ce qui manque n'a pas de bouton) :
   - mémoriser une commande précise (`PermissionRule.argvPrefix`, demande une migration) ; journal des notifications de Nomi persistant (table `companion_notices`, migration) ;
@@ -116,8 +118,8 @@ Aucune plateforme n'est déclarée prise en charge tant que sa ligne n'indique p
 | Plateforme | Construit | Testé E2E | Signé | Installable |
 | --- | --- | --- | --- | --- |
 | Linux x64 — référence (Ubuntu 26.04) | Oui — 2026-09-27, `electron-builder --linux dir` | Oui — 2026-09-28, Playwright 29/29 deux fois (J1 + J2-A, coffre faible ou session) et `vault-smoke` `os` ; `weak` le 2026-09-27 | Non (aucun certificat, Q3) | Non vérifié (AppImage non testée) |
-| Windows x64 (CI `windows-latest`) | Oui — run 36320963259 (commit `98762932`), `win-unpacked` | Oui pour J1 — E2E 13/13 ; coffre `os`/`dpapi` détecté hors Playwright. J2-A : non vérifié | Non (aucun certificat, Q3) | Non vérifié (installeur NSIS non testé) |
-| macOS arm64 (CI `macos-latest`) | Oui — run 36320963259 (commit `98762932`), `mac-arm64` | Oui pour J1 — E2E 13/13 (trousseau factice de Playwright) ; coffre `os`/`keychain` détecté hors Playwright avec un trousseau de test déverrouillé. J2-A : non vérifié | Non (aucun certificat, Q3) | Non vérifié (DMG non testé) |
+| Windows x64 (CI `windows-latest`) | Oui — run 36404932780 (commit `3034377`), installeur NSIS | Oui — run 36404932780 (commit `3034377`), E2E 29/29 (J1 + J2-A) ; coffre `os`/`dpapi` détecté hors Playwright ; self-test des workers sur `win-unpacked` | Non (aucun certificat, Q3) | Non vérifié (installeur NSIS non testé) |
+| macOS arm64 (CI `macos-latest`) | Oui — run 36404932780 (commit `3034377`), DMG | Oui — run 36404932780 (commit `3034377`), E2E 29/29 (J1 + J2-A, trousseau factice de Playwright) ; coffre `os`/`keychain` détecté hors Playwright avec un trousseau de test déverrouillé ; self-test des workers sur `mac-arm64` | Non (aucun certificat, Q3) | Non vérifié (DMG non testé) |
 
 Format attendu d'une cellule remplie : « Oui — 2026-mm-jj, commande ou run CI » ou « Non — raison ».
 
@@ -134,7 +136,7 @@ Format attendu d'une cellule remplie : « Oui — 2026-mm-jj, commande ou run CI
 
 ## Prochaine action
 
-1. Pousser `feat/j2a-atelier` et consigner le run CI sur la tête (ubuntu, windows, macos : E2E 29/29, `vault-smoke`, `--nova-selftest=workers` sur le paquet, arch mac x64 sur `macos-15-intel`), puis mettre la matrice à jour.
+1. Observer l'arch mac x64 (`macos-15-intel`) au prochain workflow de release.
 2. Rejouer les scénarios 15 et 16 sur le périmètre de l'atelier (axe-core sur l'atelier ; journal d'audit et exports de mission inspectés pour les secrets).
 3. Créer le dépôt de démonstration `e2e/fixtures/vite-bug` et jouer la démonstration J2-A sur le build empaqueté Linux ; relever les mesures initiales de performance.
 4. Scénario 1 et une mission J2-A avec un vrai compte OpenRouter ; reporter commande et résultat ici.
@@ -142,6 +144,7 @@ Format attendu d'une cellule remplie : « Oui — 2026-mm-jj, commande ou run CI
 
 ## Historique de cette page
 
+- 2026-09-28 — CI J2-A sur les trois OS : run 36401616257 (Windows 24/29, macOS 25/29, causes et correctifs consignés), puis run 36404932780 vert (tête `3034377`) ; matrice mise à jour.
 - 2026-09-28 — vérification finale J2-A sur `643b286` : lint, types, tests unitaires, build, Playwright 29/29 ×2, `vault-smoke` `os`.
 - 2026-09-27 — squelette initial.
 - 2026-09-27 — J2-A phase 0 (socle) : dépendances, contrat partagé, migrations v2–v5, workers, nonce CSP.
