@@ -1,12 +1,36 @@
 // NOVA main process: data directory, store, vault, provider, runtime, IPC, window.
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { BrowserWindow, app, dialog, net, safeStorage, session, shell } from "electron";
+import { BrowserWindow, MessageChannelMain, Notification, app, dialog, net, safeStorage, session, shell } from "electron";
 import { ChatRunner } from "@nova/agent-runtime";
+import type { SystemNotification } from "@nova/companion";
+import { detectIsolation } from "@nova/permissions";
 import { OpenRouterProvider } from "@nova/providers";
-import { IPC_CHANNELS, type ChatStreamEvent } from "@nova/shared";
-import { openNovaStore, type NovaStore } from "@nova/storage";
+import { IPC_CHANNELS, type IpcChannel } from "@nova/shared";
+import {
+  createApprovalRepo,
+  createAuditRepo,
+  createCheckpointRepo,
+  createEditorStateRepo,
+  createMcpRepo,
+  createPolicyRepo,
+  createSignalRepo,
+  createSuggestionRepo,
+  createWebCacheRepo,
+  createWebPolicyRepo,
+  createWebSearchUsageRepo,
+  createWorkspaceRepo,
+  openNovaStore,
+  type NovaStore,
+} from "@nova/storage";
+import { createProcessCommandRunner, type ToolDeps } from "@nova/tools";
+import { createOpenRouterWebSearcher, pickWebSearchModel } from "@nova/web";
+import { createGitClient, createObjectStore, readBytesOrNull, resolveExisting } from "@nova/workspace";
+import { openAgentRuntimePort } from "../workers/agent/main-port";
 import { createMainApi } from "./api";
+import { resolveRipgrepPath, workerSpecs } from "./native-deps";
+import { SELFTEST_FLAG, runWorkerSelfTest } from "./selftest";
+import { WorkerPool } from "./workers";
 import { registerIpcRoutes } from "./ipc";
 import { buildIpcRoutes } from "./ipc-routes";
 import { createFileLogger, describeError, type Logger } from "./logger";
@@ -22,9 +46,23 @@ import {
 } from "./store-recovery";
 import { APP_ENTRY_URL, resolveLaunchOverrides } from "./security-policy";
 import { createAppService } from "./services/app-service";
+import { ApprovalsService } from "./services/approvals-service";
+import { AuditService } from "./services/audit-service";
 import { CatalogService } from "./services/catalog-service";
+import { createChatContext } from "./services/chat-context";
 import { ChatEventHub } from "./services/chat-events";
+import { checkpointObjectsDir, createCheckpointsService } from "./services/checkpoints-service";
+import { createCompanionService, type CompanionService } from "./services/companion-service";
 import { ConnectionService } from "./services/connection-service";
+import { createFilesService } from "./services/files-service";
+import { createGitService } from "./services/git-service";
+import { McpService } from "./services/mcp-service";
+import { createMissionsService, createReviewFsGate, type MissionsService } from "./services/missions-service";
+import { PermissionsService } from "./services/permissions-service";
+import { createSearchService } from "./services/search-service";
+import { createTerminalService } from "./services/terminal-service";
+import { WebService } from "./services/web-service";
+import { createWorkspaceService } from "./services/workspace-service";
 import { createElectronVault } from "./vault";
 
 const APP_NAME = "NOVA";
@@ -42,6 +80,12 @@ app.enableSandbox();
 registerAppScheme();
 
 let mainWindow: BrowserWindow | null = null;
+/** A quit waits for the window to close (its unsaved-edits guard may cancel it), then resumes. */
+let quitAfterClose = false;
+
+/** Buttons of the unsaved-edits question (index = returned choice). */
+const UNSAVED_CHOICES = ["Annuler", "Continuer sans enregistrer"] as const;
+const UNSAVED_CANCEL = 0;
 
 function createWindow(context: SecurityContext): BrowserWindow {
   const icon = join(app.getAppPath(), "build", "icon.png");
@@ -74,8 +118,25 @@ function createWindow(context: SecurityContext): BrowserWindow {
     // ready-to-show may never fire: an error page beats an invisible running app.
     if (!window.isDestroyed() && !window.isVisible()) window.show();
   });
+  // The renderer holds a quit, a close or a reload while a buffer has unsaved edits (beforeunload):
+  // ask here, where nothing can be lost silently. Cancel keeps the window and aborts the quit.
+  window.webContents.on("will-prevent-unload", (event) => {
+    const choice = dialog.showMessageBoxSync(window, {
+      type: "warning",
+      title: APP_NAME,
+      message: "Des fichiers ont des modifications non enregistrées.",
+      detail: "Si tu continues, elles seront perdues. Annule pour les enregistrer (Ctrl+S dans l'éditeur).",
+      buttons: [...UNSAVED_CHOICES],
+      defaultId: UNSAVED_CANCEL,
+      cancelId: UNSAVED_CANCEL,
+      noLink: true,
+    });
+    if (choice === UNSAVED_CANCEL) quitAfterClose = false;
+    else event.preventDefault();
+  });
   window.on("closed", () => {
     if (mainWindow === window) mainWindow = null;
+    if (quitAfterClose) app.quit();
   });
   const url = overrides.rendererDevUrl ?? APP_ENTRY_URL;
   window.loadURL(url).catch((error: unknown) => {
@@ -84,11 +145,39 @@ function createWindow(context: SecurityContext): BrowserWindow {
   return window;
 }
 
-function forwardChatEvent(event: ChatStreamEvent): void {
+/** main → renderer push (a closed window just drops it). */
+function push(channel: IpcChannel, payload: unknown): void {
   const window = mainWindow;
-  if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) {
-    window.webContents.send(IPC_CHANNELS.chatEvent, event);
-  }
+  if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send(channel, payload);
+}
+
+/** P13: at most one visible system notification per group; clicking it brings NOVA back. */
+function createNotifier(): (notification: SystemNotification) => void {
+  const shown = new Map<string, Notification>();
+  return (notification) => {
+    if (!Notification.isSupported()) return;
+    if (notification.replacesGroup) shown.get(notification.groupKey)?.close();
+    const native = new Notification({ title: APP_NAME, body: notification.body, silent: true });
+    native.on("click", () => {
+      if (!mainWindow) return;
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    });
+    native.on("close", () => {
+      if (shown.get(notification.groupKey) === native) shown.delete(notification.groupKey);
+    });
+    shown.set(notification.groupKey, native);
+    native.show();
+  };
+}
+
+/** Supervised utilityProcess workers; each starts on first use (nothing runs until a feature needs it). */
+async function createWorkerPool(logger: Logger): Promise<WorkerPool> {
+  const ripgrepPath = await resolveRipgrepPath().catch((error: unknown) => {
+    logger.error("ripgrep not found", { error: describeError(error) });
+    return null;
+  });
+  return new WorkerPool(workerSpecs(import.meta.dirname, { ripgrepPath }), { logger });
 }
 
 /** Opens the store; on failure explains it and, for a damaged file, offers to set it aside. */
@@ -150,6 +239,7 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
   }
   logger.info("store opened", { interruptedStreams: store.markInterruptedStreams() });
 
+  const workers = await createWorkerPool(logger);
   const context: SecurityContext = { devOrigin, logger };
   hardenSession(session.defaultSession, context);
   handleAppProtocol(join(import.meta.dirname, "../renderer"));
@@ -161,8 +251,198 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
     fetch: (url, init) => net.fetch(url, init),
   });
   const connections = new ConnectionService({ store, vault, provider, logger });
-  const resolveApiKey = (): Promise<string | null> => connections.resolveApiKey();
-  const chatEvents = new ChatEventHub(forwardChatEvent);
+  // The key in use, known to the web exfiltration guard (compared, never logged).
+  let knownKey: string | null = null;
+  const resolveApiKey = async (): Promise<string | null> => {
+    knownKey = await connections.resolveApiKey();
+    return knownKey;
+  };
+  const catalog = new CatalogService({ store, provider, resolveApiKey, logger });
+
+  // J2-A atelier ------------------------------------------------------------
+  // Late-bound: the companion, missions and approvals reference each other only through events.
+  let companion: CompanionService | null = null;
+  let missions: MissionsService | null = null;
+
+  const workspaceRepo = createWorkspaceRepo(store.db);
+  const gitClient = createGitClient();
+  const rgPath = await resolveRipgrepPath().catch(() => null);
+  const workspaceService = createWorkspaceService({
+    repo: workspaceRepo,
+    editorState: createEditorStateRepo(store.db),
+    homeDir: app.getPath("home"),
+    git: gitClient,
+    worker: {
+      request: (method, params) => workers.get("fs-worker").request(method, params),
+      onNotify: (listener) => workers.instance("fs-worker").onNotify(listener),
+      onExit: (listener) => workers.instance("fs-worker").onExit(listener),
+    },
+    pickFolder: async () => {
+      const options = { properties: ["openDirectory" as const] };
+      const picked = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
+      return picked.canceled ? null : (picked.filePaths[0] ?? null);
+    },
+  });
+  const checkpointsService = createCheckpointsService({
+    workspaces: workspaceService,
+    index: createCheckpointRepo(store.db),
+    dataDir,
+  });
+  const filesService = createFilesService({
+    workspaces: workspaceService,
+    trashItem: (path) => shell.trashItem(path),
+    checkpoints: checkpointsService.store,
+    rgPath,
+  });
+  filesService.onEvent((event) => push(IPC_CHANNELS.filesEvent, event));
+  const searchService = createSearchService({ workspaces: workspaceService });
+  const gitService = createGitService({ workspaces: workspaceService, git: gitClient });
+
+  const audit = new AuditService({ repo: createAuditRepo(store.db) });
+  const policies = createPolicyRepo(store.db);
+  const isolation = await detectIsolation();
+  const permissions = new PermissionsService({
+    policies,
+    audit,
+    isolation,
+    contractOf: (missionId) => missions?.controller.contractOf(missionId) ?? null,
+    rootOf: (workspaceId) => workspaceService.rootOf(workspaceId).catch(() => null),
+    knownCommands: (workspaceId) => {
+      const facts = workspaceRepo.getFacts(workspaceId);
+      return [facts?.testRunner?.command, facts?.buildCommand].filter((command): command is string[] => !!command);
+    },
+  });
+  const approvals = new ApprovalsService({
+    approvals: createApprovalRepo(store.db),
+    policies,
+    audit,
+    emit: (event) => {
+      missions?.onApprovalEvent(event);
+      push(IPC_CHANNELS.approvalsEvent, event);
+    },
+  });
+
+  const web = new WebService({
+    policies: createWebPolicyRepo(store.db),
+    audit,
+    cache: createWebCacheRepo(store.db),
+    usage: createWebSearchUsageRepo(store.db),
+    providerId: provider.id,
+    // `mcp` is created below; the guard only runs on requests, after startup.
+    knownSecrets: () => [...(knownKey ? [knownKey] : []), ...mcp.knownSecrets()],
+    searcher: createOpenRouterWebSearcher({
+      apiKey: resolveApiKey,
+      selectModel: async () => pickWebSearchModel((await catalog.catalog({ refresh: false })).models)?.id ?? null,
+      dataCollection: () => store.getSettings().privacy.providerDataCollection,
+      fetch: (url, init) => net.fetch(url, init),
+      ...(overrides.openRouterBaseUrl ? { baseUrl: overrides.openRouterBaseUrl } : {}),
+    }),
+    logger,
+  });
+  const mcp = new McpService({
+    repo: createMcpRepo(store.db),
+    audit,
+    secrets: store,
+    vault,
+    host: workers.instance("mcp-host"),
+    workspaceRoot: (workspaceId) => workspaceRepo.get(workspaceId)?.rootPath ?? null,
+    knownSecrets: () => (knownKey ? [knownKey] : []),
+    logger,
+  });
+
+  const terminal = createTerminalService({
+    worker: () => workers.get("pty-host"),
+    workspaceRoot: (workspaceId) => workspaceService.rootOf(workspaceId).catch(() => null),
+    sendPort: (envelope, port) => {
+      const window = mainWindow;
+      if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return false;
+      window.webContents.postMessage(IPC_CHANNELS.portTransfer, envelope, [port]);
+      return true;
+    },
+    createChannel: () => new MessageChannelMain(),
+  });
+  terminal.onEvent((event) => push(IPC_CHANNELS.terminalEvent, event));
+  terminal.onExit((ended, outputTail) =>
+    companion?.onProcessExit({ sessionId: ended.id, exitCode: ended.exitCode, signal: null, outputTail }),
+  );
+
+  // Agent tools run in main under the permission engine (L0: no shell, confined cwd, scrubbed env).
+  const commandRunner = createProcessCommandRunner({
+    resolveCwd: async (workspaceId, cwd) => {
+      try {
+        return await resolveExisting(await workspaceService.rootOf(workspaceId), cwd);
+      } catch {
+        return null;
+      }
+    },
+  });
+  const objects = createObjectStore(checkpointObjectsDir(dataDir));
+  const toolDeps = async (workspaceId: string): Promise<ToolDeps> => ({
+    files: await filesService.fileOpsFor(workspaceId),
+    facts: () => workspaceService.api.facts({ workspaceId, refresh: false }).catch(() => null),
+    commands: commandRunner,
+    git: { status: gitService.api.status, diff: gitService.api.diff, commit: gitService.commit },
+    web,
+    mcp,
+  });
+  missions = createMissionsService({
+    store,
+    provider,
+    resolveApiKey,
+    push: (event) => {
+      push(IPC_CHANNELS.missionsEvent, event);
+      companion?.onMissionEvent(event);
+    },
+    toolDeps,
+    mcpTools: (workspaceId) => mcp.listToolsForModel(workspaceId),
+    permissions: { evaluate: (request, options) => permissions.evaluateOnDisk(request, options) },
+    approvals,
+    checkpoints: {
+      create: (input) => checkpointsService.store.create(input),
+      list: (req) => checkpointsService.api.list(req),
+    },
+    reviewFs: createReviewFsGate({
+      rootOf: (workspaceId) => workspaceService.rootOf(workspaceId),
+      restoreFile: (req) => checkpointsService.api.restoreFile(req),
+      readObject: (hash) => objects.get(hash),
+      fileOps: (workspaceId) => filesService.fileOpsFor(workspaceId),
+      createCheckpoint: (input) => checkpointsService.store.create(input),
+    }),
+    diffFs: {
+      readObject: (hash) => objects.get(hash),
+      readCurrent: async (workspaceId, path, maxBytes) => readBytesOrNull(await workspaceService.rootOf(workspaceId), path, maxBytes),
+    },
+    isolationLevel: () => permissions.isolationLevel,
+    audit: (entry) => audit.recordToolExecution(entry),
+    auditDecision: (request, decision, toolCallId) => audit.recordDecision(request, decision, toolCallId),
+    openRuntimePort: () => openAgentRuntimePort(workers),
+    logger,
+  });
+  const missionsApi = missions.api;
+  companion = createCompanionService({
+    signals: createSignalRepo(store.db),
+    suggestions: createSuggestionRepo(store.db),
+    missions: missionsApi,
+    broadcast: (event) => push(IPC_CHANNELS.companionEvent, event),
+    notify: createNotifier(),
+    isFocused: () => mainWindow?.isFocused() ?? false,
+    conversationTitle: (conversationId) => store.getConversation(conversationId)?.title ?? null,
+    runningSession: async (sessionId) => {
+      const found = (await terminal.list({ workspaceId: null })).find((item) => item.id === sessionId);
+      return found?.state === "running" ? { workspaceId: found.workspaceId, command: null } : null;
+    },
+  });
+
+  // Startup maintenance: nothing of a previous run is replayed (approvals expire, missions fail once).
+  audit.purgeExpired();
+  approvals.expireOrphans();
+  missions.controller.recoverInterrupted();
+  void checkpointsService.purge().catch((error: unknown) => logger.warn("checkpoint purge failed", { error: describeError(error) }));
+
+  const chatEvents = new ChatEventHub((event) => {
+    push(IPC_CHANNELS.chatEvent, event);
+    companion?.onChatEvent(event);
+  });
   const runner = new ChatRunner({
     store,
     provider,
@@ -172,12 +452,13 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
     logger,
     // A key refused mid-chat becomes the connection's recorded state (Nomi, composer, Home read it).
     onProviderError: (error, apiKey) => connections.recordChatFailure(apiKey, error),
+    prepareTurn: createChatContext({ fileOps: (workspaceId) => filesService.fileOpsFor(workspaceId), web }),
   });
   const api = createMainApi({
     store,
     runner,
     connections,
-    catalog: new CatalogService({ store, provider, resolveApiKey, logger }),
+    catalog,
     chatEvents,
     app: createAppService({
       info: {
@@ -192,6 +473,26 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
       vault,
       openExternal: (url) => shell.openExternal(url),
     }),
+    atelier: {
+      workspace: workspaceService.api,
+      files: filesService.api,
+      search: searchService.api,
+      terminal,
+      missions: missionsApi,
+      approvals: { list: (req) => approvals.list(req), decide: (req) => approvals.decide(req) },
+      permissions: {
+        getProfile: (req) => permissions.getProfile(req),
+        setProfile: (req) => permissions.setProfile(req),
+        listRules: (req) => permissions.listRules(req),
+        revokeRules: (req) => permissions.revokeRules(req),
+      },
+      audit: { list: async (req) => audit.entries(req) },
+      git: gitService.api,
+      mcp: mcp.api(),
+      web: web.ipc(),
+      companion: companion.api,
+      checkpoints: checkpointsService.api,
+    },
   });
   registerIpcRoutes(buildIpcRoutes(api, logger), (frame) => isTrustedSender(frame, devOrigin), logger);
 
@@ -200,10 +501,26 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
   app.on("before-quit", (event) => {
     if (closed) return;
     event.preventDefault();
+    // The window closes first: its unsaved-edits question may cancel the quit, so nothing is shut
+    // down before the answer. Its `closed` handler quits again, then without a window.
+    const window = mainWindow;
+    if (!shutdown && window && !window.isDestroyed()) {
+      quitAfterClose = true;
+      window.close();
+      return;
+    }
     shutdown ??= (async () => {
       runner.stopAll();
+      companion?.dispose();
       const timeout = new Promise<void>((resolve) => setTimeout(resolve, QUIT_IDLE_TIMEOUT_MS));
-      await Promise.race([runner.idle(), timeout]);
+      // Agent processes run in detached groups: nothing else kills them once NOVA exits.
+      const commandsStopped = commandRunner
+        .stopEverything()
+        .catch((error: unknown) => logger.warn("agent processes stop failed", { error: describeError(error) }));
+      await mcp.shutdown().catch((error: unknown) => logger.warn("mcp shutdown failed", { error: describeError(error) }));
+      // Workers exit after their own cleanup (the pty-host kills its terminals' trees): wait for it.
+      const workersStopped = workers.stopAll();
+      await Promise.race([Promise.all([commandsStopped, workersStopped, runner.idle()]), timeout]);
       store.close();
       logger.info("stopped");
     })()
@@ -222,7 +539,23 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
   void vault.status().then((status) => logger.info("vault detected", { ...status }));
 }
 
-if (!app.requestSingleInstanceLock()) {
+if (process.argv.includes(SELFTEST_FLAG)) {
+  // Diagnostics mode (see selftest.ts): no window, no store, no single-instance lock.
+  const logger = createFileLogger({ dir: join(app.getPath("userData"), "logs"), fileName: "selftest.log" });
+  void app
+    .whenReady()
+    .then(async () => {
+      const pool = await createWorkerPool(logger);
+      const report = await runWorkerSelfTest(pool);
+      await pool.stopAll();
+      process.stdout.write(`${JSON.stringify({ novaSelfTest: report })}\n`);
+      app.exit(report.ok ? 0 : 1);
+    })
+    .catch((error: unknown) => {
+      process.stdout.write(`${JSON.stringify({ novaSelfTest: { ok: false, error: describeError(error) } })}\n`);
+      app.exit(1);
+    });
+} else if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   const dataDir = app.getPath("userData");

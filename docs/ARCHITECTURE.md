@@ -21,17 +21,23 @@ Comment NOVA est construit aujourd'hui, et ce qui est prévu. Ce qui est « pré
 | `packages/storage` | `NovaStore` sur `node:sqlite`, migrations versionnées | Implémenté (J1) |
 | `packages/agent-runtime` | Orchestration d'une génération : conversation → fournisseur → persistance → événements | Implémenté (J1) |
 | `packages/ui` | Tokens de design, composants, compagnon Nomi, assets de marque | Implémenté (J1) ; tokens non encore validés |
+| `apps/desktop/src/workers` | Entrées des `utilityProcess` (`pty-host`, `fs-worker`, `agent-runtime`, `mcp-host`) et leur protocole avec le main | Socle J2-A : ping, auto-tests pty et ripgrep |
+| `packages/permissions` | Moteur de permissions (S1), dans le main | Contrat (interfaces) ; logique à venir (J2-A) |
+| `packages/tools` | Définitions, schémas et exécuteurs des outils de l'agent | Contrat ; à venir (J2-A) |
+| `packages/missions` | Boucle d'agent, missions, proxy fournisseur (dans le worker `agent-runtime`) | Contrat ; à venir (J2-A) |
+| `packages/workspace` | Système de fichiers confiné, faits de projet, checkpoints (fs-worker) | Contrat ; à venir (J2-A) |
+| `packages/mcp` | Client MCP sur le SDK officiel | Contrat ; à venir (J2-A) |
+| `packages/web` | Politique de domaines, lecture de pages, recherche web (main) | Contrat ; à venir (J2-A) |
+| `packages/companion` | Signaux et suggestions de Nomi (main) | Contrat ; à venir (J2-A) |
 
 Livré dans les commits `a08ad93` (tranche verticale) et `996fd02` (logo) ; correctifs de revue en cours. Ce qui a été réellement vérifié, et sur quelle plateforme, est dans [`STATUS.md`](STATUS.md).
 
-Modules prévus, créés seulement au démarrage de leur jalon (ADR-002) :
+Les paquets de J2-A ont été créés au démarrage de la tranche (phase 0) : ils exposent déjà leurs **contrats** (types, interfaces, en-têtes qui fixent les règles), la logique arrive avec chaque fonctionnalité. Modules encore prévus, créés au démarrage de leur jalon (ADR-002) :
 
 | Module prévu | Rôle | Jalon |
 | --- | --- | --- |
-| `packages/tools` | Lecture, recherche, patchs multi-fichiers, terminal contrôlé, aperçu web | J2 |
-| Moteur de permissions | Politiques allow/ask/deny évaluées hors du modèle. Emplacement à décider | J2 |
-| `packages/mcp` | Client MCP (spécification stable 2025-11-25), serveurs locaux isolés | J3 |
 | `packages/skills` | Installation, désinstallation, exécution des skills | J3 |
+| `packages/index` | Index tree-sitter, embeddings | J3 |
 | `packages/voice` | Pipeline voix : appui pour parler, transcription visible | J4 |
 | `packages/pets` | Profils et comportements du compagnon | J4 |
 | `apps/web`, `apps/server` | Client Web/PWA et backend hébergé | J5 |
@@ -65,38 +71,57 @@ flowchart LR
   renderer --> ui
 ```
 
-Règles : le renderer n'importe jamais `providers`, `storage` ni `agent-runtime` (code Node) ; `shared` ne dépend d'aucun autre paquet NOVA ; le preload n'importe que `@nova/shared/channels`.
+Règles : le renderer n'importe jamais `providers`, `storage` ni `agent-runtime` (code Node) ; `shared` ne dépend d'aucun autre paquet NOVA ; le preload n'importe que `@nova/shared/channels`. Les paquets de J2-A suivent la même règle : le renderer n'importe que `shared` et `ui` ; `permissions`, `web`, `companion` servent le main ; `workspace` le fs-worker ; `missions` et `tools` le worker `agent-runtime` (exécuteurs dans le worker propriétaire de la ressource) ; `mcp` le main (HTTP) et `mcp-host` (stdio).
 
 ## Modèle de processus
 
+Cible v2 (`FEATURES.md` §3), avec l'état réel de chaque élément. « Implémenté » = présent dans le code et vérifié ; « socle » = le processus et son canal existent, la fonction non ; « prévu » = absent du code.
+
 ```mermaid
 flowchart TB
-  subgraph app["Application NOVA"]
-    main["Processus main<br/>Node 24 · IPC · runtime · store"]
-    subgraph win["Fenêtre — processus renderer sandboxé"]
-      preload["preload<br/>contextBridge"]
-      renderer["Interface React<br/>servie par nova://"]
+  subgraph app["NOVA (Electron 44)"]
+    main["main — courtier de confiance<br/>IPC zod · secrets · SQLite · réseau<br/>(implémenté ; permissions, audit, proxy fournisseur : prévus J2-A)"]
+    subgraph win["Fenêtre — renderer sandboxé (implémenté)"]
+      preload["preload<br/>contextBridge + relais de ports"]
+      renderer["React · CodeMirror 6 · xterm.js (dépendances installées)"]
     end
-    workers["utilityProcess — prévu J2+<br/>outils · terminal · serveurs MCP · tâches lourdes"]
+    subgraph workers["utilityProcess — sans secrets, env épuré (socle J2-A)"]
+      runtime["agent-runtime<br/>boucle de mission"]
+      fs["fs-worker<br/>watcher, ripgrep, lecture/écriture confinée"]
+      pty["pty-host<br/>node-pty"]
+      mcp["mcp-host ×N<br/>serveurs MCP stdio"]
+    end
+    later["prévu J2-B et après : lsp-host, WebContentsView aperçu/navigateur,<br/>indexer, voice, fenêtre flottante"]
   end
-  vault["Coffre du système<br/>DPAPI · Keychain · libsecret · kwallet"]
-  disk["Dossier de données<br/>SQLite · journaux"]
-  net["OpenRouter — HTTPS"]
+  vault["Coffre OS"]
+  disk["dataDir : nova.sqlite · checkpoints · artifacts · logs"]
+  net["OpenRouter · Web · MCP distants"]
 
-  renderer -->|"window.novaBridge"| preload
-  preload -->|"invoke et événements"| main
-  main -->|"safeStorage"| vault
-  main -->|"node:sqlite"| disk
-  main -->|"fetch"| net
-  main -.->|"prévu"| workers
+  renderer -->|"window.novaBridge (invoke, événements)"| preload
+  preload -->|"IPC validé"| main
+  main -. "MessagePort (terminal) via preload" .-> renderer
+  main <-->|"parentPort : request/response/notify, ports transférés"| runtime & fs & pty & mcp
+  main --> vault
+  main --> disk
+  main --> net
 ```
 
-| Processus | Peut | Ne peut pas |
-| --- | --- | --- |
-| main | Lire et écrire le dossier de données, appeler le coffre, appeler OpenRouter, ouvrir un lien `https` autorisé dans le navigateur | Exécuter du code fourni par le renderer ou par un modèle |
-| preload | Relayer les appels de l'API fixe `window.novaBridge` | Exposer `ipcRenderer` ou un canal arbitraire |
-| renderer | Afficher, envoyer des requêtes typées, recevoir des événements | Accéder à Node, au disque, au réseau, aux clés |
-| utilityProcess (prévu) | Exécuter un outil ou un serveur MCP dans le dossier de travail, avec des droits limités | Hériter des secrets ; sortir du périmètre accordé par le moteur de permissions |
+| Processus | Peut | Ne peut pas | État |
+| --- | --- | --- | --- |
+| main | Lire et écrire le dossier de données, appeler le coffre et le réseau (OpenRouter, puis `fetch_page`, MCP HTTP), lancer/tuer/relancer les workers, évaluer les permissions (prévu), tenir le journal d'audit (prévu) | Exécuter du code fourni par le renderer, un modèle ou un projet dans son propre processus | Implémenté (J1) + socle workers |
+| preload | Relayer l'API fixe `window.novaBridge` ; relayer un `MessagePort` reçu sur `nova:port:transfer` vers la page (`window.postMessage`, enveloppe validée, un seul port) | Exposer `ipcRenderer` ou un canal arbitraire ; charger zod | Implémenté |
+| renderer | Afficher, éditer du texte, afficher un terminal, envoyer des requêtes typées, recevoir des événements et des ports | Accéder à Node, au disque, au réseau, aux clés ; voir un chemin absolu (chemins relatifs uniquement) | Implémenté (J1) ; éditeur et terminal à venir |
+| agent-runtime | Conduire la boucle de mission ; demander générations et outils **au main** | Posséder une clé ; ouvrir une socket ; toucher le disque hors des outils validés | Socle (ping) |
+| fs-worker | Surveiller, chercher (ripgrep), lire et écrire dans l'espace, chemins confinés | Hériter des secrets ; sortir de l'espace | Socle (ping, auto-test ripgrep) |
+| pty-host | Terminaux utilisateur (`node-pty`), affichage des commandes de l'agent | Hériter des secrets | Socle (ping, auto-test pty) |
+| mcp-host | Héberger un serveur MCP stdio avec un environnement épuré (secrets injectés par référence, décidés par le main) | S'accorder des permissions | Socle (ping) |
+
+Mécanique (ADR-014) :
+
+- `WorkerPool` (`apps/desktop/src/main/workers.ts`) démarre un worker **à la première utilisation**, met les requêtes en file jusqu'à son message `ready`, borne chaque requête dans le temps, le **relance** après un plantage (backoff, 3 fois par minute, puis `failed`) et rejette les requêtes en cours avec le code IPC `unavailable`. Protocole : `apps/desktop/src/workers/protocol.ts` ; côté worker : `serveWorker` (`apps/desktop/src/workers/serve.ts`), `ping` intégré.
+- Environnement des workers : `scrubEnv` (liste blanche, aucun nom évoquant un secret, ni `NOVA_*`, `ELECTRON_*`, `NODE_OPTIONS`).
+- Flux à haut débit : `MessageChannelMain` ; un port au worker, l'autre à la fenêtre (`webContents.postMessage`), relayé par le preload ; côté page, `createNovaPortRegistry` (`packages/shared/src/ports.ts`). Contre-pression du terminal par fenêtre de crédits (`TERMINAL_FLOW`).
+- Dépendances natives (ADR-012) : `node-pty` et le binaire ripgrep sont externes aux bundles, livrés dans `node_modules` et désarchivés de l'asar. Diagnostic : `nova --nova-selftest=workers`.
 
 ## Flux d'un message de conversation
 
@@ -196,6 +221,17 @@ Le détail des menaces et des contrôles par frontière est dans [`SECURITY.md`]
 | `messages` | Rôle, contenu, statut, modèle demandé, modèle et fournisseur servis, erreur, usage | Ordre par `seq` ; statuts `complete`, `streaming`, `stopped`, `error`, `interrupted` |
 | `usage_records` | Jetons (prompt, complétion, raisonnement, cache) et coût par génération | Survit à la suppression de son message : une réponse relancée a quand même été facturée. `cost` à `NULL` quand le fournisseur ne le donne pas (ADR-011) |
 
+### Schéma v2 à v5 (J2-A, socle)
+
+Migrations en ajout seul (`packages/storage/src/migrations.ts`), tables STRICT avec contraintes `CHECK` sur chaque énumération ; dépôts par domaine dans `packages/storage/src/repos/` (une fabrique `createXRepo(db)` par domaine, sur `NovaStore.db`).
+
+| Version | Tables |
+| --- | --- |
+| v2 « workspace » | `workspaces` (racine absolue côté main uniquement, profil de permissions, accord D10), `workspace_facts`, `editor_state`, `checkpoints`, `checkpoint_files` (empreintes avant/après ; octets dans `dataDir/checkpoints/objects`), `artifacts` |
+| v3 « missions » | `missions`, `mission_contracts`, `mission_tasks`, `mission_events` (journal ajout-seul), `tool_calls`, `proofs`, `approvals`, `policies`, `audit_log` (sans clé étrangère : survit aux suppressions), `review_decisions`, `cost_reservations` ; `usage_records` reconstruite : `conversation_id` devient facultatif, ajout de `mission_id`, `tool_call_id`, `kind` (`generation` par défaut) |
+| v4 « connecteurs » | `mcp_servers` (valeurs secrètes par référence au coffre), `mcp_tool_permissions`, `mcp_tools_cache`, `web_policy_rules`, `web_cache` |
+| v5 « compagnon » | `signals`, `suggestions`, `memory_items`, `routing_profiles` |
+
 ### Entités prévues
 
 Le modèle de données complet du produit est introduit jalon par jalon, chaque fois par une nouvelle migration. Les secrets restent toujours référencés par identifiant de coffre.
@@ -241,6 +277,8 @@ Le modèle de données complet du produit est introduit jalon par jalon, chaque 
 | `nova:chat:active` | `chat.active()` | — | `ActiveStream[]` |
 | `nova:chat:event` | `chat.onEvent` (poussé par le main) | — | `ChatStreamEvent` |
 
+**Groupes J2-A** (contrat complet dans `packages/shared/src/ipc.ts` et les fichiers de domaine `workspace.ts`, `git.ts`, `tools.ts`, `permissions.ts`, `missions.ts`, `terminal.ts`, `mcp.ts`, `web.ts`, `companion.ts`) : `workspace` (open, recent, facts, close, setInstructionConsent), `files` (list, read, write avec `expectedHash`, create, move, trash, `onEvent`), `search` (text, files), `terminal` (create, list, attach, resize, kill ; données par `MessagePort`), `missions` (plan, start, pause, resume, stop, list, get, review, `onEvent`), `approvals` (list, decide), `permissions` (getProfile, setProfile), `git` (status, diff), `mcp` (list, add, update, remove, test, tools, setToolPermission), `web` (getPolicy, setPolicy), `companion` (state, act, `onEvent`), `checkpoints` (list, restoreFile, restoreAll). Canaux poussés : `PUSH_CHANNELS`. Chemins entrants : relatifs canoniques (`packages/shared/src/paths.ts`), rejetés sinon. Tant qu'un groupe n'est pas câblé, chaque appel valide répond `unavailable` (`services/unavailable.ts`) ; un groupe se câble en passant son implémentation dans `MainApiDeps.atelier`.
+
 Ajouter un canal : nom dans `channels.ts`, schéma et type dans `ipc.ts`, méthode dans `NovaApi` et `createNovaClient`, gestionnaire validé dans le main, test.
 
 ## Modèle d'erreurs
@@ -258,6 +296,7 @@ Deux niveaux : l'enveloppe IPC (le main ne lève jamais d'exception brute vers l
 | `key_unreadable` | Une clé est enregistrée mais ne peut plus être déchiffrée (trousseau verrouillé, changé ou réinitialisé) : la déverrouiller ou la saisir à nouveau. |
 | `no_key` | Aucune clé configurée pour le fournisseur. |
 | `provider` | Échec côté fournisseur ; le détail est dans `providerError`. |
+| `unavailable` | Capacité prévue au contrat mais indisponible maintenant (groupe pas encore câblé, worker arrêté ou en échec). |
 | `internal` | Erreur inattendue ; message court, secrets masqués. |
 
 Le texte affiché est choisi par le renderer à partir du code ; le message technique n'est qu'un détail.

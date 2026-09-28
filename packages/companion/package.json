@@ -1,0 +1,10 @@
+{
+  "name": "@nova/companion",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts", "./testing": "./src/test-events.ts" },
+  "dependencies": {
+    "@nova/shared": "workspace:*"
+  }
+}

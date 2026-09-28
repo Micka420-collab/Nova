@@ -1,0 +1,825 @@
+/* Agent panel (VISUAL.md §4.4): header, mode bar, timeline, approvals, contract sheet, end card. */
+
+.nova-agent {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  height: 100%;
+  min-width: 0;
+  background: var(--nv-bg);
+}
+
+.nova-zone--agent .nova-agent {
+  background: var(--nv-panel);
+}
+
+.nova-agent > .nv-callout {
+  margin: var(--nv-space-2) var(--nv-panel-pad) 0;
+}
+
+.nova-agent__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-2);
+  min-height: 44px;
+  padding: var(--nv-space-2) var(--nv-panel-pad);
+  border-bottom: 1px solid var(--nv-border);
+}
+
+.nova-agent__state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--nv-space-2);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-agent__title {
+  font-size: var(--nv-text-lg);
+  font-weight: var(--nv-weight-bold);
+}
+
+.nova-agent__mission {
+  flex: 1;
+  min-width: 120px;
+  overflow: hidden;
+  font-size: var(--nv-text-sm);
+  font-weight: var(--nv-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nova-agent__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-1);
+}
+
+.nova-agent__modes {
+  display: grid;
+  gap: var(--nv-space-1);
+  padding: var(--nv-space-2) var(--nv-panel-pad);
+  border-bottom: 1px solid var(--nv-border);
+}
+
+/* Six modes in a 320–560 px panel: the segments wrap onto a second row rather than hiding
+   « Corriger » and « Vérifier » behind a horizontal scrollbar. */
+.nova-agent__modes .nv-segmented {
+  display: flex;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.nova-agent__modes .nv-segmented__option {
+  flex: 1 0 auto;
+}
+
+.nova-agent__mode-hint {
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-xs);
+}
+
+.nova-agent__body {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* The conversation keeps its own scroll; missions scroll in the body. */
+.nova-agent__body > .nova-chat {
+  height: 100%;
+}
+
+.nova-agent__goal,
+.nova-agent__planning,
+.nova-agent__loading,
+.nova-agent-timeline,
+.nova-agent__body > .nv-callout {
+  margin: 0 auto;
+  max-width: 760px;
+  padding: var(--nv-panel-pad);
+}
+
+.nova-agent__goal {
+  display: grid;
+  gap: var(--nv-space-4);
+}
+
+.nova-agent__suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nv-space-2);
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.nova-agent__subtitle {
+  margin-bottom: var(--nv-space-2);
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-xs);
+  font-weight: var(--nv-weight-medium);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.nova-agent__recent ul {
+  display: grid;
+  gap: var(--nv-list-gap);
+  padding: 0;
+  list-style: none;
+}
+
+.nova-agent__recent-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--nv-space-2);
+  width: 100%;
+  min-height: var(--nv-row);
+  padding: var(--nv-space-1) var(--nv-space-2);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-sm);
+  background: var(--nv-raised);
+  color: var(--nv-text);
+  font-size: var(--nv-text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.nova-agent__recent-item:hover {
+  background: var(--nv-raised-hover);
+}
+
+.nova-agent__recent-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nova-agent__recent[aria-busy="true"],
+.nova-agent__loading {
+  display: grid;
+  gap: var(--nv-space-2);
+}
+
+.nova-agent__planning {
+  display: grid;
+  gap: var(--nv-space-2);
+  color: var(--nv-text-secondary);
+}
+
+.nova-agent__reminder {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nv-space-2);
+  padding: var(--nv-space-2) var(--nv-panel-pad);
+  border-top: 1px solid var(--nv-border);
+  background: var(--nv-amber-soft);
+  color: var(--nv-amber);
+  font-size: var(--nv-text-sm);
+  font-weight: var(--nv-weight-medium);
+}
+
+/* Mission timeline */
+
+/* One column that never grows past its panel: a grid track defaults to its content's min width,
+   so a long command in a card title (nowrap) widened the whole journal past the edge. */
+.nova-agent-timeline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--nv-space-3);
+}
+
+.nova-agent-timeline__list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--nv-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nova-agent-goal {
+  display: grid;
+  gap: var(--nv-space-1);
+  padding: var(--nv-space-3);
+  border-radius: var(--nv-radius-md);
+  background: var(--nv-raised);
+  overflow-wrap: anywhere;
+}
+
+.nova-agent-msg {
+  display: grid;
+  gap: var(--nv-space-2);
+  padding: var(--nv-space-2) 0;
+  line-height: 1.6;
+}
+
+.nova-agent-msg__author {
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-xs);
+  font-weight: var(--nv-weight-bold);
+}
+
+.nova-agent-msg__p {
+  overflow-wrap: anywhere;
+}
+
+.nova-agent-msg__p .nv-citation {
+  vertical-align: baseline;
+}
+
+.nova-agent-msg__usage {
+  color: var(--nv-text-muted);
+  font-size: var(--nv-text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.nova-agent-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--nv-space-2);
+  padding: var(--nv-space-1) 0;
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-xs);
+}
+
+.nova-agent-notice::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--nv-text-muted);
+}
+
+.nova-agent-notice--proof {
+  color: var(--nv-accent);
+}
+
+.nova-agent-notice--proof::before {
+  background: var(--nv-accent);
+}
+
+.nova-agent-suspended__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--nv-space-2);
+}
+
+/* Tool card content */
+
+.nova-tool__verb {
+  flex: none;
+  font-weight: var(--nv-weight-medium);
+}
+
+.nova-tool__target {
+  overflow: hidden;
+  font-family: var(--nv-font-mono);
+  font-size: var(--nv-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nova-tool__suffix {
+  flex: none;
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.nova-tool__fact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-2);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-tool__error {
+  color: var(--nv-danger);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-tool__subhead {
+  margin-top: var(--nv-space-2);
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-xs);
+  font-weight: var(--nv-weight-medium);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.nova-tool__pre {
+  max-height: 240px;
+  margin: 0;
+  padding: var(--nv-space-2) var(--nv-space-3);
+  overflow: auto;
+  border-radius: var(--nv-radius-sm);
+  background: var(--nv-terminal-bg, var(--nv-field));
+  font-family: var(--nv-font-mono);
+  font-size: var(--nv-code-size);
+  line-height: var(--nv-code-line);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.nova-tool__list,
+.nova-tool__sources {
+  display: grid;
+  gap: var(--nv-space-1);
+  margin: 0;
+  padding-left: var(--nv-space-4);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-tool__list li,
+.nova-tool__sources li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--nv-space-2);
+}
+
+.nova-tool__line {
+  overflow: hidden;
+  font-family: var(--nv-font-mono);
+  font-size: var(--nv-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nova-tool__detail {
+  margin: 0;
+  color: var(--nv-text-secondary);
+}
+
+.nova-tool__untrusted {
+  margin: 0 0 var(--nv-space-1);
+  padding-left: var(--nv-space-2);
+  border-left: 2px solid var(--nv-border-strong);
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-xs);
+}
+
+.nova-tool__snippet {
+  flex-basis: 100%;
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-xs);
+}
+
+/* Approval card wrapper (focus target of Ctrl+Maj+A). */
+
+.nova-approval {
+  scroll-margin: var(--nv-space-5);
+}
+
+/* Contract sheet (UX.md §7.1) */
+
+.nova-contract {
+  display: grid;
+  gap: var(--nv-space-4);
+  margin: 0 auto;
+  max-width: 760px;
+  padding: var(--nv-panel-pad);
+}
+
+.nova-contract__block {
+  display: grid;
+  gap: var(--nv-space-3);
+  padding: var(--nv-space-4);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-lg);
+  background: var(--nv-raised);
+}
+
+.nova-contract__title {
+  font-size: var(--nv-text-lg);
+}
+
+.nova-contract__subtitle {
+  font-size: var(--nv-text-sm);
+  font-weight: var(--nv-weight-bold);
+}
+
+.nova-contract__edited {
+  color: var(--nv-amber);
+  font-weight: var(--nv-weight-medium);
+}
+
+.nova-contract__summary {
+  color: var(--nv-text-secondary);
+}
+
+.nova-contract__steps {
+  display: grid;
+  gap: var(--nv-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nova-contract__step {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--nv-space-2);
+}
+
+.nova-contract__step-number {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: var(--nv-control-md);
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.nova-contract__step-body {
+  display: grid;
+  gap: var(--nv-space-2);
+  min-width: 0;
+}
+
+.nova-contract__acceptance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-2);
+}
+
+.nova-contract__inline-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--nv-space-2);
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-xs);
+}
+
+/* The visible label is the select's own value; the step number is in the accessible name. */
+.nova-contract__inline-label > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.nova-contract__select {
+  height: var(--nv-control-sm);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-contract__detail {
+  flex: 1;
+  min-width: 160px;
+}
+
+.nova-contract__step-actions {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.nova-contract__add {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--nv-space-2);
+}
+
+.nova-contract__add > :first-child {
+  flex: 1;
+}
+
+.nova-contract__facts {
+  display: grid;
+  gap: var(--nv-space-1);
+  padding-left: var(--nv-space-5);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-contract__row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--nv-space-3);
+}
+
+.nova-contract__estimate {
+  font-size: var(--nv-text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.nova-contract__expert {
+  display: grid;
+  gap: var(--nv-space-4);
+}
+
+.nova-contract__fieldset {
+  display: grid;
+  gap: var(--nv-space-2);
+  margin: 0;
+  padding: var(--nv-space-3);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-md);
+}
+
+.nova-contract__fieldset legend {
+  padding: 0 var(--nv-space-1);
+  font-size: var(--nv-text-sm);
+  font-weight: var(--nv-weight-bold);
+}
+
+.nova-contract__radio,
+.nova-contract__check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--nv-space-2);
+  font-size: var(--nv-text-sm);
+  cursor: pointer;
+}
+
+.nova-contract__radio input,
+.nova-contract__check input {
+  margin-top: 3px;
+  accent-color: var(--nv-accent);
+}
+
+.nova-contract__radio {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: var(--nv-space-2);
+  row-gap: 2px;
+}
+
+.nova-contract__radio > .nova-note {
+  grid-column: 2;
+}
+
+.nova-contract__error {
+  color: var(--nv-danger);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-contract__blocked {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-2);
+  color: var(--nv-amber);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-contract__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-2);
+}
+
+/* End card (UX.md §5.1 step 8) */
+
+.nova-endcard {
+  display: grid;
+  gap: var(--nv-space-3);
+  margin-top: var(--nv-space-3);
+  padding: var(--nv-space-4);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-lg);
+  background: var(--nv-raised);
+}
+
+.nova-endcard--succeeded {
+  border-color: var(--nv-accent);
+}
+
+.nova-endcard--failed {
+  border-color: var(--nv-danger);
+}
+
+.nova-endcard__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-2);
+}
+
+.nova-endcard__title {
+  font-size: var(--nv-text-lg);
+}
+
+.nova-endcard__meta {
+  margin-left: auto;
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.nova-endcard__counts {
+  font-size: var(--nv-text-sm);
+  font-weight: var(--nv-weight-medium);
+}
+
+.nova-endcard__proofs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--nv-space-3);
+}
+
+.nova-endcard__proofs ul {
+  display: grid;
+  gap: var(--nv-space-1);
+  padding-left: var(--nv-space-4);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-endcard__subtitle {
+  margin-bottom: var(--nv-space-1);
+  font-size: var(--nv-text-sm);
+  font-weight: var(--nv-weight-bold);
+}
+
+.nova-endcard__detail {
+  margin-left: var(--nv-space-2);
+  font-family: var(--nv-font-mono);
+  font-size: var(--nv-text-xs);
+}
+
+.nova-endcard__cost {
+  display: grid;
+  gap: var(--nv-space-1);
+  margin: 0;
+  font-size: var(--nv-text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.nova-endcard__cost dt {
+  font-weight: var(--nv-weight-bold);
+}
+
+.nova-endcard__cost dd {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  color: var(--nv-text-secondary);
+}
+
+.nova-endcard__actions {
+  display: flex;
+  gap: var(--nv-space-2);
+}
+
+/* Goal composer: @-mention picker, Web toggle, context inspector (C5/C6/W1). */
+
+.nova-agent__composer {
+  position: relative;
+  display: grid;
+  gap: var(--nv-space-2);
+}
+
+.nova-mentions {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + var(--nv-space-1));
+  left: 0;
+  z-index: 20;
+  display: grid;
+  gap: var(--nv-space-1);
+  padding: var(--nv-space-1);
+  border: 1px solid var(--nv-border-strong);
+  border-radius: var(--nv-radius-md);
+  background: var(--nv-raised);
+  box-shadow: var(--nv-shadow-popover, var(--nv-shadow-raised));
+}
+
+.nova-mentions__list {
+  display: grid;
+  gap: 2px;
+  max-height: 240px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.nova-mentions__item {
+  display: flex;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--nv-text);
+  text-align: left;
+  align-items: center;
+  gap: var(--nv-space-2);
+  min-height: var(--nv-row);
+  padding: 0 var(--nv-space-2);
+  border-radius: var(--nv-radius-sm);
+  font-size: var(--nv-text-sm);
+  cursor: pointer;
+}
+
+.nova-mentions__item:hover {
+  background: var(--nv-raised-hover);
+}
+
+.nova-mentions__item[aria-current="true"] {
+  background: var(--nv-accent-soft);
+  box-shadow: inset 2px 0 0 var(--nv-accent);
+}
+
+.nova-mentions__kind {
+  flex: none;
+  width: 28px;
+  color: var(--nv-text-secondary);
+  font-family: var(--nv-font-mono);
+  font-size: var(--nv-text-xs);
+  text-align: center;
+}
+
+.nova-mentions__text {
+  overflow: hidden;
+  font-family: var(--nv-font-mono);
+  font-size: var(--nv-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nova-mentions__status {
+  padding: 0 var(--nv-space-2);
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-xs);
+}
+
+.nova-inspector {
+  display: grid;
+  gap: var(--nv-space-2);
+}
+
+.nova-inspector__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-2);
+}
+
+.nova-inspector__bar .nova-note {
+  font-size: var(--nv-text-xs);
+}
+
+.nova-inspector__panel {
+  display: grid;
+  gap: var(--nv-space-2);
+  padding: var(--nv-space-3);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-md);
+  background: var(--nv-panel);
+}
+
+.nova-inspector__facts {
+  display: grid;
+  gap: var(--nv-space-1);
+  padding-left: var(--nv-space-4);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-inspector__subtitle {
+  font-size: var(--nv-text-sm);
+  font-weight: var(--nv-weight-bold);
+}
+
+.nova-inspector__mentions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nv-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nova-inspector__mentions li {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: var(--nv-space-2);
+  border-radius: var(--nv-radius-pill);
+  background: var(--nv-info-soft);
+  color: var(--nv-info);
+  font-size: var(--nv-text-xs);
+}
+
+/* Raise the cap of a mission suspended by its budget, then resume (A13). */
+.nova-agent-raisecap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--nv-space-2);
+  margin-top: var(--nv-space-2);
+}
+
+.nova-agent-raisecap .nv-field {
+  max-width: 14rem;
+}

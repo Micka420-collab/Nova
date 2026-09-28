@@ -1,0 +1,121 @@
+/* Shared renderer blocks (cards, facts, notes). */
+
+/* Shared blocks */
+
+.nova-lead {
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-lg);
+}
+
+.nova-eyebrow {
+  font-size: var(--nv-text-xs);
+  font-weight: var(--nv-weight-bold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--nv-accent);
+}
+
+.nova-note {
+  font-size: var(--nv-text-sm);
+  color: var(--nv-text-secondary);
+}
+
+.nova-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nv-space-2);
+}
+
+.nova-subheading {
+  margin-top: var(--nv-space-5);
+  font-size: var(--nv-text-lg);
+}
+
+.nova-bullets {
+  display: grid;
+  gap: var(--nv-space-1);
+  padding-left: var(--nv-space-5);
+  color: var(--nv-text-secondary);
+}
+
+.nova-card {
+  display: grid;
+  gap: var(--nv-space-3);
+  padding: var(--nv-space-4);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-lg);
+  background: var(--nv-panel);
+}
+
+.nova-card__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nv-space-2);
+}
+
+.nova-card__title {
+  font-size: var(--nv-text-lg);
+}
+
+.nova-facts {
+  display: grid;
+  grid-template-columns: minmax(110px, auto) 1fr;
+  gap: var(--nv-space-2) var(--nv-space-4);
+  margin: 0;
+}
+
+.nova-facts dt {
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-facts dd {
+  display: grid;
+  justify-items: start;
+  gap: var(--nv-space-1);
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.nova-context .nova-facts {
+  grid-template-columns: 1fr;
+  gap: 2px;
+}
+
+.nova-context .nova-facts dd {
+  margin-bottom: var(--nv-space-3);
+}
+
+.nova-chip {
+  height: 28px;
+  padding: 0 var(--nv-space-3);
+  border: 1px solid var(--nv-border-strong);
+  border-radius: var(--nv-radius-pill);
+  background: transparent;
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-sm);
+  font-weight: var(--nv-weight-medium);
+}
+
+.nova-chip:hover {
+  color: var(--nv-text);
+}
+
+.nova-chip[aria-pressed="true"] {
+  border-color: var(--nv-accent);
+  background: var(--nv-accent-soft);
+  color: var(--nv-accent);
+}
+
+.nova-field-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--nv-space-2);
+}
+
+.nova-field-row__grow {
+  flex: 1;
+}

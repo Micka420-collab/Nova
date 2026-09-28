@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -46,6 +47,19 @@ export async function launchNova(options: {
   const page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");
   return { app, page };
+}
+
+/**
+ * Kills NOVA the way a crash does and waits until it is gone, so the next launch gets the
+ * single-instance lock. On Windows a lone TerminateProcess of the main process leaves NOVA
+ * running (its window still answers), so the whole tree goes, commands NOVA started included.
+ */
+export async function crashNova(nova: LaunchedNova): Promise<void> {
+  const main = nova.app.process();
+  const exited = new Promise((done) => main.once("exit", done));
+  if (process.platform === "win32" && main.pid) execFileSync("taskkill", ["/pid", String(main.pid), "/T", "/F"]);
+  else main.kill("SIGKILL");
+  await exited;
 }
 
 /** Concatenate every file under `dir` (binary-safe latin1) to search for leaked secrets. */

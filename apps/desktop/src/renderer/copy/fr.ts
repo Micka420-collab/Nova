@@ -1,5 +1,9 @@
 // Every user-facing string of the renderer (French). Code and comments stay in English.
 import type { ConnectionState, IpcErrorCode, KeyStorage, ProviderErrorCode, VaultLevel } from "@nova/shared";
+import { atelierCopy } from "./fr-atelier";
+import { diffCopy } from "./fr-diff";
+import { extensionsCopy } from "./fr-extensions";
+import { atelierSettingsCopy } from "./fr-settings-atelier";
 
 export interface ErrorCopy {
   title: string;
@@ -113,12 +117,13 @@ export const PROVIDER_ERROR_COPY: Record<ProviderErrorCode, ErrorCopy> = {
 export const IPC_ERROR_COPY: Record<IpcErrorCode, string> = {
   invalid_request: "La demande a été refusée : ses données ne sont pas valides.",
   not_found: "Élément introuvable : il a peut-être été supprimé.",
-  conflict: "Action impossible pour l'instant : une génération est déjà en cours ici.",
+  conflict: "Action impossible pour l'instant : une génération ou une mission est en cours ici. Arrête-la d'abord.",
   vault_unavailable: "Ce mode de stockage n'est pas disponible sur ce système.",
   no_key: "Aucune clé OpenRouter n'est enregistrée.",
   key_unreadable:
     "Ta clé enregistrée ne peut pas être lue : le trousseau du système est verrouillé ou a changé. Déverrouille-le, ou saisis ta clé à nouveau.",
   provider: "Le fournisseur a renvoyé une erreur.",
+  unavailable: "Cette fonction n'est pas disponible pour l'instant dans NOVA.",
   internal: "Erreur interne de NOVA. Réessaie ; si ça persiste, consulte les journaux (Réglages › Diagnostics).",
 };
 
@@ -471,6 +476,10 @@ export const fr = {
     sections: {
       providers: "Fournisseurs",
       models: "Modèles",
+      budget: "Budget",
+      permissions: "Permissions",
+      internet: "Internet",
+      audit: "Journal d'audit",
       privacy: "Confidentialité",
       appearance: "Apparence",
       companion: "Compagnon",
@@ -506,6 +515,9 @@ export const fr = {
     motionReduce: "Réduites",
     motionFull: "Complètes",
     motionDescription: "« Système » suit la préférence de réduction des animations de ton ordinateur.",
+    noticesTitle: "Ce que Nomi t'a signalé",
+    noticesEmpty: "Rien pour l'instant dans cette session.",
+    noticeHeld: "gardé pendant le mode discret",
     shortcutsIntro: "Sur macOS, remplace Ctrl par ⌘.",
     shortcuts: [
       { keys: ["Ctrl", "K"], label: "Ouvrir la palette de commandes" },
@@ -558,4 +570,9 @@ export const fr = {
     skipToContent: "Aller au contenu",
     mainLabel: "Contenu",
   },
+  // J2-A atelier surfaces; each block lives in its own module so lanes do not collide.
+  atelier: atelierCopy,
+  diff: diffCopy,
+  extensions: extensionsCopy,
+  atelierSettings: atelierSettingsCopy,
 } as const;

@@ -96,6 +96,29 @@ Dépend de : J1.
 
 **Critères de sortie** : scénarios 4, 5 et 6 ; partie « fichier » du scénario 7.
 
+### J2-A — « L'atelier s'ouvre » · intégré sur `feat/j2a-atelier`
+
+Périmètre et critères détaillés : [`FEATURES.md`](FEATURES.md) (§4, J2-A). Une case n'est cochée que si un test exécuté le couvre (Linux x64, faux serveur OpenRouter, vérification finale du 2026-09-28 sur `643b286` : lint, types, 1 746 tests unitaires, Playwright 29/29 deux fois ; détail dans [`STATUS.md`](STATUS.md)).
+
+- [x] Socle : `node-pty` et ripgrep (ADR-012), quatre workers `utilityProcess`, migrations v2 à v5, nonce CSP (`atelier-foundations.spec.ts`)
+- [x] Les 13 groupes IPC de l'atelier servis par leur service réel, aucune réponse `unavailable` (`atelier-wiring.spec.ts`)
+- [x] Espace et éditeur : ouvrir un dossier, arbre, édition et enregistrement, changement externe détecté sans écrasement (parcours a)
+- [x] Mission « Corriger » : approbations, vraie commande de test en preuve, relecture qui annule un fichier et garde l'autre, modifications de l'utilisateur conservées — scénarios 4 et 5 (parcours b)
+- [x] Moteur de permissions : `..`, chemin absolu et lien symbolique refusés, écriture refusée jamais exécutée — scénario 6 (parcours c)
+- [x] Instructions hostiles d'un fichier traitées comme données — scénario 7, partie fichier (parcours d)
+- [x] Terminal `node-pty` dans le pty-host, Ctrl+C effectif (parcours e)
+- [x] MCP stdio : ajout, outils listés, appel approuvé, outil refusé jamais appelé, plantage, désactivation, délai dépassé — scénario 8 partiel (parcours f)
+- [x] Recherche web avec citations et coût, pages non fiables (parcours g) — faux serveur seulement
+- [x] Nomi suit une mission réelle et explique un échec de tests (parcours h)
+- [x] Plafond de budget avec suspension et reprise ; un seul résultat terminal à l'arrêt — scénario 10, un worker (parcours i)
+- [x] Reprise après plantage sans relance d'un effet externe — scénario 11 (parcours j)
+- [ ] Commandes de l'agent dans le terminal (E13, partie agent) : `run_command` et `run_tests` s'exécutent dans main, aucune session d'agent créée dans le pty-host
+- [ ] Mémoriser une commande précise, journal des notifications de Nomi persistant, suivi des processus en arrière-plan, événement « modèle de secours utilisé » (Mo2), inspecteur de contexte exact (voir « Non vérifié » dans `STATUS.md`)
+- [ ] Scénarios 15 et 16 rejoués sur le périmètre de l'atelier (axe-core et inspection des secrets du journal d'audit et des exports)
+- [ ] Démonstration J2-A sur le build empaqueté (dépôt `e2e/fixtures/vite-bug` à créer) et mesures initiales de performance
+- [ ] CI trois OS verte sur la tête de la branche (Windows et macOS n'ont jamais exécuté les specs J2-A)
+- [ ] Appels d'outils, recherche web et serveurs MCP réels avec un vrai compte OpenRouter
+
 ## J3 — Extensibilité et reprise
 
 Dépend de : J2.

@@ -15,7 +15,9 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # One mac runner per shipped arch: pnpm installs native optional deps (the ripgrep binary)
+        # for the host cpu only, and electron-builder packs the host arch (electron-builder.yml).
+        os: [ubuntu-latest, windows-latest, macos-latest, macos-15-intel]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     steps:
@@ -38,6 +40,14 @@ jobs:
         run: pnpm exec electron-vite build && pnpm exec electron-builder --config electron-builder.yml --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Display for the self-test (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+      # Native deps (node-pty, ripgrep) must load from the packaged app of the arch being shipped.
+      - name: Self-test the packaged app
+        working-directory: apps/desktop
+        shell: bash
+        run: ${{ runner.os == 'Linux' && 'xvfb-run -a ' || '' }}node e2e/packaged-selftest.mjs
       - uses: actions/upload-artifact@v7
         with:
           name: installers-${{ matrix.os }}

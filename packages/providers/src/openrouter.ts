@@ -13,6 +13,7 @@ import { readChunks, readSse } from "./sse";
 import {
   DEFAULT_TIMEOUTS,
   ProviderError,
+  type ChatMessageInput,
   type ModelProvider,
   type ProviderStreamEvent,
   type ProviderTimeouts,
@@ -150,6 +151,7 @@ interface StreamState {
   metaSent: boolean;
   /** Last finish_reason received; non-null means the generation finished. */
   finishReason: string | null;
+  keepReasoningDetails: boolean;
 }
 
 /** Turns one SSE data payload into events. A chunk is atomic: it either throws or yields all its events. */
@@ -173,14 +175,15 @@ function interpretChunk(payload: string, state: StreamState): ProviderStreamEven
   const delta = asRecord(choice?.delta);
   const reasoning = delta?.reasoning;
   const reasoningDetails = delta?.reasoning_details;
-  if (
-    (typeof reasoning === "string" && reasoning.length > 0) ||
-    (Array.isArray(reasoningDetails) && reasoningDetails.length > 0)
-  ) {
+  const hasDetails = Array.isArray(reasoningDetails) && reasoningDetails.length > 0;
+  if ((typeof reasoning === "string" && reasoning.length > 0) || hasDetails) {
     events.push({ type: "reasoning" });
   }
+  if (hasDetails && state.keepReasoningDetails) events.push({ type: "reasoning_details", details: reasoningDetails });
   const content = delta?.content;
   if (typeof content === "string" && content.length > 0) events.push({ type: "text", text: content });
+  events.push(...toolCallDeltas(delta?.tool_calls));
+  events.push(...citations(delta?.annotations ?? asRecord(choice?.message)?.annotations));
 
   const finishReason = choice?.finish_reason;
   if (finishReason === "error") throw new ProviderError(providerErrorInfo("provider_error"), "generation ended with an error");
@@ -188,6 +191,104 @@ function interpretChunk(payload: string, state: StreamState): ProviderStreamEven
 
   const usage = normalizeUsage(chunk.usage);
   if (usage) events.push({ type: "usage", usage });
+  return events;
+}
+
+/** OpenAI-format message as sent on the wire. */
+function toWireMessage(message: ChatMessageInput): JsonRecord {
+  switch (message.role) {
+    case "tool":
+      return { role: "tool", tool_call_id: message.toolCallId, content: message.content };
+    case "assistant": {
+      const wire: JsonRecord = { role: "assistant", content: message.content };
+      if (message.toolCalls && message.toolCalls.length > 0) {
+        wire.tool_calls = message.toolCalls.map((call) => ({
+          id: call.id,
+          type: "function",
+          function: { name: call.name, arguments: call.arguments },
+        }));
+      }
+      if (message.reasoningDetails && message.reasoningDetails.length > 0) {
+        wire.reasoning_details = message.reasoningDetails;
+      }
+      return wire;
+    }
+    default:
+      return { role: message.role, content: message.content };
+  }
+}
+
+/** Request body of a streamed chat completion (tool and plugin fields only when requested). */
+export function buildChatBody(request: Omit<StreamChatRequest, "signal">): JsonRecord {
+  const body: JsonRecord = {
+    model: request.modelId,
+    messages: request.messages.map(toWireMessage),
+    stream: true,
+    provider: { data_collection: request.dataCollection },
+  };
+  if (request.maxTokens !== undefined) body.max_tokens = request.maxTokens;
+  const fallbacks = request.fallbackModelIds?.filter((id) => id !== request.modelId) ?? [];
+  if (fallbacks.length > 0) body.models = [request.modelId, ...fallbacks];
+  if (request.tools && request.tools.length > 0) {
+    body.tools = request.tools.map((tool) => ({
+      type: "function",
+      function: { name: tool.name, description: tool.description, parameters: tool.parameters },
+    }));
+    const choice = request.toolChoice;
+    if (choice !== undefined) {
+      body.tool_choice = typeof choice === "string" ? choice : { type: "function", function: { name: choice.name } };
+    }
+    if (request.parallelToolCalls !== undefined) body.parallel_tool_calls = request.parallelToolCalls;
+  }
+  if (request.webPlugin) {
+    const plugin: JsonRecord = { id: "web" };
+    const web = request.webPlugin;
+    if (web.maxResults !== undefined) plugin.max_results = web.maxResults;
+    if (web.includeDomains && web.includeDomains.length > 0) plugin.include_domains = web.includeDomains;
+    if (web.excludeDomains && web.excludeDomains.length > 0) plugin.exclude_domains = web.excludeDomains;
+    body.plugins = [plugin];
+  }
+  return body;
+}
+
+/** Tool call fragments of a delta; malformed entries are skipped (never guessed). */
+function toolCallDeltas(value: unknown): ProviderStreamEvent[] {
+  if (!Array.isArray(value)) return [];
+  const events: ProviderStreamEvent[] = [];
+  for (const [position, raw] of value.entries()) {
+    const call = asRecord(raw);
+    if (!call) continue;
+    const fn = asRecord(call.function);
+    const index = asCount(call.index) ?? position;
+    const args = fn?.arguments;
+    events.push({
+      type: "tool_call_delta",
+      index,
+      id: asString(call.id),
+      name: asString(fn?.name),
+      argumentsDelta: typeof args === "string" ? args : "",
+    });
+  }
+  return events;
+}
+
+/** `url_citation` annotations (web plugin). */
+function citations(value: unknown): ProviderStreamEvent[] {
+  if (!Array.isArray(value)) return [];
+  const events: ProviderStreamEvent[] = [];
+  for (const raw of value) {
+    const annotation = asRecord(raw);
+    if (annotation?.type !== "url_citation") continue;
+    const citation = asRecord(annotation.url_citation);
+    const url = asString(citation?.url);
+    if (!url) continue;
+    events.push({
+      type: "citation",
+      url,
+      title: asString(citation?.title),
+      snippet: asString(citation?.content),
+    });
+  }
   return events;
 }
 
@@ -247,20 +348,18 @@ export class OpenRouterProvider implements ModelProvider {
   async *streamChat(apiKey: string, request: StreamChatRequest): AsyncGenerator<ProviderStreamEvent, void, undefined> {
     const scope = new CallScope(request.signal);
     try {
-      const body = JSON.stringify({
-        model: request.modelId,
-        messages: request.messages,
-        stream: true,
-        provider: { data_collection: request.dataCollection },
-        ...(request.maxTokens === undefined ? {} : { max_tokens: request.maxTokens }),
-      });
+      const body = JSON.stringify(buildChatBody(request));
       const headers = { ...this.headers(apiKey, "text/event-stream"), "Content-Type": "application/json" };
       const response = await this.send(scope, "/chat/completions", { method: "POST", headers, body }, apiKey);
       if (!response.body) throw new ProviderError(providerErrorInfo("stream_interrupted"), "empty response body");
 
       const resetIdle = (): void => scope.arm(this.timeouts.idleMs, "idle_timeout");
       resetIdle();
-      const state: StreamState = { metaSent: false, finishReason: null };
+      const state: StreamState = {
+        metaSent: false,
+        finishReason: null,
+        keepReasoningDetails: request.keepReasoningDetails === true,
+      };
       let done = false;
       for await (const item of readSse(response.body, { signal: scope.signal, onBytes: resetIdle })) {
         if (item.kind === "comment") continue;

@@ -1,0 +1,13 @@
+{
+  "name": "@nova/missions",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@nova/permissions": "workspace:*",
+    "@nova/providers": "workspace:*",
+    "@nova/shared": "workspace:*",
+    "@nova/tools": "workspace:*"
+  }
+}

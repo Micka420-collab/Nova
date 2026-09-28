@@ -1,0 +1,175 @@
+/* Mission card (VISUAL.md §4.6: map, nodes, inspector) and mission list (explorer). */
+
+.nova-mcard {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: var(--nv-space-3);
+  min-height: 100%;
+  padding: var(--nv-panel-pad);
+}
+
+.nova-mcard__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-2) var(--nv-space-3);
+}
+
+.nova-mcard__title {
+  font-size: var(--nv-text-lg);
+}
+
+.nova-mcard__meta {
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.nova-mcard__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--nv-space-1);
+  margin-left: auto;
+}
+
+.nova-mcard__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+  gap: var(--nv-space-4);
+  align-items: start;
+}
+
+.nova-mcard__main {
+  display: grid;
+  gap: var(--nv-space-3);
+  min-width: 0;
+}
+
+/* Steps flow left to right and wrap; each node keeps a readable width. */
+.nova-mcard__map {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nv-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nova-mcard__node {
+  display: flex;
+  align-items: center;
+  gap: var(--nv-space-3);
+}
+
+.nova-mcard__node + .nova-mcard__node::before {
+  content: "";
+  width: 16px;
+  height: 1px;
+  margin-left: calc(-1 * var(--nv-space-3));
+  background: var(--nv-border-strong);
+}
+
+.nova-mcard__node .nv-mnode {
+  width: 220px;
+}
+
+.nova-mcard__budget {
+  max-width: 420px;
+}
+
+.nova-mcard__inspector {
+  position: sticky;
+  top: 0;
+  padding: var(--nv-space-3);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-md);
+  background: var(--nv-panel);
+}
+
+.nova-mcard__inspector-body {
+  display: grid;
+  gap: var(--nv-space-3);
+}
+
+.nova-mcard__inspector-body .nova-facts {
+  grid-template-columns: 1fr;
+  gap: 2px;
+}
+
+.nova-mcard__inspector-body .nova-facts dd {
+  margin-bottom: var(--nv-space-2);
+}
+
+.nova-mcard__inspector-title {
+  font-size: var(--nv-text-md);
+}
+
+.nova-mcard__inspector-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nv-space-2);
+}
+
+.nova-mcard__banner {
+  max-width: 760px;
+}
+
+/* A narrow workbench stacks the inspector under the map. */
+@container (max-width: 640px) {
+  .nova-mcard__layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.nova-workbench__doc {
+  container-type: inline-size;
+}
+
+/* Mission list (explorer › Missions) */
+
+.nova-mlist {
+  display: grid;
+  gap: var(--nv-list-gap);
+  margin: 0;
+  padding: var(--nv-space-1) var(--nv-space-2);
+  list-style: none;
+}
+
+.nova-mlist__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px var(--nv-space-2);
+  width: 100%;
+  min-height: var(--nv-row);
+  padding: var(--nv-space-1) var(--nv-space-2);
+  border: 0;
+  border-radius: var(--nv-radius-sm);
+  background: transparent;
+  color: var(--nv-text);
+  font-size: var(--nv-text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.nova-mlist__item:hover {
+  background: var(--nv-raised-hover);
+}
+
+.nova-mlist__item[aria-current="true"] {
+  background: var(--nv-raised);
+  box-shadow: inset 2px 0 0 var(--nv-accent);
+}
+
+.nova-mlist__title {
+  overflow: hidden;
+  font-weight: var(--nv-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nova-mlist__time {
+  grid-column: 1 / -1;
+  color: var(--nv-text-muted);
+  font-size: var(--nv-text-xs);
+}

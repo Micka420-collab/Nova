@@ -8,6 +8,7 @@ import {
 } from "@nova/providers";
 import {
   DEFAULT_SETTINGS,
+  type ChatSendRequest,
   type ChatStreamEvent,
   type KeyCheckResult,
   type ModelInfo,
@@ -780,5 +781,51 @@ describe("ChatRunner.retry", () => {
     await expect(
       runner.retry({ conversationId, assistantMessageId: failedId, modelId: MODEL }),
     ).rejects.toMatchObject(runtimeError("no_key"));
+  });
+});
+
+describe("ChatRunner attachments and web (C6/W1)", () => {
+  it("sends attached context for its own turn only and keeps the cited sources with the answer", async () => {
+    const turns: ChatSendRequest[] = [];
+    const { provider, runner, store } = setup({
+      prepareTurn: async (req) => {
+        turns.push(req);
+        return { context: "Contexte joint : src/a.ts", webPlugin: { maxResults: 3, includeDomains: ["docs.example.com"] } };
+      },
+    });
+    provider.push(async function* () {
+      yield text("Voici.");
+      yield { type: "citation", url: "https://docs.example.com/a", title: "Doc [A]", snippet: null };
+      yield { type: "citation", url: "https://docs.example.com/a", title: "Doc A", snippet: null };
+      yield { type: "finish", finishReason: "stop" };
+    });
+    const sent = await runner.send({ ...fresh("Explique @src/a.ts"), attachments: [{ kind: "file", path: "src/a.ts" }], webSearch: true });
+    await runner.idle();
+
+    expect(turns).toHaveLength(1);
+    const request = provider.calls[0]?.request;
+    expect(request?.webPlugin).toEqual({ maxResults: 3, includeDomains: ["docs.example.com"] });
+    expect(request?.messages.slice(-2)).toEqual([
+      { role: "system", content: "Contexte joint : src/a.ts" },
+      { role: "user", content: "Explique @src/a.ts" },
+    ]);
+    const stored = store.getMessage(sent.assistantMessage.id);
+    expect(stored?.content).toBe("Voici.\n\n**Sources**\n- [Doc A](<https://docs.example.com/a>)");
+
+    // The next turn carries neither the attachment nor the web plugin.
+    provider.push(answer("OK"));
+    await runner.send({ conversationId: sent.conversation.id, content: "Et ensuite ?", modelId: MODEL });
+    await runner.idle();
+    const next = provider.calls[1]?.request;
+    expect(next?.webPlugin).toBeUndefined();
+    expect(next?.messages.some((message) => message.content === "Contexte joint : src/a.ts")).toBe(false);
+  });
+
+  it("refuses attachments when nothing can resolve them, and stores nothing when resolving fails", async () => {
+    const bare = setup();
+    await expect(bare.runner.send({ ...fresh("x"), webSearch: true })).rejects.toMatchObject(runtimeError("invalid_state"));
+    const refusing = setup({ prepareTurn: () => Promise.reject(new Error("excluded")) });
+    await expect(refusing.runner.send({ ...fresh("x"), attachments: [{ kind: "file", path: ".env" }] })).rejects.toThrow("excluded");
+    expect(refusing.store.listConversations({}).items).toEqual([]);
   });
 });

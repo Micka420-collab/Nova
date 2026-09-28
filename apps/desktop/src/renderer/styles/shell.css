@@ -1,0 +1,206 @@
+/* Atelier shell (VISUAL.md §3): rail, explorer column, workbench tabs, dock, status bar. */
+
+.nova-shell {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  height: 100%;
+}
+
+.nova-shell__body {
+  display: flex;
+  min-height: 0;
+}
+
+.nova-shell__body > .nova-workshop {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Rail: 52 px, 40 × 40 targets, 20 px icons; the active space is accent on accent-soft. */
+
+.nova-rail {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--nv-space-1);
+  width: 52px;
+  padding: var(--nv-space-2) 0;
+  border-right: 1px solid var(--nv-border);
+  background: var(--nv-panel);
+}
+
+.nova-rail__button {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: var(--nv-radius-sm);
+  background: transparent;
+  color: var(--nv-text-secondary);
+  cursor: pointer;
+  transition:
+    background-color var(--nv-duration-fast) var(--nv-ease-standard),
+    color var(--nv-duration-fast) var(--nv-ease-standard);
+}
+
+.nova-rail__button svg {
+  width: 20px;
+  height: 20px;
+}
+
+.nova-rail__button:hover {
+  background: var(--nv-raised-hover);
+  color: var(--nv-text);
+}
+
+.nova-rail__button[aria-current="page"] {
+  background: var(--nv-accent-soft);
+  color: var(--nv-accent);
+  box-shadow: inset 2px 0 0 var(--nv-accent);
+}
+
+.nova-rail__spacer {
+  flex: 1;
+}
+
+/* Explorer column: title, body (tree, search, missions), Nomi at the bottom. */
+
+.nova-explorer {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.nova-explorer__title {
+  padding: var(--nv-space-3) var(--nv-panel-pad) var(--nv-space-2);
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-xs);
+  font-weight: var(--nv-weight-medium);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.nova-explorer__body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.nova-explorer__body > .nv-empty {
+  padding: var(--nv-space-5) var(--nv-panel-pad);
+}
+
+.nova-explorer__bottom {
+  padding: var(--nv-space-2);
+  border-top: 1px solid var(--nv-border);
+}
+
+.nova-explorer__workspace {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nv-space-2);
+  min-height: var(--nv-row);
+  padding: 0 var(--nv-space-2) 0 var(--nv-panel-pad);
+}
+
+.nova-explorer__workspace-name {
+  overflow: hidden;
+  font-size: var(--nv-text-sm);
+  font-weight: var(--nv-weight-bold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Workbench: documents as tabs over the shown document. */
+
+.nova-zone--agent {
+  background: var(--nv-panel);
+}
+
+.nova-workbench-split {
+  height: 100%;
+}
+
+.nova-workbench {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-width: 0;
+  background: var(--nv-bg);
+}
+
+.nova-workbench__doc {
+  min-height: 0;
+  overflow: auto;
+}
+
+.nova-workbench__doc:focus-visible {
+  outline-offset: -2px;
+}
+
+.nova-separator--horizontal {
+  width: auto;
+  height: 1px;
+}
+
+/* Dock: tab bar (36 px) over the terminal. */
+
+.nova-dock-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  background: var(--nv-panel);
+}
+
+.nova-dock-panel__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nv-space-2);
+  padding-right: var(--nv-space-2);
+  border-bottom: 1px solid var(--nv-border);
+}
+
+.nova-dock-panel__bar > .nv-tabs {
+  flex: 1;
+  border-bottom: 0;
+}
+
+.nova-dock-panel__body {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.nova-dock-panel__body > .nv-callout {
+  margin: var(--nv-space-3);
+}
+
+/* Status bar: full width under the workshop. */
+
+.nova-statusbar {
+  flex: none;
+}
+
+.nova-statusbar .nv-budget {
+  max-width: 260px;
+}
+
+/* Narrow layout: the drawer holds the rail and the explorer side by side. */
+
+.nova-drawer__rail {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+.nova-drawer__rail > .nova-zone {
+  flex: 1;
+  min-width: 0;
+}
+
+.nova-narrow {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}

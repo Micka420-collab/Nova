@@ -1,4 +1,4 @@
-import { useState, type JSX } from "react";
+import { useEffect, useState, type JSX } from "react";
 import {
   Button,
   Callout,
@@ -10,7 +10,7 @@ import {
   useToast,
   type BadgeTone,
 } from "@nova/ui";
-import type { ConnectionState, MotionPreference, SettingsPatch, ThemePreference } from "@nova/shared";
+import type { CompanionNotice, ConnectionState, MotionPreference, SettingsPatch, ThemePreference } from "@nova/shared";
 import { CONNECTION_STATE_LABELS, fr, KEY_STORAGE_LABELS, VAULT_LEVEL_COPY } from "../../copy/fr";
 import { describeProviderError, errorToast } from "../../lib/errors";
 import { formatRelative } from "../../lib/format";
@@ -24,10 +24,15 @@ import { ConfirmDialog } from "../layout/ConversationDialogs";
 import { ModelBrowser } from "../models/ModelBrowser";
 import { findModel } from "../models/filter";
 import { KeyCheckSummary, KeySetup } from "../setup/KeySetup";
+import { AuditSection, BudgetSection, InternetSection, PermissionsSection } from "./AtelierSections";
 
 const SECTIONS: readonly SettingsSection[] = [
   "providers",
   "models",
+  "budget",
+  "permissions",
+  "internet",
+  "audit",
   "privacy",
   "appearance",
   "companion",
@@ -240,7 +245,49 @@ function CompanionSection() {
         />
         <p className="nova-note">{fr.settings.motionDescription}</p>
       </div>
+      <CompanionNotices />
     </>
+  );
+}
+
+/** P13: what Nomi notified (or held in quiet mode) this session, readable in the app. */
+function CompanionNotices() {
+  const client = useClient();
+  const [notices, setNotices] = useState<CompanionNotice[] | null>(null);
+  const now = useNow(60_000);
+  useEffect(() => {
+    let current = true;
+    client.companion
+      .notices()
+      .then((list) => current && setNotices(list))
+      // Unreadable: the section is simply not shown (nothing invented).
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [client]);
+  if (notices === null) return null;
+  return (
+    <section className="nova-setting" aria-labelledby="settings-notices">
+      <h3 id="settings-notices" className="nova-subheading">
+        {fr.settings.noticesTitle}
+      </h3>
+      {notices.length === 0 ? (
+        <p className="nova-note">{fr.settings.noticesEmpty}</p>
+      ) : (
+        <ul className="nova-notices">
+          {notices.slice(0, 50).map((notice) => (
+            <li key={notice.id}>
+              <span>{notice.text}</span>{" "}
+              <span className="nova-note">
+                {formatRelative(notice.createdAt, now)}
+                {notice.delivered === "held" ? ` · ${fr.settings.noticeHeld}` : ""}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -315,6 +362,10 @@ function DiagnosticsSection() {
 const SECTION_VIEWS: Record<SettingsSection, () => JSX.Element | null> = {
   providers: ProvidersSection,
   models: ModelsSection,
+  budget: BudgetSection,
+  permissions: PermissionsSection,
+  internet: InternetSection,
+  audit: AuditSection,
   privacy: PrivacySection,
   appearance: AppearanceSection,
   companion: CompanionSection,

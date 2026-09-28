@@ -15,6 +15,114 @@ import {
   type ProviderConnectionView,
 } from "@nova/shared";
 
+const unsubscribeNothing = (): (() => void) => () => {};
+
+/**
+ * J2-A groups answer `unavailable` unless a test seeds an in-memory fake for the group it
+ * exercises (`seed.atelier`): a test never depends on a service it does not set up.
+ */
+function unavailableAtelierBridge(record: (name: string) => void): Pick<NovaBridge, AtelierGroup> {
+  const no = (name: string) => (): Promise<IpcResult<never>> => {
+    record(name);
+    return Promise.resolve({ ok: false, error: { code: "unavailable", message: `${name} is not available yet` } });
+  };
+  return {
+    workspace: {
+      open: no("workspace.open"),
+      recent: no("workspace.recent"),
+      facts: no("workspace.facts"),
+      close: no("workspace.close"),
+      setInstructionConsent: no("workspace.setInstructionConsent"),
+      reopen: no("workspace.reopen"),
+      getEditorState: no("workspace.getEditorState"),
+      setEditorState: no("workspace.setEditorState"),
+    },
+    files: {
+      list: no("files.list"),
+      read: no("files.read"),
+      write: no("files.write"),
+      create: no("files.create"),
+      move: no("files.move"),
+      trash: no("files.trash"),
+      onEvent: unsubscribeNothing,
+    },
+    search: { text: no("search.text"), files: no("search.files") },
+    terminal: {
+      create: no("terminal.create"),
+      list: no("terminal.list"),
+      attach: no("terminal.attach"),
+      resize: no("terminal.resize"),
+      kill: no("terminal.kill"),
+      takeOver: no("terminal.takeOver"),
+      onEvent: unsubscribeNothing,
+    },
+    missions: {
+      plan: no("missions.plan"),
+      start: no("missions.start"),
+      pause: no("missions.pause"),
+      resume: no("missions.resume"),
+      stop: no("missions.stop"),
+      list: no("missions.list"),
+      get: no("missions.get"),
+      review: no("missions.review"),
+      diff: no("missions.diff"),
+      onEvent: unsubscribeNothing,
+    },
+    approvals: { list: no("approvals.list"), decide: no("approvals.decide"), onEvent: unsubscribeNothing },
+    permissions: {
+      getProfile: no("permissions.getProfile"),
+      setProfile: no("permissions.setProfile"),
+      listRules: no("permissions.listRules"),
+      revokeRules: no("permissions.revokeRules"),
+    },
+    audit: { list: no("audit.list") },
+    git: { status: no("git.status"), diff: no("git.diff") },
+    mcp: {
+      list: no("mcp.list"),
+      add: no("mcp.add"),
+      update: no("mcp.update"),
+      remove: no("mcp.remove"),
+      test: no("mcp.test"),
+      tools: no("mcp.tools"),
+      setToolPermission: no("mcp.setToolPermission"),
+      logs: no("mcp.logs"),
+      importProject: no("mcp.importProject"),
+    },
+    web: { getPolicy: no("web.getPolicy"), setPolicy: no("web.setPolicy") },
+    companion: {
+      state: no("companion.state"),
+      act: no("companion.act"),
+      watch: no("companion.watch"),
+      setQuiet: no("companion.setQuiet"),
+      notices: no("companion.notices"),
+      onEvent: unsubscribeNothing,
+    },
+    checkpoints: {
+      list: no("checkpoints.list"),
+      restoreFile: no("checkpoints.restoreFile"),
+      restoreAll: no("checkpoints.restoreAll"),
+      create: no("checkpoints.create"),
+      proposeMerge: no("checkpoints.proposeMerge"),
+      applyMerge: no("checkpoints.applyMerge"),
+    },
+  };
+}
+
+export type AtelierGroup =
+  | "workspace"
+  | "files"
+  | "search"
+  | "terminal"
+  | "missions"
+  | "approvals"
+  | "permissions"
+  | "audit"
+  | "git"
+  | "mcp"
+  | "web"
+  | "companion"
+  | "checkpoints";
+
 let sequence = 0;
 /** Deterministic UUID-shaped ids (the IPC schemas require UUIDs). */
 export function testId(): string {
@@ -93,6 +201,38 @@ export interface FakeSeed {
   hasMoreConversations?: boolean;
   /** Connection returned by `connection.setKey` (default: verified). */
   setKeyResult?: ProviderConnectionView;
+  /**
+   * In-memory implementations of J2-A groups (see `test/atelier-fake.ts`); methods left out keep
+   * answering `unavailable`, like main before a group is wired.
+   */
+  atelier?: AtelierOverrides;
+}
+
+export type AtelierOverrides = { [G in AtelierGroup]?: Partial<NovaBridge[G]> };
+
+function withAtelier(
+  base: Pick<NovaBridge, AtelierGroup>,
+  overrides: AtelierOverrides | undefined,
+  record: (name: string) => void,
+): Pick<NovaBridge, AtelierGroup> {
+  if (!overrides) return base;
+  const merged: Record<string, unknown> = { ...base };
+  for (const group of Object.keys(overrides) as AtelierGroup[]) {
+    const methods = overrides[group] ?? {};
+    const wrapped: Record<string, unknown> = {};
+    for (const [name, method] of Object.entries(methods)) {
+      // Calls are recorded like the J1 groups; `onEvent` subscriptions are not calls.
+      wrapped[name] =
+        typeof method === "function" && name !== "onEvent"
+          ? (...args: unknown[]) => {
+              record(`${group}.${name}`);
+              return (method as (...a: unknown[]) => unknown)(...args);
+            }
+          : method;
+    }
+    merged[group] = { ...base[group], ...wrapped };
+  }
+  return merged as Pick<NovaBridge, AtelierGroup>;
 }
 
 export interface FakeBridge {
@@ -144,6 +284,11 @@ export function createFakeBridge(seed: FakeSeed = {}): FakeBridge {
   }
 
   const bridge: NovaBridge = {
+    ...withAtelier(
+      unavailableAtelierBridge((name) => calls.push(name)),
+      seed.atelier,
+      (name) => calls.push(name),
+    ),
     app: {
       info: () =>
         reply("app.info", () => ({

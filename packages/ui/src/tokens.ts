@@ -134,3 +134,111 @@ export const fontFamily = {
 export function cssVarName(key: keyof Palette): string {
   return `--nv-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
 }
+
+// ---------------------------------------------------------------------------
+// Code surfaces (VISUAL.md §2.1–2.3): editor, syntax, diff, search. Mirrored by styles/code.css.
+
+export interface CodePalette {
+  editorBg: string;
+  lineHighlight: string;
+  gutterFg: string;
+  indentGuide: string;
+  diffAddBg: string;
+  diffAddFg: string;
+  diffAddWord: string;
+  diffDelBg: string;
+  diffDelFg: string;
+  diffDelWord: string;
+  diffModBg: string;
+  diffModFg: string;
+  matchBg: string;
+  matchCurrentBg: string;
+  bracketBg: string;
+  wordHighlight: string;
+  synPlain: string;
+  synKeyword: string;
+  synFunction: string;
+  synString: string;
+  synNumber: string;
+  synType: string;
+  synProperty: string;
+  synOperator: string;
+  synComment: string;
+  synConstant: string;
+  synTag: string;
+  synAttribute: string;
+  synRegex: string;
+  synInvalid: string;
+}
+
+export const codePalettes = {
+  dark: {
+    editorBg: "#0D1215",
+    lineHighlight: "#141B1F",
+    gutterFg: "#7A8B8E",
+    indentGuide: "#2A363B",
+    diffAddBg: "#132A23",
+    diffAddFg: "#A9E4CC",
+    diffAddWord: "#1E4A3B",
+    diffDelBg: "#33191C",
+    diffDelFg: "#F3A9A9",
+    diffDelWord: "#4A2528",
+    diffModBg: "#302A19",
+    diffModFg: "#EEC181",
+    matchBg: "#4A3F1E",
+    matchCurrentBg: "#6B5A2A",
+    bracketBg: "#24433A",
+    wordHighlight: "#1E2C31",
+    synPlain: "#F2F5F3",
+    synKeyword: "#D9C3A3",
+    synFunction: "#86D8BB",
+    synString: "#EEC181",
+    synNumber: "#9CC7D6",
+    synType: "#B7D2A8",
+    synProperty: "#D5DFDB",
+    synOperator: "#ABB9BB",
+    synComment: "#8C9EA0",
+    synConstant: "#EBA79A",
+    synTag: "#E1AE8F",
+    synAttribute: "#D9C3A3",
+    synRegex: "#C5D69B",
+    synInvalid: "#F18A8A",
+  },
+  light: {
+    editorBg: "#FBFAF5",
+    lineHighlight: "#F1EFE7",
+    gutterFg: "#5F7073",
+    indentGuide: "#DDD8CC",
+    diffAddBg: "#DFF0E6",
+    diffAddFg: "#1B5A47",
+    diffAddWord: "#C4E6D4",
+    diffDelBg: "#F9E1DF",
+    diffDelFg: "#9C1F18",
+    diffDelWord: "#F4C6C2",
+    diffModBg: "#F6E8D0",
+    diffModFg: "#7D5310",
+    matchBg: "#F3E3B4",
+    matchCurrentBg: "#E9CF82",
+    bracketBg: "#CFE9DC",
+    wordHighlight: "#F1EFE7",
+    synPlain: "#172328",
+    synKeyword: "#7A4A12",
+    synFunction: "#216B56",
+    synString: "#7D5310",
+    synNumber: "#2B6076",
+    synType: "#4A6A2A",
+    synProperty: "#33474C",
+    synOperator: "#4B5A5D",
+    synComment: "#556668",
+    synConstant: "#9A3B2E",
+    synTag: "#9A4A22",
+    synAttribute: "#7A4A12",
+    synRegex: "#556B1E",
+    synInvalid: "#B3261E",
+  },
+} as const satisfies Record<ThemeName, CodePalette>;
+
+/** CSS custom property name for a code palette key: `synKeyword` -> `--nv-syn-keyword`. */
+export function codeCssVarName(key: keyof CodePalette): string {
+  return `--nv-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
+}

@@ -10,6 +10,23 @@ import type { ConnectionService } from "./services/connection-service";
 
 export type MainApi = { [G in keyof NovaApi]: Omit<NovaApi[G], "onEvent"> };
 
+/** J2-A groups: each is implemented by its service (wired in index.ts). */
+export type AtelierGroup =
+  | "workspace"
+  | "files"
+  | "search"
+  | "terminal"
+  | "missions"
+  | "approvals"
+  | "permissions"
+  | "audit"
+  | "git"
+  | "mcp"
+  | "web"
+  | "companion"
+  | "checkpoints";
+export type AtelierApi = Pick<MainApi, AtelierGroup>;
+
 export interface MainApiDeps {
   store: NovaStore;
   runner: Pick<ChatRunner, "send" | "retry" | "stop" | "active" | "overlayLive">;
@@ -19,6 +36,8 @@ export interface MainApiDeps {
   chatEvents: Pick<ChatEventHub, "waitForEnd">;
   /** Bound on waiting for a stopped stream to persist before deleting its conversation. */
   stopTimeoutMs?: number;
+  /** J2-A groups (workspace, files, missions…), each backed by its service. */
+  atelier: AtelierApi;
 }
 
 const DEFAULT_STOP_TIMEOUT_MS = 5_000;
@@ -31,6 +50,7 @@ export function createMainApi(deps: MainApiDeps): MainApi {
   const { store, runner, connections, catalog, chatEvents } = deps;
   const stopTimeoutMs = deps.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS;
   return {
+    ...deps.atelier,
     app: deps.app,
     settings: {
       get: async () => store.getSettings(),

@@ -1,0 +1,103 @@
+/* Model picker and browser. */
+
+/* Models */
+
+.nova-models {
+  display: grid;
+  gap: var(--nv-space-3);
+}
+
+.nova-models__toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--nv-space-2);
+}
+
+.nova-models__search {
+  flex: 1;
+}
+
+.nova-models__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nv-space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.nova-models__status {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--nv-space-2);
+  font-size: var(--nv-text-xs);
+  color: var(--nv-text-secondary);
+}
+
+.nova-models__loading,
+.nova-models__list {
+  display: grid;
+  gap: var(--nv-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nova-models__empty {
+  display: grid;
+  justify-items: center;
+  gap: var(--nv-space-2);
+  padding: var(--nv-space-5);
+  color: var(--nv-text-secondary);
+  text-align: center;
+}
+
+.nova-models__empty-title {
+  font-weight: var(--nv-weight-bold);
+  color: var(--nv-text);
+}
+
+.nova-model {
+  display: grid;
+  gap: var(--nv-space-1);
+  width: 100%;
+  padding: var(--nv-space-3);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-md);
+  background: var(--nv-raised);
+  text-align: left;
+}
+
+.nova-model:hover {
+  border-color: var(--nv-border-strong);
+}
+
+.nova-model[aria-pressed="true"] {
+  border-color: var(--nv-accent);
+  box-shadow: inset 0 0 0 1px var(--nv-accent);
+}
+
+.nova-model__head,
+.nova-model__meta,
+.nova-model__caps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-1) var(--nv-space-2);
+}
+
+.nova-model__name {
+  font-weight: var(--nv-weight-bold);
+}
+
+.nova-model__meta,
+.nova-model__price {
+  font-size: var(--nv-text-sm);
+  color: var(--nv-text-secondary);
+}
+
+.nova-model__meta code {
+  font-size: var(--nv-text-xs);
+}

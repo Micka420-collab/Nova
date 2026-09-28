@@ -89,7 +89,7 @@ function scrollToAnchor(link: HTMLElement, fragment: string) {
  * A refused link is never copied behind the user's back: its real destination is shown (the link
  * text may say something else) and copying it is an explicit choice.
  */
-function RefusedLink({ href, onDismiss }: { href: string; onDismiss: () => void }) {
+export function RefusedLink({ href, onDismiss }: { href: string; onDismiss: () => void }) {
   const [state, setState] = useState<CopyState>("idle");
   const origin = linkOrigin(href);
 

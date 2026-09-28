@@ -1,4 +1,5 @@
 export { palettes, space, radius, duration, fontFamily, cssVarName, type Palette, type ThemeName } from "./tokens";
+export { codePalettes, codeCssVarName, type CodePalette } from "./tokens";
 export { contrastRatio, relativeLuminance, CONTRAST_TEXT, CONTRAST_UI } from "./contrast";
 
 export {
@@ -41,6 +42,30 @@ export {
 export { Tooltip, type TooltipProps } from "./components/Tooltip";
 export { Kbd, VisuallyHidden, Skeleton, type SkeletonProps } from "./components/Primitives";
 export { OrbitIndicator, type OrbitIndicatorProps } from "./components/OrbitIndicator";
+export {
+  DiffFile,
+  DiffHunk,
+  DIFF_HUNK_LINE_CAP,
+  type DiffDecisionState,
+  type DiffFileProps,
+  type DiffHunkProps,
+  type DiffLine,
+  type DiffLineKind,
+} from "./components/DiffView";
+export {
+  ToolCallCard,
+  ToolCallGroup,
+  type ToolCallCardProps,
+  type ToolCallGroupProps,
+  type ToolCallKind,
+  type ToolCallStatus,
+} from "./components/ToolCallCard";
+export { CitationChip, type CitationChipProps, type CitationKind } from "./components/CitationChip";
+export { ApprovalCard, type ApprovalCardProps, type ApprovalFact } from "./components/ApprovalCard";
+export { BudgetMeter, type BudgetMeterProps, type BudgetMeterLabels } from "./components/BudgetMeter";
+export { MissionNode, type MissionNodeProps, type MissionNodeStatus } from "./components/MissionNode";
+export { StatusBar, StatusBarItem, type StatusBarProps, type StatusBarItemProps } from "./components/StatusBar";
+export { Tabs, tabPanelProps, type TabItem, type TabsProps } from "./components/Tabs";
 
 export { Nomi, type NomiProps } from "./nomi/Nomi";
 export { NOMI_STATES, NOMI_STATE_LABELS, type NomiState } from "./nomi/states";

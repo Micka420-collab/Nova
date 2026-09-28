@@ -1,0 +1,148 @@
+/* Nomi dock menu (P9), bubble (suggestion, outcome, drop card). Tokens only. */
+
+.nova-dock-wrap {
+  position: relative;
+  display: grid;
+  gap: var(--nv-space-2);
+}
+
+.nova-nomi-menu {
+  position: absolute;
+  bottom: calc(100% + var(--nv-space-2));
+  left: 0;
+  z-index: 20;
+  display: grid;
+  min-width: 100%;
+  max-width: 320px;
+  padding: var(--nv-space-1);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-md);
+  background: var(--nv-raised);
+  box-shadow: var(--nv-shadow-raised);
+}
+
+.nova-nomi-menu__status {
+  margin: 0;
+  padding: var(--nv-space-2);
+  font-size: var(--nv-text-xs);
+  color: var(--nv-text-secondary);
+  border-bottom: 1px solid var(--nv-border);
+}
+
+.nova-nomi-menu__item {
+  min-height: 32px;
+  padding: var(--nv-space-1) var(--nv-space-2);
+  border: 0;
+  border-radius: var(--nv-radius-sm);
+  background: transparent;
+  color: var(--nv-text);
+  text-align: left;
+}
+
+.nova-nomi-menu__item:hover,
+.nova-nomi-menu__item:focus-visible {
+  background: var(--nv-raised-hover);
+}
+
+.nova-nomi-menu__item--separated {
+  margin-top: var(--nv-space-1);
+  border-top: 1px solid var(--nv-border);
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.nova-nomi-bubble-region {
+  display: block;
+}
+
+.nova-nomi-bubble-region:empty {
+  display: none;
+}
+
+.nova-nomi-bubble {
+  display: grid;
+  gap: var(--nv-space-2);
+  padding: var(--nv-space-2) var(--nv-space-3);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-md);
+  background: var(--nv-panel);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-nomi-bubble--failed {
+  border-color: var(--nv-danger);
+}
+
+.nova-nomi-bubble__text,
+.nova-nomi-bubble p {
+  margin: 0;
+}
+
+.nova-nomi-bubble__explain {
+  display: grid;
+  gap: var(--nv-space-1);
+  margin: 0;
+}
+
+.nova-nomi-bubble__explain dt {
+  font-size: var(--nv-text-xs);
+  color: var(--nv-text-secondary);
+}
+
+.nova-nomi-bubble__explain dd {
+  margin: 0;
+}
+
+.nova-nomi-bubble__evidence {
+  max-height: 160px;
+  margin: 0;
+  overflow: auto;
+  padding: var(--nv-space-2);
+  border-radius: var(--nv-radius-sm);
+  background: var(--nv-raised);
+  font-family: var(--nv-font-mono);
+  font-size: var(--nv-text-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.nova-nomi-bubble__lines {
+  display: grid;
+  gap: var(--nv-space-1);
+  margin: 0;
+  padding-left: var(--nv-space-4);
+}
+
+.nova-nomi-bubble__link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--nv-accent);
+  text-align: left;
+  text-decoration: underline;
+}
+
+.nova-nomi-bubble__ask,
+.nova-nomi-bubble__intent {
+  display: grid;
+  gap: var(--nv-space-1);
+  justify-items: start;
+  font-size: var(--nv-text-xs);
+  color: var(--nv-text-secondary);
+}
+
+.nova-nomi-bubble__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nv-space-1);
+}
+
+/* Screen-reader only: terminal state transitions of Nomi (success, error, waiting). */
+.nova-nomi-announce {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

@@ -17,3 +17,6 @@ apps/desktop/e2e/artifacts/
 
 # Local, non-versioned dev libraries (e.g. GTK/keyring extracted without root)
 .devdeps/
+
+# Icon renders from resvg experiments (pnpm icons writes under packages/ui/assets)
+/*.svg.png

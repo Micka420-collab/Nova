@@ -33,6 +33,7 @@ const IPC_CODES = [
   "no_key",
   "key_unreadable",
   "provider",
+  "unavailable",
   "internal",
 ] as const satisfies readonly IpcErrorCode[];
 

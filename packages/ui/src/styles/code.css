@@ -1,0 +1,359 @@
+/*
+ * Code surfaces: editor, syntax highlighting, diff and search tokens (VISUAL.md §2.1–2.3).
+ * Color values mirror `codePalettes` in src/tokens.ts (checked by code-tokens.test.ts).
+ * Syntax colors are applied through `nv-syn-*` classes (Lezer tag highlighter), never inline styles,
+ * so the same palette serves the editor, diffs and code blocks under a strict CSP.
+ */
+
+:root {
+  --nv-code-size: 13px;
+  --nv-code-line: 20px;
+}
+
+[data-density="compact"] {
+  --nv-code-size: 12.5px;
+  --nv-code-line: 18px;
+}
+
+:root,
+[data-theme="dark"] {
+  --nv-editor-bg: #0D1215;
+  --nv-line-highlight: #141B1F;
+  --nv-gutter-fg: #7A8B8E;
+  --nv-indent-guide: #2A363B;
+  --nv-diff-add-bg: #132A23;
+  --nv-diff-add-fg: #A9E4CC;
+  --nv-diff-add-word: #1E4A3B;
+  --nv-diff-del-bg: #33191C;
+  --nv-diff-del-fg: #F3A9A9;
+  --nv-diff-del-word: #4A2528;
+  --nv-diff-mod-bg: #302A19;
+  --nv-diff-mod-fg: #EEC181;
+  --nv-match-bg: #4A3F1E;
+  --nv-match-current-bg: #6B5A2A;
+  --nv-bracket-bg: #24433A;
+  --nv-word-highlight: #1E2C31;
+  --nv-syn-plain: #F2F5F3;
+  --nv-syn-keyword: #D9C3A3;
+  --nv-syn-function: #86D8BB;
+  --nv-syn-string: #EEC181;
+  --nv-syn-number: #9CC7D6;
+  --nv-syn-type: #B7D2A8;
+  --nv-syn-property: #D5DFDB;
+  --nv-syn-operator: #ABB9BB;
+  --nv-syn-comment: #8C9EA0;
+  --nv-syn-constant: #EBA79A;
+  --nv-syn-tag: #E1AE8F;
+  --nv-syn-attribute: #D9C3A3;
+  --nv-syn-regex: #C5D69B;
+  --nv-syn-invalid: #F18A8A;
+}
+
+[data-theme="light"] {
+  --nv-editor-bg: #FBFAF5;
+  --nv-line-highlight: #F1EFE7;
+  --nv-gutter-fg: #5F7073;
+  --nv-indent-guide: #DDD8CC;
+  --nv-diff-add-bg: #DFF0E6;
+  --nv-diff-add-fg: #1B5A47;
+  --nv-diff-add-word: #C4E6D4;
+  --nv-diff-del-bg: #F9E1DF;
+  --nv-diff-del-fg: #9C1F18;
+  --nv-diff-del-word: #F4C6C2;
+  --nv-diff-mod-bg: #F6E8D0;
+  --nv-diff-mod-fg: #7D5310;
+  --nv-match-bg: #F3E3B4;
+  --nv-match-current-bg: #E9CF82;
+  --nv-bracket-bg: #CFE9DC;
+  --nv-word-highlight: #F1EFE7;
+  --nv-syn-plain: #172328;
+  --nv-syn-keyword: #7A4A12;
+  --nv-syn-function: #216B56;
+  --nv-syn-string: #7D5310;
+  --nv-syn-number: #2B6076;
+  --nv-syn-type: #4A6A2A;
+  --nv-syn-property: #33474C;
+  --nv-syn-operator: #4B5A5D;
+  --nv-syn-comment: #556668;
+  --nv-syn-constant: #9A3B2E;
+  --nv-syn-tag: #9A4A22;
+  --nv-syn-attribute: #7A4A12;
+  --nv-syn-regex: #556B1E;
+  --nv-syn-invalid: #B3261E;
+}
+
+/* ---------------------------------------------------------------------------
+ * Syntax classes (one per Lezer tag family). Comments stay upright: color alone marks them. */
+
+.nv-syn-plain { color: var(--nv-syn-plain); }
+.nv-syn-keyword { color: var(--nv-syn-keyword); }
+.nv-syn-function { color: var(--nv-syn-function); }
+.nv-syn-string { color: var(--nv-syn-string); }
+.nv-syn-number { color: var(--nv-syn-number); }
+.nv-syn-type { color: var(--nv-syn-type); }
+.nv-syn-property { color: var(--nv-syn-property); }
+.nv-syn-operator { color: var(--nv-syn-operator); }
+.nv-syn-comment { color: var(--nv-syn-comment); }
+.nv-syn-constant { color: var(--nv-syn-constant); }
+.nv-syn-tag { color: var(--nv-syn-tag); }
+.nv-syn-attribute { color: var(--nv-syn-attribute); }
+.nv-syn-regex { color: var(--nv-syn-regex); }
+.nv-syn-invalid {
+  color: var(--nv-syn-invalid);
+  text-decoration: underline wavy var(--nv-syn-invalid);
+  text-decoration-thickness: 1.5px;
+}
+.nv-syn-strong { font-weight: 700; }
+.nv-syn-emphasis { font-style: italic; }
+.nv-syn-link { text-decoration: underline; }
+.nv-syn-heading { font-weight: 700; color: var(--nv-syn-keyword); }
+
+/* ---------------------------------------------------------------------------
+ * CodeMirror 6 theme. The editor adds `nv-code-editor` to `.cm-editor`; these rules override the
+ * base theme CodeMirror injects (nonce'd), so they carry the extra class for specificity. */
+
+.nv-code-editor.cm-editor {
+  height: 100%;
+  background: var(--nv-editor-bg);
+  color: var(--nv-syn-plain);
+  font-family: var(--nv-font-mono);
+  font-size: var(--nv-code-size);
+  line-height: var(--nv-code-line);
+  font-variant-ligatures: none;
+  border-radius: 0;
+}
+
+.nv-code-editor.cm-editor.cm-focused {
+  outline: 2px solid var(--nv-focus);
+  outline-offset: -2px;
+}
+
+.nv-code-editor .cm-scroller {
+  font-family: inherit;
+  line-height: inherit;
+}
+
+.nv-code-editor .cm-content {
+  caret-color: var(--nv-accent);
+}
+
+.nv-code-editor .cm-gutters {
+  min-width: 44px;
+  background: var(--nv-editor-bg);
+  color: var(--nv-gutter-fg);
+  border: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.nv-code-editor .cm-lineNumbers .cm-gutterElement {
+  padding: 0 8px 0 12px;
+}
+
+.nv-code-editor .cm-activeLine {
+  background: var(--nv-line-highlight);
+}
+
+.nv-code-editor .cm-activeLineGutter {
+  background: var(--nv-line-highlight);
+  color: var(--nv-text);
+}
+
+.nv-code-editor .cm-cursor,
+.nv-code-editor .cm-dropCursor {
+  border-left: 2px solid var(--nv-accent);
+}
+
+.nv-code-editor .cm-selectionBackground,
+.nv-code-editor.cm-focused .cm-selectionBackground,
+.nv-code-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground,
+.nv-code-editor .cm-content ::selection {
+  background: var(--nv-selection);
+}
+
+.nv-code-editor .cm-selectionMatch {
+  background: var(--nv-word-highlight);
+}
+
+.nv-code-editor.cm-focused .cm-matchingBracket {
+  background: var(--nv-bracket-bg);
+  outline: none;
+}
+
+.nv-code-editor.cm-focused .cm-nonmatchingBracket {
+  background: transparent;
+  text-decoration: underline wavy var(--nv-danger);
+}
+
+.nv-code-editor .cm-searchMatch {
+  background: var(--nv-match-bg);
+  outline: none;
+}
+
+.nv-code-editor .cm-searchMatch.cm-searchMatch-selected {
+  background: var(--nv-match-current-bg);
+}
+
+.nv-code-editor .cm-foldPlaceholder {
+  background: var(--nv-raised);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-xs);
+  color: var(--nv-text-secondary);
+  padding: 0 4px;
+  margin: 0 2px;
+}
+
+.nv-code-editor .cm-foldGutter .cm-gutterElement {
+  color: var(--nv-gutter-fg);
+  cursor: pointer;
+}
+
+/* Panels (search, go to line) and tooltips use interface typography. */
+.nv-code-editor .cm-panels {
+  background: var(--nv-panel);
+  color: var(--nv-text);
+  font-family: var(--nv-font-ui);
+  font-size: var(--nv-text-sm);
+}
+
+.nv-code-editor .cm-panels.cm-panels-top {
+  border-bottom: 1px solid var(--nv-border);
+}
+
+.nv-code-editor .cm-panels.cm-panels-bottom {
+  border-top: 1px solid var(--nv-border);
+}
+
+.nv-code-editor .cm-panel.cm-search,
+.nv-code-editor .cm-panel.cm-gotoLine {
+  padding: 6px 32px 6px 8px;
+}
+
+.nv-code-editor .cm-panel .cm-textfield {
+  background: var(--nv-field);
+  color: var(--nv-text);
+  border: 1px solid var(--nv-border-strong);
+  border-radius: var(--nv-radius-xs);
+  font: inherit;
+  padding: 2px 6px;
+}
+
+.nv-code-editor .cm-panel .cm-textfield:focus-visible,
+.nv-code-editor .cm-panel .cm-button:focus-visible,
+.nv-code-editor .cm-panel input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--nv-focus);
+  outline-offset: 1px;
+}
+
+.nv-code-editor .cm-panel .cm-button {
+  background: var(--nv-raised);
+  background-image: none;
+  color: var(--nv-text);
+  border: 1px solid var(--nv-border-strong);
+  border-radius: var(--nv-radius-xs);
+  font: inherit;
+  padding: 2px 8px;
+}
+
+.nv-code-editor .cm-panel .cm-button:hover {
+  background: var(--nv-raised-hover);
+}
+
+.nv-code-editor .cm-panel label {
+  color: var(--nv-text-secondary);
+}
+
+.nv-code-editor .cm-panel button[name="close"] {
+  color: var(--nv-text-secondary);
+}
+
+.nv-code-editor .cm-tooltip {
+  background: var(--nv-raised);
+  color: var(--nv-text);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-xs);
+  box-shadow: var(--nv-shadow-raised);
+  font-family: var(--nv-font-ui);
+}
+
+.nv-code-editor .cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background: var(--nv-selection);
+  color: var(--nv-text);
+}
+
+/* ---------------------------------------------------------------------------
+ * Merge / diff views (@codemirror/merge). */
+
+.cm-mergeView {
+  background: var(--nv-editor-bg);
+}
+
+.cm-mergeView .cm-mergeViewEditor + .cm-mergeViewEditor,
+.cm-mergeView .cm-mergeViewEditors > * + * {
+  border-left: 1px solid var(--nv-border);
+}
+
+.nv-code-editor .cm-changedLine,
+.cm-mergeView .cm-changedLine {
+  background: var(--nv-diff-mod-bg);
+}
+
+.nv-code-editor .cm-insertedLine,
+.cm-mergeView .cm-insertedLine,
+.cm-mergeView .cm-merge-b .cm-changedLine {
+  background: var(--nv-diff-add-bg);
+}
+
+.nv-code-editor .cm-deletedLine,
+.nv-code-editor .cm-deletedChunk,
+.cm-mergeView .cm-deletedLine,
+.cm-mergeView .cm-merge-a .cm-changedLine {
+  background: var(--nv-diff-del-bg);
+}
+
+.nv-code-editor .cm-changedText,
+.cm-mergeView .cm-merge-b .cm-changedText,
+.nv-code-editor .cm-insertedLine .cm-changedText {
+  background: var(--nv-diff-add-word);
+}
+
+.nv-code-editor .cm-deletedChunk .cm-deletedText,
+.cm-mergeView .cm-merge-a .cm-changedText,
+.nv-code-editor .cm-deletedLine .cm-changedText {
+  background: var(--nv-diff-del-word);
+}
+
+.cm-mergeView .cm-changeGutter,
+.nv-code-editor .cm-changeGutter {
+  width: 2px;
+  padding: 0;
+}
+
+.cm-mergeView .cm-merge-b .cm-changedLineGutter,
+.nv-code-editor .cm-changedLineGutter {
+  background: var(--nv-accent);
+}
+
+.cm-mergeView .cm-merge-a .cm-changedLineGutter,
+.nv-code-editor .cm-deletedLineGutter {
+  background: var(--nv-danger);
+}
+
+.cm-mergeView .cm-collapsedLines {
+  background: var(--nv-panel);
+  background-image: none;
+  color: var(--nv-text-secondary);
+  font-family: var(--nv-font-ui);
+}
+
+/* ---------------------------------------------------------------------------
+ * Motion: the caret does not blink when motion is reduced (base.css stops other animations). */
+
+[data-motion="reduce"] .nv-code-editor .cm-cursor {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="full"]) .nv-code-editor .cm-cursor {
+    animation: none;
+  }
+}

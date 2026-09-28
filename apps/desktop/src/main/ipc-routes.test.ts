@@ -1,10 +1,10 @@
 import { ChatRunner, RuntimeError, type RuntimeLogger } from "@nova/agent-runtime";
 import { ProviderError, providerErrorInfo, type ModelProvider, type ProviderStreamEvent } from "@nova/providers";
-import { IPC_CHANNELS, type AppInfo, type ChatStreamEvent, type IpcResult } from "@nova/shared";
+import { IPC_CHANNELS, PUSH_CHANNELS, type AppInfo, type ChatStreamEvent, type IpcResult } from "@nova/shared";
 import { openNovaStore, type NovaStore } from "@nova/storage";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { createMainApi } from "./api";
+import { createMainApi, type AtelierApi, type AtelierGroup } from "./api";
 import { buildIpcRoutes, toIpcError, type IpcRoute } from "./ipc-routes";
 import { ServiceError } from "./service-error";
 import { ChatEventHub } from "./services/chat-events";
@@ -37,6 +37,37 @@ class BlockingProvider implements ModelProvider {
   }
 }
 
+const ATELIER_GROUPS: readonly AtelierGroup[] = [
+  "workspace",
+  "files",
+  "search",
+  "terminal",
+  "missions",
+  "approvals",
+  "permissions",
+  "audit",
+  "git",
+  "mcp",
+  "web",
+  "companion",
+  "checkpoints",
+];
+
+/** J2-A services are tested on their own: here every call is recorded and refused. */
+function recordingAtelier(calls: string[]): AtelierApi {
+  const group = (name: string): unknown =>
+    new Proxy(
+      {},
+      {
+        get: (_target, method) => async () => {
+          calls.push(`${name}.${String(method)}`);
+          throw new ServiceError("unavailable", `${name}.${String(method)} stub`);
+        },
+      },
+    );
+  return Object.fromEntries(ATELIER_GROUPS.map((name) => [name, group(name)])) as AtelierApi;
+}
+
 const stores: NovaStore[] = [];
 afterEach(() => {
   for (const store of stores.splice(0)) store.close();
@@ -62,7 +93,9 @@ function setup(overrides: { appInfo?: () => Promise<AppInfo> } = {}) {
     logger,
   });
   const unused = () => Promise.reject(new Error("not used"));
+  const serviceCalls: string[] = [];
   const api = createMainApi({
+    atelier: recordingAtelier(serviceCalls),
     store,
     runner,
     chatEvents,
@@ -76,7 +109,7 @@ function setup(overrides: { appInfo?: () => Promise<AppInfo> } = {}) {
     if (!route) throw new Error(`no route for ${channel}`);
     return route.handle(payload);
   };
-  return { store, runner, routes, call, logs, events };
+  return { store, runner, routes, call, logs, events, serviceCalls };
 }
 
 describe("toIpcError", () => {
@@ -106,10 +139,29 @@ describe("toIpcError", () => {
 });
 
 describe("buildIpcRoutes", () => {
-  it("routes every request channel exactly once (the push channel excluded)", () => {
+  it("routes every request channel exactly once (push channels excluded)", () => {
     const { routes } = setup();
-    const expected = Object.values(IPC_CHANNELS).filter((channel) => channel !== IPC_CHANNELS.chatEvent);
+    const expected = Object.values(IPC_CHANNELS).filter((channel) => !PUSH_CHANNELS.includes(channel));
     expect([...routes.keys()].sort()).toEqual([...expected].sort());
+    expect(routes.size).toBe(expected.length);
+  });
+
+  it("validates J2-A requests before any service sees them, and forwards typed service errors", async () => {
+    const { call, serviceCalls } = setup();
+    const workspaceId = "7f1c1b8e-7a8f-4d7c-9a51-1c2c3d4e5f60";
+    await expect(call(IPC_CHANNELS.filesRead, { workspaceId, path: "src/app.ts" })).resolves.toEqual({
+      ok: false,
+      error: { code: "unavailable", message: "files.read stub" },
+    });
+    expect(serviceCalls).toEqual(["files.read"]);
+    // Validation still runs first: traversal and absolute paths never reach a service.
+    for (const path of ["../etc/passwd", "/etc/passwd", "src/../../x", "C:/Windows", "a\\b", "a//b", "./a"]) {
+      await expect(call(IPC_CHANNELS.filesRead, { workspaceId, path })).resolves.toMatchObject({
+        ok: false,
+        error: { code: "invalid_request", message: "Invalid request: path" },
+      });
+    }
+    expect(serviceCalls).toEqual(["files.read"]);
   });
 
   it("rejects invalid payloads with field names only, never the submitted values", async () => {

@@ -1,0 +1,347 @@
+/* Styles of the extensions surfaces (MCP manager); tokens only (--nv-*). */
+
+.nova-mcp {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nv-space-4);
+  padding: var(--nv-panel-pad, var(--nv-space-4));
+  min-height: 0;
+  overflow: auto;
+  container: nova-mcp / inline-size;
+}
+
+.nova-mcp__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nv-space-3);
+}
+
+.nova-mcp__title {
+  margin: 0;
+  font-size: var(--nv-text-lg);
+  font-weight: var(--nv-weight-bold);
+}
+
+.nova-mcp__loading {
+  display: grid;
+  gap: var(--nv-space-2);
+}
+
+.nova-mcp__body {
+  display: grid;
+  grid-template-columns: minmax(220px, 2fr) minmax(0, 3fr);
+  gap: var(--nv-space-4);
+  align-items: start;
+}
+
+/* The manager opens in whichever column holds the workbench (380 px in the conversation layout):
+   its own width decides, not the window's, else the detail column is squeezed off the edge. */
+@container nova-mcp (max-width: 699px) {
+  .nova-mcp__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.nova-mcp__list {
+  display: grid;
+  gap: var(--nv-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nova-mcp-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: var(--nv-space-2);
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  padding: var(--nv-space-2) var(--nv-space-3);
+  border: 1px solid transparent;
+  border-radius: var(--nv-radius-md);
+  background: transparent;
+  color: var(--nv-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--nv-duration-fast) var(--nv-ease-standard);
+}
+
+.nova-mcp-row:hover {
+  background: var(--nv-raised-hover);
+}
+
+.nova-mcp-row[aria-current="true"] {
+  background: var(--nv-raised);
+  border-color: var(--nv-border);
+  box-shadow: inset 2px 0 0 var(--nv-accent);
+}
+
+.nova-mcp-row:focus-visible {
+  outline: 2px solid var(--nv-focus);
+  outline-offset: -2px;
+}
+
+.nova-mcp-row--danger {
+  background: var(--nv-danger-soft);
+}
+
+.nova-mcp-row__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--nv-radius-pill);
+  background: var(--nv-text-secondary);
+}
+
+.nova-mcp-row__dot--jade {
+  background: var(--nv-accent);
+}
+
+.nova-mcp-row__dot--danger {
+  background: var(--nv-danger);
+}
+
+.nova-mcp-row__dot--amber {
+  background: var(--nv-amber);
+}
+
+.nova-mcp-row__name {
+  font-size: var(--nv-text-md);
+  font-weight: var(--nv-weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nova-mcp-row__meta,
+.nova-mcp-row__error {
+  grid-column: 2;
+  font-size: var(--nv-text-xs);
+  color: var(--nv-text-secondary);
+}
+
+.nova-mcp-row__error {
+  color: var(--nv-danger);
+}
+
+.nova-mcp-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nv-space-3);
+}
+
+.nova-mcp-detail__title {
+  margin: 0;
+  font-size: var(--nv-text-lg);
+}
+
+.nova-mcp-detail__error {
+  color: var(--nv-danger);
+}
+
+.nova-mcp-detail__args {
+  word-break: break-all;
+}
+
+.nova-mcp-detail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nv-space-2);
+}
+
+.nova-mcp-subheading {
+  margin: 0 0 var(--nv-space-2);
+  font-size: var(--nv-text-xs);
+  font-weight: var(--nv-weight-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--nv-text-secondary);
+}
+
+.nova-mcp-journal__output {
+  max-height: 240px;
+  margin: 0;
+  padding: var(--nv-space-2) var(--nv-space-3);
+  overflow: auto;
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-sm);
+  background: var(--nv-editor-bg, var(--nv-bg));
+  font-family: var(--nv-font-mono);
+  font-size: var(--nv-text-xs);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.nova-mcp-tools {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nv-space-2);
+}
+
+.nova-mcp-tools__loading {
+  display: grid;
+  gap: var(--nv-space-2);
+}
+
+.nova-mcp-tools__list {
+  display: grid;
+  gap: var(--nv-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nova-mcp-tool {
+  display: grid;
+  gap: var(--nv-space-1);
+  padding: var(--nv-space-2) var(--nv-space-3);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-md);
+  background: var(--nv-panel);
+}
+
+.nova-mcp-tool__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-2);
+}
+
+.nova-mcp-tool__name {
+  font-family: var(--nv-font-mono);
+  font-size: var(--nv-text-sm);
+}
+
+.nova-mcp-tool--denied .nova-mcp-tool__name {
+  text-decoration: line-through;
+  color: var(--nv-text-secondary);
+}
+
+.nova-mcp-tool__permission {
+  margin-left: auto;
+}
+
+.nova-mcp-tool__qualified {
+  margin: 0;
+  font-size: var(--nv-text-xs);
+  color: var(--nv-text-secondary);
+}
+
+.nova-mcp-untrusted {
+  margin: 0;
+  padding-left: var(--nv-space-3);
+  border-left: 2px solid var(--nv-border-strong);
+}
+
+.nova-mcp-untrusted__frame {
+  font-size: var(--nv-text-xs);
+  color: var(--nv-text-secondary);
+}
+
+.nova-mcp-untrusted__text {
+  margin: var(--nv-space-1) 0 0;
+  font-size: var(--nv-text-sm);
+  color: var(--nv-text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.nova-mcp-untrusted__prefix {
+  font-weight: var(--nv-weight-medium);
+}
+
+.nova-mcp-untrusted__warning {
+  margin-top: var(--nv-space-2);
+}
+
+.nova-mcp-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nv-space-3);
+}
+
+.nova-mcp-form__error {
+  margin: 0;
+  color: var(--nv-danger);
+}
+
+.nova-mcp-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nv-space-2);
+  margin: 0;
+  padding: var(--nv-space-3);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-md);
+}
+
+.nova-mcp-rows__legend {
+  padding: 0 var(--nv-space-1);
+  font-size: var(--nv-text-sm);
+  font-weight: var(--nv-weight-medium);
+}
+
+.nova-mcp-rows__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto auto;
+  gap: var(--nv-space-2);
+  align-items: end;
+}
+
+.nova-mcp__detail {
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.nova-mcp-journal {
+  display: grid;
+  gap: var(--nv-space-2);
+}
+
+.nv-dialog.nova-mcp-form-dialog {
+  width: min(640px, calc(100vw - 32px));
+}
+
+/* Recommended catalog and project import (M3/M4). */
+.nova-mcp-sources {
+  display: grid;
+  gap: var(--nv-space-4);
+  margin-top: var(--nv-space-4);
+}
+
+.nova-mcp-sources__block {
+  display: grid;
+  gap: var(--nv-space-2);
+}
+
+.nova-mcp-sources__list {
+  display: grid;
+  gap: var(--nv-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nova-mcp-source {
+  display: grid;
+  gap: var(--nv-space-1);
+  padding: var(--nv-space-2) var(--nv-space-3);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-md);
+  justify-items: start;
+}
+
+.nova-mcp-source__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nv-space-2);
+  align-items: baseline;
+}
+
+.nova-mcp-source__form {
+  display: grid;
+  gap: var(--nv-space-2);
+  width: 100%;
+}

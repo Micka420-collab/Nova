@@ -1,0 +1,147 @@
+/* Change review and checkpoints documents. Tokens only (--nv-*). */
+
+.nova-diff,
+.nova-checkpoints {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nv-space-3);
+  padding: var(--nv-panel-pad, var(--nv-space-4));
+  min-width: 0;
+}
+
+.nova-diff__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-2) var(--nv-space-3);
+}
+
+.nova-diff__title,
+.nova-checkpoints__title {
+  margin: 0;
+  font-size: var(--nv-text-lg, 16px);
+  font-weight: 560;
+}
+
+.nova-diff__summary,
+.nova-diff__note,
+.nova-diff__keys {
+  margin: 0;
+  font-size: var(--nv-text-sm, 13px);
+  color: var(--nv-text-secondary);
+}
+
+.nova-diff__keys {
+  font-family: var(--nv-font-mono);
+  font-size: var(--nv-text-xs, 12px);
+}
+
+.nova-diff__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-2);
+  margin-left: auto;
+}
+
+.nova-diff__region {
+  border-radius: var(--nv-radius-md, 12px);
+}
+
+.nova-diff__region:focus-visible {
+  outline: 2px solid var(--nv-focus);
+  outline-offset: 2px;
+}
+
+.nova-diff__proof {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--nv-space-2);
+  font-size: var(--nv-text-xs, 12px);
+  color: var(--nv-text-secondary);
+}
+
+.nova-diff__merge {
+  min-height: 200px;
+  max-height: 70vh;
+  overflow: auto;
+}
+
+.nova-diff__confirm-list,
+.nova-checkpoints__confirm {
+  margin: 0;
+  padding-left: var(--nv-space-4);
+}
+
+.nova-checkpoints__list,
+.nova-checkpoints__files {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nova-checkpoints__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nv-space-2);
+  padding: var(--nv-space-3);
+  border: 1px solid var(--nv-border);
+  border-radius: var(--nv-radius-md, 12px);
+  background: var(--nv-panel);
+}
+
+.nova-checkpoints__item + .nova-checkpoints__item {
+  margin-top: var(--nv-space-2);
+}
+
+.nova-checkpoints__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-2);
+}
+
+.nova-checkpoints__header > :last-child {
+  margin-left: auto;
+}
+
+.nova-checkpoints__label {
+  margin: 0;
+  font-size: var(--nv-text-md, 14px);
+  font-weight: 560;
+}
+
+.nova-checkpoints__time,
+.nova-checkpoints__count,
+.nova-checkpoints__change {
+  font-size: var(--nv-text-xs, 12px);
+  color: var(--nv-text-secondary);
+}
+
+.nova-checkpoints__file {
+  display: flex;
+  align-items: center;
+  gap: var(--nv-space-2);
+  min-height: var(--nv-row, 32px);
+}
+
+.nova-checkpoints__file code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nova-checkpoints__file > :last-child {
+  margin-left: auto;
+}
+
+.nova-diff__change {
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-xs);
+}
+
+.nova-diff__verified {
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-xs);
+}

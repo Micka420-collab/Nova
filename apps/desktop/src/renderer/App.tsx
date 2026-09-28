@@ -5,13 +5,17 @@ import { describeProviderError, describeUiError } from "./lib/errors";
 import { LIGHT_SCHEME_QUERY, useMediaQuery } from "./lib/hooks";
 import { useApp, useAppStore } from "./state/context";
 import { CommandPalette } from "./components/palette/CommandPalette";
+import { GlobalKeymap } from "./components/palette/GlobalKeymap";
 import { ModelPicker } from "./components/models/ModelPicker";
+import { AtelierHost } from "./components/layout/AtelierHost";
 import { Workshop } from "./components/layout/Workshop";
 
-/** data-theme / data-motion on <html>, as the design system expects. */
+/** data-theme / data-motion / data-density on <html>, as the design system expects. */
 function useDocumentPreferences() {
   const theme = useApp((state) => state.settings?.theme ?? "system");
   const motion = useApp((state) => state.settings?.companion.motion ?? "system");
+  // Créer is comfortable, Expert compact (VISUAL.md §2.7) until density is its own setting.
+  const density = useApp((state) => (state.ui.displayMode === "expert" ? "compact" : "comfortable"));
   const prefersLight = useMediaQuery(LIGHT_SCHEME_QUERY);
   useEffect(() => {
     const root = document.documentElement;
@@ -19,32 +23,8 @@ function useDocumentPreferences() {
     // "system" leaves the attribute out so the OS reduced-motion setting applies.
     if (motion === "system") delete root.dataset.motion;
     else root.dataset.motion = motion;
-  }, [theme, motion, prefersLight]);
-}
-
-function useGlobalShortcuts() {
-  const store = useAppStore();
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
-      const { setUi, newConversation, openSettings, ui } = store.getState();
-      const key = event.key.toLowerCase();
-      if (key === "k") {
-        event.preventDefault();
-        setUi({ paletteOpen: !ui.paletteOpen });
-      } else if (key === "n") {
-        event.preventDefault();
-        setUi({ paletteOpen: false });
-        newConversation();
-      } else if (key === ",") {
-        event.preventDefault();
-        setUi({ paletteOpen: false });
-        openSettings();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [store]);
+    root.dataset.density = density;
+  }, [theme, motion, density, prefersLight]);
 }
 
 /** Announces the end of generations (never individual tokens) to screen readers. */
@@ -97,7 +77,6 @@ export function App() {
   const ready = useApp((state) => state.boot.status === "ready");
   useEffect(() => store.getState().start(), [store]);
   useDocumentPreferences();
-  useGlobalShortcuts();
 
   if (!ready) return <Boot />;
   return (
@@ -112,9 +91,12 @@ export function App() {
       >
         {fr.layout.skipToContent}
       </a>
-      <Workshop />
+      <AtelierHost>
+        <Workshop />
+        <GlobalKeymap />
+        <CommandPalette />
+      </AtelierHost>
       <ModelPicker />
-      <CommandPalette />
       <OutcomeAnnouncer />
     </>
   );

@@ -1,7 +1,7 @@
 // Chat orchestration for the Electron main process: conversation -> provider stream -> storage,
 // with live events for the renderer. One active stream per conversation.
 import { randomUUID } from "node:crypto";
-import { ProviderError, providerErrorInfo, type ModelProvider } from "@nova/providers";
+import { ProviderError, providerErrorInfo, type ModelProvider, type WebPluginOptions } from "@nova/providers";
 import {
   redactSecrets,
   type ActiveStream,
@@ -16,6 +16,7 @@ import {
   type ProviderErrorInfo,
   type StreamPhase,
   type UsageSummary,
+  type WebCitation,
 } from "@nova/shared";
 import type { MessagePatch, NovaStore } from "@nova/storage";
 import { buildConversationTitle, buildProviderMessages } from "./prompt";
@@ -43,6 +44,20 @@ export interface ChatRunnerDeps {
    * that event reads the recorded fact.
    */
   onProviderError?: (error: ProviderErrorInfo, apiKey: string) => void | Promise<void>;
+  /**
+   * C6/W1: resolves what a message attaches (mentions read in main under the C8 exclusions and
+   * secret scan) and the web plugin when the user turned "Web" on. Throws to refuse the send
+   * (nothing is stored then). Absent: attachments and web are refused.
+   */
+  prepareTurn?: (req: ChatSendRequest) => Promise<ChatTurnContext>;
+}
+
+/** What one message adds to its own request only (never stored with the message). */
+export interface ChatTurnContext {
+  /** Text sent as a system message just before the user's message (already wrapped as data). */
+  context: string | null;
+  /** OpenRouter web plugin options (domain filters from the workspace policy). */
+  webPlugin: WebPluginOptions | null;
 }
 
 export type RuntimeErrorCode = "no_key" | "not_found" | "conflict" | "invalid_state";
@@ -87,6 +102,8 @@ interface StreamRun {
    * row is deleted instead and this answer remains the conversation's last one.
    */
   supersedes: Message | null;
+  /** Attachments and web of the message that started this run (send only). */
+  readonly turn: ChatTurnContext | null;
 }
 
 interface Progress {
@@ -97,12 +114,21 @@ interface Progress {
   finishReason: string | null;
   /** The provider answered the request (any stream event): the generation may be billed. */
   started: boolean;
+  /** `url_citation` annotations of a web-enabled answer (deduplicated by URL). */
+  citations: WebCitation[];
 }
 
 type Outcome =
   | { status: "complete" }
   | { status: "stopped" }
   | { status: "error"; error: ProviderErrorInfo };
+
+/** Markdown list of cited sources appended to a web-enabled answer. Titles are untrusted text. */
+export function sourcesBlock(citations: readonly WebCitation[]): string {
+  const clean = (text: string): string => text.replace(/[[\]\s]+/g, " ").trim().slice(0, 200) || "source";
+  const lines = citations.slice(0, 20).map((citation) => `- [${clean(citation.title)}](<${citation.url.replace(/[<>\s]/g, "")}>)`);
+  return `\n\n**Sources**\n${lines.join("\n")}`;
+}
 
 function describeError(error: unknown): string {
   return redactSecrets(error instanceof Error ? (error.stack ?? error.message) : String(error));
@@ -137,6 +163,9 @@ export class ChatRunner {
 
   async send(req: ChatSendRequest): Promise<ChatSendResult> {
     const apiKey = await this.requireApiKey();
+    const wantsTurn = (req.attachments?.length ?? 0) > 0 || req.webSearch === true;
+    if (wantsTurn && !this.deps.prepareTurn) throw new RuntimeError("invalid_state", "Attachments and web are not available");
+    const turn = wantsTurn && this.deps.prepareTurn ? await this.deps.prepareTurn(req) : null;
     // Synchronous from here: no other send/retry can interleave between checks and writes.
     const { store } = this.deps;
     let conversationId: string;
@@ -156,7 +185,7 @@ export class ChatRunner {
       status: "complete",
       modelId: null,
     });
-    const run = this.startRun(conversationId, req.modelId, apiKey);
+    const run = this.startRun(conversationId, req.modelId, apiKey, null, turn);
     const conversation = store.getConversation(conversationId);
     if (!conversation) throw new Error("Conversation vanished while starting a stream");
     return { conversation, userMessage, assistantMessage: run.message, streamId: run.streamId };
@@ -251,6 +280,7 @@ export class ChatRunner {
     modelId: string,
     apiKey: string,
     supersedes: Message | null = null,
+    turn: ChatTurnContext | null = null,
   ): StreamRun {
     const { store } = this.deps;
     const history = store.listMessages(conversationId);
@@ -276,8 +306,10 @@ export class ChatRunner {
         servedProvider: null,
         finishReason: null,
         started: false,
+        citations: [],
       },
       supersedes,
+      turn,
     };
     this.runs.set(run.streamId, run);
     const task: Promise<void> = new Promise<void>((resolve) => setImmediate(resolve))
@@ -327,11 +359,20 @@ export class ChatRunner {
     const messageId = run.message.id;
     this.emit({ type: "phase", ...this.ids(run), phase: "waiting" });
     if (signal.aborted) return;
+    const messages = buildProviderMessages(history);
+    const context = run.turn?.context ?? null;
+    if (context !== null) {
+      // Just before the message it belongs to: the attachment is this turn's context only.
+      const lastUser = messages.findLastIndex((message) => message.role === "user");
+      messages.splice(lastUser === -1 ? messages.length : lastUser, 0, { role: "system", content: context });
+    }
+    const webPlugin = run.turn?.webPlugin ?? null;
     const events = provider.streamChat(apiKey, {
       modelId: run.modelId,
-      messages: buildProviderMessages(history),
+      messages,
       signal,
       dataCollection: this.deps.getSettings().privacy.providerDataCollection,
+      ...(webPlugin ? { webPlugin } : {}),
     });
     let persistedAt = this.now();
     for await (const event of events) {
@@ -369,6 +410,11 @@ export class ChatRunner {
           break;
         case "finish":
           progress.finishReason = event.finishReason;
+          break;
+        case "citation":
+          if (!progress.citations.some((citation) => citation.url === event.url)) {
+            progress.citations.push({ url: event.url, title: event.title ?? event.url, snippet: event.snippet ?? "" });
+          }
           break;
       }
     }
@@ -441,6 +487,8 @@ export class ChatRunner {
     const { progress } = run;
     // A complete answer is a replacement even if it never streamed reasoning or text.
     if (outcome.status === "complete") this.replaceSuperseded(run);
+    // W1: the sources the answer really cited, kept with it (never an invented URL).
+    if (outcome.status === "complete" && progress.citations.length > 0) progress.content += sourcesBlock(progress.citations);
     const error = outcome.status === "error" ? outcome.error : null;
     const patch = {
       content: progress.content,

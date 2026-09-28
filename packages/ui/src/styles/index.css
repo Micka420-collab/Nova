@@ -1,6 +1,10 @@
 @import "./fonts.css";
 @import "./tokens.css";
+@import "./code.css";
 @import "./base.css";
 @import "./components.css";
+@import "./diff.css";
+@import "./terminal.css";
+@import "./agent.css";
 @import "./nomi.css";
 @import "./gallery.css";
