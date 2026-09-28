@@ -163,7 +163,7 @@ export function createAtelierFake(seed: AtelierFakeSeed = {}): AtelierFake {
     },
     git: {
       status: () => ok(seed.git ?? { available: false }),
-      diff: () => ok({ patch: "", truncated: false }),
+      diff: () => ok({ patch: "", truncated: false, excluded: [] }),
     },
     missions: {
       plan: (req) => {

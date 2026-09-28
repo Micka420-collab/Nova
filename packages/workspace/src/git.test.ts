@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createGitClient, findGitExecutable, parsePorcelainV2 } from "./git";
+import { createGitClient, findGitExecutable, omitExcludedFiles, parsePorcelainV2 } from "./git";
 import { createIgnoreMatcher } from "./ignore-rules";
 import { makeTempDir, type TempDir } from "./test-support";
 
@@ -46,10 +46,35 @@ describe("git client", () => {
 
   it("returns unified diffs per file and staged", async () => {
     await repo.write("tracked.txt", "two\n");
-    const diff = await client.diff(repo.path, { path: "tracked.txt", staged: false });
+    const diff = await client.diff(repo.path, { path: "tracked.txt", staged: false, isExcluded: () => false });
     expect(diff.truncated).toBe(false);
     expect(diff.patch).toContain("-one\n+two\n");
-    expect((await client.diff(repo.path, { path: null, staged: true })).patch).toBe("");
+    expect((await client.diff(repo.path, { path: null, staged: true, isExcluded: () => false })).patch).toBe("");
+  });
+
+  it("never shows the content of C8-excluded files in a diff (defaults, .novaignore, spaces, noprefix config)", async () => {
+    await repo.write(".env", "TOKEN=old\n");
+    await repo.write("config/app.key", "k1\n");
+    await repo.write("private/my notes.txt", "a\n");
+    await repo.write(".novaignore", "private/\n");
+    git("add", ".");
+    git("commit", "-q", "-m", "tracked secrets");
+    git("config", "diff.noprefix", "true");
+    await repo.write(".env", "TOKEN=hunter2-new-value\n");
+    await repo.write("config/app.key", "k2-secret\n");
+    await repo.write("private/my notes.txt", "b-private\n");
+    await repo.write("tracked.txt", "two\n");
+    const matcher = createIgnoreMatcher(repo.path);
+    await matcher.load("");
+    const isExcluded = (path: string): boolean => matcher.isExcluded(path);
+
+    const diff = await client.diff(repo.path, { path: null, staged: false, isExcluded });
+    expect(diff.patch).toContain("+two");
+    expect(diff.patch).not.toMatch(/hunter2|k2-secret|b-private/);
+    expect(diff.excluded.sort()).toEqual([".env", "config/app.key", "private/my notes.txt"]);
+    const folder = await client.diff(repo.path, { path: "config", staged: false, isExcluded });
+    expect(folder).toMatchObject({ patch: "", excluded: ["config/app.key"] });
+    await expect(client.diff(repo.path, { path: ".env", staged: false, isExcluded })).rejects.toMatchObject({ code: "excluded_path" });
   });
 
   it("commits selected paths, reports nothing-to-commit, and gives the branch", async () => {
@@ -84,7 +109,7 @@ describe("git client", () => {
     await repo.write("tracked.txt", "two\n");
     const status = await client.status(repo.path);
     expect(status.available && status.entries.some((entry) => entry.path === "tracked.txt")).toBe(true);
-    expect((await client.diff(repo.path, { path: "tracked.txt", staged: false })).patch).toContain("+two");
+    expect((await client.diff(repo.path, { path: "tracked.txt", staged: false, isExcluded: () => false })).patch).toContain("+two");
     expect(existsSync(marker)).toBe(false);
   });
 
@@ -140,6 +165,22 @@ describe("git client", () => {
     const missing = createGitClient({ gitPath: "/nonexistent/git", env });
     expect(await missing.available()).toBe(false);
     expect(await missing.status(repo.path)).toEqual({ available: false });
+  });
+});
+
+describe("omitExcludedFiles", () => {
+  it("reads quoted and combined headers and drops a section whose header it cannot read", () => {
+    const section = (header: string, body: string): string => `${header}\n--- x\n+++ y\n@@ -1 +1 @@\n-old\n+${body}\n`;
+    const patch = [
+      section('diff --git "a/sec\\303\\251/t\\tab" "b/sec\\303\\251/t\\tab"', "quoted-secret"),
+      section("diff --cc .env", "conflict-secret"),
+      section("diff --git a/ok b.ts b/ok b.ts", "visible"),
+      "diff --git a/.en",
+    ].join("");
+    const result = omitExcludedFiles(patch, (path) => path.startsWith("secé/") || path === ".env");
+    expect(result.patch).toContain("+visible");
+    expect(result.patch).not.toMatch(/quoted-secret|conflict-secret|a\/\.en/);
+    expect(result.excluded).toEqual(["secé/t\tab", ".env"]);
   });
 });
 

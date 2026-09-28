@@ -509,14 +509,16 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
   const gitDiff = builtin({
     name: "git_diff",
     operation: "read",
-    description: "Show the unified Git diff of the working tree (or of staged changes), optionally for one path.",
+    description:
+      "Show the unified Git diff of the working tree (or of staged changes), optionally for one path. Excluded sensitive files are listed, never shown.",
     schema: z.object({ path: entryPath.nullable().default(null), staged: z.boolean().default(false) }).strict(),
     facts: (args) => [args.path === null ? {} : { path: args.path }],
     async run(args, context, started) {
       const diff = await requireDep(deps.git, "git").diff({ workspaceId: context.workspaceId, path: args.path, staged: args.staged });
       const shown = capText(diff.patch, 100_000);
+      const excluded = diff.excluded.length > 0 ? `\n[excluded files not shown (sensitive): ${diff.excluded.join(", ")}]` : "";
       return makeResult({
-        callId: context.callId, ok: true, content: diff.patch || "(no changes)",
+        callId: context.callId, ok: true, content: `${diff.patch || "(no changes)"}${excluded}`,
         display: { kind: "git_diff", patch: shown.text, truncated: diff.truncated || shown.truncated },
         provenance: provenance("git", args.path), durationMs: Date.now() - started,
       });

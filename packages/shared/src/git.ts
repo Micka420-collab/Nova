@@ -53,4 +53,6 @@ export interface GitDiff {
   /** Unified diff (`git diff --no-color`), capped at 1 MB. */
   patch: string;
   truncated: boolean;
+  /** Changed files left out of `patch` because they are excluded (C8, `.novaignore`). */
+  excluded: RelativePath[];
 }

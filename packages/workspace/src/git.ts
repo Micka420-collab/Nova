@@ -80,7 +80,11 @@ export interface GitClient {
   /** The folder is inside a Git work tree (false when git is missing). */
   isRepo(root: string): Promise<boolean>;
   status(root: string): Promise<GitStatus>;
-  diff(root: string, request: { path: RelativePath | null; staged: boolean }): Promise<GitDiff>;
+  /**
+   * Unified diff without the files `isExcluded` rejects (C8, `.novaignore` loaded): their hunks
+   * are dropped and their paths listed in `excluded`; an excluded `path` is refused.
+   */
+  diff(root: string, request: { path: RelativePath | null; staged: boolean; isExcluded: (path: RelativePath) => boolean }): Promise<GitDiff>;
   /** Current branch, null on a detached HEAD or outside a repository. */
   branch(root: string): Promise<string | null>;
   /**
@@ -195,6 +199,75 @@ export function parsePorcelainV2(output: string, prefix = ""): Extract<GitStatus
 }
 
 // ---------------------------------------------------------------------------
+// C8 filtering of patches
+
+/** Decodes a C-quoted git path (`"a/t\\303\\251 \\"x\\""`); null when malformed. */
+function unquoteGitPath(quoted: string): string | null {
+  if (!quoted.startsWith('"') || !quoted.endsWith('"') || quoted.length < 2) return null;
+  const bytes: number[] = [];
+  const escapes: Readonly<Record<string, number>> = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, "\\": 92 };
+  const body = quoted.slice(1, -1);
+  for (let index = 0; index < body.length; index += 1) {
+    const char = body[index] as string;
+    if (char !== "\\") {
+      bytes.push(...Buffer.from(char, "utf8"));
+      continue;
+    }
+    const next = body[index + 1] ?? "";
+    const octal = /^[0-7]{3}/.exec(body.slice(index + 1));
+    if (octal) {
+      bytes.push(parseInt(octal[0], 8));
+      index += 3;
+    } else if (escapes[next] !== undefined) {
+      bytes.push(escapes[next]);
+      index += 1;
+    } else {
+      return null;
+    }
+  }
+  return Buffer.from(bytes).toString("utf8");
+}
+
+/**
+ * Workspace path of one file section header, or null when it cannot be read. Relies on the diff
+ * being produced with `--no-renames` and the forced `a/` `b/` prefixes: both sides name the same
+ * path, so `a/P b/P` splits unambiguously even when P contains spaces.
+ */
+function sectionPath(header: string): string | null {
+  const combined = /^diff --(?:cc|combined) (.*)$/.exec(header);
+  if (combined) {
+    const raw = combined[1] as string;
+    return raw.startsWith('"') ? unquoteGitPath(raw) : raw;
+  }
+  const rest = /^diff --git (.*)$/.exec(header)?.[1];
+  if (rest === undefined) return null;
+  if (rest.startsWith('"')) {
+    const split = rest.indexOf('" "');
+    const left = split === -1 ? null : unquoteGitPath(rest.slice(0, split + 1));
+    return left?.startsWith("a/") ? left.slice(2) : null;
+  }
+  const size = (rest.length - 5) / 2;
+  const path = rest.slice(2, 2 + size);
+  return Number.isInteger(size) && rest === `a/${path} b/${path}` ? path : null;
+}
+
+/**
+ * Drops the sections of excluded files from a patch (C8: their content is never shown). A section
+ * whose path cannot be read (e.g. a header cut by the size cap) is dropped too: fail closed.
+ */
+export function omitExcludedFiles(patch: string, isExcluded: (path: RelativePath) => boolean): { patch: string; excluded: RelativePath[] } {
+  const excluded: RelativePath[] = [];
+  const kept = patch.split(/^(?=diff --(?:git|cc|combined) )/m).filter((section) => {
+    if (!section.startsWith("diff --")) return true;
+    const path = sectionPath(section.split("\n", 1)[0] as string);
+    if (path !== null && isCanonicalRelativePath(path) && !isExcluded(path)) return true;
+    if (path !== null) excluded.push(path);
+    return false;
+  });
+  return { patch: kept.join(""), excluded };
+}
+
+// ---------------------------------------------------------------------------
 
 export function createGitClient(options: GitClientOptions = {}): GitClient {
   const timeout = options.timeoutMs ?? 30_000;
@@ -302,8 +375,9 @@ export function createGitClient(options: GitClientOptions = {}): GitClient {
       return statusOf(root, prefix, ["."]);
     },
 
-    async diff(root, { path, staged }) {
+    async diff(root, { path, staged, isExcluded }) {
       if (path !== null && !isCanonicalRelativePath(path)) throw new WorkspaceError("invalid_path", "invalid relative path");
+      if (path !== null && isExcluded(path)) throw new WorkspaceError("excluded_path", `${path} is excluded (sensitive file): its diff is not shown`);
       const executablePath = await gitFor(root);
       const childEnv = { ...env, ...(await noFiltersEnv(root)) };
       const args = [
@@ -313,6 +387,10 @@ export function createGitClient(options: GitClientOptions = {}): GitClient {
         "--no-ext-diff",
         "--no-textconv",
         "--relative",
+        // One path per section header (see sectionPath), whatever diff.renames/noprefix say.
+        "--no-renames",
+        "--src-prefix=a/",
+        "--dst-prefix=b/",
         ...(staged ? ["--cached"] : []),
         "--",
         path ?? ".",
@@ -343,7 +421,7 @@ export function createGitClient(options: GitClientOptions = {}): GitClient {
         child.on("close", (code) => {
           clearTimeout(timer);
           if (!truncated && code !== 0) reject(new WorkspaceError("failed", "git diff failed"));
-          else resolve({ patch: Buffer.concat(chunks).toString("utf8"), truncated });
+          else resolve({ ...omitExcludedFiles(Buffer.concat(chunks).toString("utf8"), isExcluded), truncated });
         });
       });
     },

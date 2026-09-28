@@ -15,18 +15,26 @@ export interface GitService {
 export function createGitService(deps: { workspaces: Pick<WorkspaceService, "rootOf">; git: GitClient }): GitService {
   const { git } = deps;
   const root = (workspaceId: string): Promise<string> => deps.workspaces.rootOf(workspaceId);
+  /** C8 of the workspace (`.novaignore` read now, defaults always). */
+  const exclusionOf = async (workspaceRoot: string): Promise<(path: RelativePath) => boolean> => {
+    const matcher = createIgnoreMatcher(workspaceRoot);
+    await asService(matcher.load(""));
+    return (path) => matcher.isExcluded(path);
+  };
   return {
     api: {
       status: async ({ workspaceId }) => asService(git.status(await root(workspaceId))),
-      diff: async ({ workspaceId, path, staged }) => asService(git.diff(await root(workspaceId), { path, staged })),
+      // Excluded files are never read, a diff included: their hunks are left out.
+      async diff({ workspaceId, path, staged }) {
+        const workspaceRoot = await root(workspaceId);
+        return asService(git.diff(workspaceRoot, { path, staged, isExcluded: await exclusionOf(workspaceRoot) }));
+      },
     },
     branch: async (workspaceId) => asService(git.branch(await root(workspaceId))),
+    // Excluded files never enter a commit.
     async commit(workspaceId, request) {
       const workspaceRoot = await root(workspaceId);
-      // C8 (`.novaignore` read now, defaults always): excluded files never enter a commit.
-      const matcher = createIgnoreMatcher(workspaceRoot);
-      await asService(matcher.load(""));
-      return asService(git.commit(workspaceRoot, { ...request, isExcluded: (path) => matcher.isExcluded(path) }));
+      return asService(git.commit(workspaceRoot, { ...request, isExcluded: await exclusionOf(workspaceRoot) }));
     },
   };
 }

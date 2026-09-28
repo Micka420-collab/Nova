@@ -336,7 +336,7 @@ export function createFakeAtelierClient(initial: Record<string, string>, options
       },
       diff: async (req) => {
         record("git.diff", req);
-        return { patch: "", truncated: false };
+        return { patch: "", truncated: false, excluded: [] };
       },
     },
   };
