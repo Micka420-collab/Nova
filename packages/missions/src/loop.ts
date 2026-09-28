@@ -155,8 +155,12 @@ class MissionRun {
     return new Terminal({ type: "mission.failed", missionId: this.missionId, reason, detail });
   }
 
-  /** Suspends until resume (or stop). A duration suspension grants a new window on resume. */
+  /**
+   * Suspends until resume (or stop). The duration cap counts working time only: time spent
+   * suspended pushes the deadline back, and a duration suspension grants a new window on resume.
+   */
   private async suspend(reason: MissionSuspendReason, detail: string | null): Promise<void> {
+    const suspendedAt = this.deps.now();
     this.emit({ type: "mission.suspended", missionId: this.missionId, reason, detail });
     this.pauseRequested = false;
     await new Promise<void>((resolve) => {
@@ -165,7 +169,8 @@ class MissionRun {
     this.resumeWaiter = null;
     this.checkAborted();
     this.emit({ type: "mission.resumed", missionId: this.missionId });
-    if (reason === "duration") this.deadline = this.deps.now() + this.spec.contract.maxDurationMs;
+    const resumedAt = this.deps.now();
+    this.deadline = reason === "duration" ? resumedAt + this.spec.contract.maxDurationMs : this.deadline + (resumedAt - suspendedAt);
     if (reason === "no_progress") this.noProgress.reset();
   }
 

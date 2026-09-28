@@ -126,6 +126,27 @@ describe("mission loop", () => {
     expectInvariants(h);
   });
 
+  it("does not count time spent paused toward the duration cap", async () => {
+    let clock = 0;
+    const h = createHarness({
+      tasks: [{ title: "Répondre", acceptance: { kind: "manual", detail: "" } }],
+      files: { "src/cart.ts": CART },
+      turns: [{ calls: [READ] }, { text: "Voilà." }],
+      maxDurationMs: 30 * 60_000,
+      now: () => clock,
+    });
+    const done = h.start();
+    h.loop.pause(h.missionId);
+    await until(() => h.types().includes("mission.suspended"));
+    // Paused at once, resumed 40 minutes later: no work time, far from the 30 min cap.
+    clock = 40 * 60_000;
+    h.loop.resume(h.missionId);
+    await done;
+    expect(h.events().filter((event) => event.type === "mission.suspended")).toMatchObject([{ reason: "user" }]);
+    expect(h.types().at(-1)).toBe("mission.succeeded");
+    expectInvariants(h);
+  });
+
   it("suspends when the same call returns the same result three times", async () => {
     const h = createHarness({ files: { "src/cart.ts": CART }, turns: [{ calls: [READ] }, { calls: [READ] }, { calls: [READ] }, { calls: [READ] }] });
     const done = h.start();

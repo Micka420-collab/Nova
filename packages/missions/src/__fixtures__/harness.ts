@@ -86,6 +86,8 @@ export interface HarnessOptions {
   approvals?: ApprovalGate;
   commands?: CommandRunner;
   maxDurationMs?: number;
+  /** Clock of the loop (duration cap). */
+  now?: () => number;
 }
 
 export const ALLOW: PermissionDecision = { decision: "allow", reason: "profile_allows", ruleId: "profile:test", rememberable: true, explanation: "Règle de test." };
@@ -200,6 +202,7 @@ export function createHarness(options: HarnessOptions) {
     sink: { append: (event) => void journal.append(event) },
     systemPrompt: ({ mode: m, toolNames }) => `system ${m} ${toolNames.join(",")}`,
     limits: { retryDelayMs: 1 },
+    ...(options.now ? { now: options.now } : {}),
   });
 
   const mission: Mission = {
