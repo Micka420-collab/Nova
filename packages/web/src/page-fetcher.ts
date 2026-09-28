@@ -9,7 +9,7 @@ import type { LookupFunction } from "node:net";
 import type { Readable } from "node:stream";
 import zlib from "node:zlib";
 import type { FetchedPage } from "@nova/shared";
-import { WebError } from "./errors";
+import { safeWireToken, WebError } from "./errors";
 import { bodyToMarkdown, TRUNCATION_MARKER, truncateText } from "./extract";
 import {
   checkUrlShape,
@@ -170,7 +170,7 @@ function decodedStream(response: http.IncomingMessage): Readable {
   if (encoding === "gzip" || encoding === "x-gzip") decoder = zlib.createGunzip();
   else if (encoding === "deflate") decoder = zlib.createInflate();
   else if (encoding === "br") decoder = zlib.createBrotliDecompress();
-  else if (encoding !== "identity") throw new WebError("unsupported_content_type", `content encoding ${encoding} is not supported`);
+  else if (encoding !== "identity") throw new WebError("unsupported_content_type", `content encoding ${safeWireToken(encoding)} is not supported`);
   if (!decoder) return response;
   const target = decoder;
   response.on("error", (error) => target.destroy(error));
@@ -208,14 +208,17 @@ export function createPageFetcher(options: PageFetcherOptions = {}): PageFetcher
   const now = options.now ?? Date.now;
   const userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
 
-  function readCache(requested: URL, key: string): FetchedPage | null {
+  function readCache(request: FetchPageRequest, requested: URL): FetchedPage | null {
     let entry: WebCacheEntry | null = null;
     try {
-      entry = cache?.get(key, now()) ?? null;
+      entry = cache?.get(cacheUrlKey(requested), now()) ?? null;
     } catch {
       entry = null;
     }
     if (!entry) return null;
+    // The content came from the final URL: a redirect cached under another policy, mission or
+    // workspace must pass the CURRENT authorizer for that host, exactly as a live read would.
+    if (cacheUrlKey(new URL(entry.url)) !== cacheUrlKey(requested)) request.authorize(checkUrlShape(entry.url, ssrf), 1);
     return {
       url: requested.href,
       finalUrl: entry.url,
@@ -252,7 +255,8 @@ export function createPageFetcher(options: PageFetcherOptions = {}): PageFetcher
       const type = classifyContentType(response.headers["content-type"]);
       if (type === null || type === "pdf") {
         response.resume();
-        const what = type === "pdf" ? "PDF reading is not available yet" : `content type ${response.headers["content-type"] ?? "(none)"} is not readable`;
+        const mime = response.headers["content-type"]?.split(";")[0];
+        const what = type === "pdf" ? "PDF reading is not available yet" : `content type ${safeWireToken(mime)} is not readable`;
         throw new WebError("unsupported_content_type", what, { host: normalizedHostname(current) });
       }
       const bytes = await readCappedBody(response, limits.maxBytes);
@@ -290,7 +294,7 @@ export function createPageFetcher(options: PageFetcherOptions = {}): PageFetcher
       const start = checkUrlShape(request.url, ssrf);
       request.authorize(start, 0);
       if (!request.bypassCache) {
-        const cached = readCache(start, cacheUrlKey(start));
+        const cached = readCache(request, start);
         if (cached) return cached;
       }
       const deadline = AbortSignal.timeout(limits.timeoutMs);
@@ -301,8 +305,11 @@ export function createPageFetcher(options: PageFetcherOptions = {}): PageFetcher
         if (request.signal.aborted) throw new WebError("aborted", "page read cancelled");
         if (deadline.aborted) throw new WebError("timeout", `no complete response within ${limits.timeoutMs} ms`);
         if (error instanceof WebError) throw error;
-        const detail = error instanceof Error ? error.message : String(error);
-        throw new WebError("network", `page could not be read: ${detail}`);
+        // Only the Node error code: socket/TLS/parser messages can quote server-controlled text
+        // (certificate names, header bytes), and this message is never fenced as untrusted.
+        const code = (error as { code?: unknown } | null)?.code;
+        const detail = typeof code === "string" && /^[A-Z0-9_]{1,40}$/.test(code) ? ` (${code})` : "";
+        throw new WebError("network", `page could not be read${detail}`);
       }
     },
   };

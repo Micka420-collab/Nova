@@ -50,3 +50,15 @@ export class WebError extends Error {
 export function isWebError(error: unknown): error is WebError {
   return error instanceof WebError;
 }
+
+const SAFE_TOKEN = /^[a-z0-9.+/-]{1,40}$/;
+
+/**
+ * A server-controlled value (header, URL scheme) as it may appear in a WebError message. Those
+ * messages reach the model as trusted tool-failure text, never fenced: anything beyond a short
+ * protocol token is dropped so a hostile server cannot speak through an error.
+ */
+export function safeWireToken(raw: string | undefined): string {
+  const token = (raw ?? "").trim().toLowerCase();
+  return SAFE_TOKEN.test(token) ? token : "(unrecognized)";
+}

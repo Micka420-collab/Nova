@@ -3,7 +3,7 @@
 // addresses (see page-fetcher.ts), so a DNS answer cannot change between check and connect.
 import { lookup as dnsLookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
-import { WebError } from "./errors";
+import { safeWireToken, WebError } from "./errors";
 
 export interface ResolvedAddress {
   address: string;
@@ -106,7 +106,7 @@ export function checkUrlShape(input: string | URL, options: SsrfOptions = {}): U
     throw new WebError("invalid_url", "not a valid absolute URL");
   }
   if (!ALLOWED_PROTOCOLS.has(url.protocol)) {
-    throw new WebError("invalid_url", `scheme ${url.protocol} is not allowed (http and https only)`);
+    throw new WebError("invalid_url", `scheme ${safeWireToken(url.protocol.slice(0, -1))} is not allowed (http and https only)`);
   }
   if (url.username !== "" || url.password !== "") {
     throw new WebError("invalid_url", "credentials in URLs are refused");
