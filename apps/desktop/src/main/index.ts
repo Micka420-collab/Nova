@@ -324,6 +324,7 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
 
   const web = new WebService({
     policies: createWebPolicyRepo(store.db),
+    audit,
     cache: createWebCacheRepo(store.db),
     usage: createWebSearchUsageRepo(store.db),
     providerId: provider.id,
@@ -340,6 +341,7 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
   });
   const mcp = new McpService({
     repo: createMcpRepo(store.db),
+    audit,
     secrets: store,
     vault,
     host: workers.instance("mcp-host"),
@@ -411,6 +413,7 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
     },
     isolationLevel: () => permissions.isolationLevel,
     audit: (entry) => audit.recordToolExecution(entry),
+    auditDecision: (request, decision, toolCallId) => audit.recordDecision(request, decision, toolCallId),
     openRuntimePort: () => openAgentRuntimePort(workers),
     logger,
   });

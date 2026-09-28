@@ -61,6 +61,7 @@ import type { NovaStore } from "@nova/storage";
 import type { MainApi } from "../api";
 import { ServiceError } from "../service-error";
 import { VaultError, type SecretVault } from "../vault";
+import type { AuditService } from "./audit-service";
 
 /** Subset of @nova/storage's McpRepo (createMcpRepo) used here. */
 export interface McpServiceRepo {
@@ -101,6 +102,8 @@ export interface McpHostPort {
 
 export interface McpServiceDeps {
   repo: McpServiceRepo;
+  /** S5: a tool permission change (e.g. to allow) is a user action in the audit log. */
+  audit?: Pick<AuditService, "recordUserAction">;
   secrets: Pick<NovaStore, "putSecret" | "getSecret" | "deleteSecret">;
   vault: SecretVault;
   host: McpHostPort;
@@ -193,6 +196,10 @@ export class McpService {
           throw new ServiceError("not_found", "MCP tool not found");
         }
         this.deps.repo.setToolPermission(server.id, req.toolName, req.workspaceId, req.permission);
+        this.deps.audit?.recordUserAction(req.workspaceId, "mcp.tool_permission_changed", `${server.name}/${req.toolName}`, {
+          serverId: server.id,
+          permission: req.permission,
+        });
         this.logger.info("mcp tool permission set", { serverId: server.id, permission: req.permission });
         const view = this.toolViews(server, req.workspaceId).find((tool) => tool.name === req.toolName);
         if (!view) throw new ServiceError("not_found", "MCP tool not found");

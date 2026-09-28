@@ -1,11 +1,12 @@
 import { readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { createWebCacheRepo, createWebPolicyRepo, createWebSearchUsageRepo, createWorkspaceRepo, type NovaStore, openNovaStore } from "@nova/storage";
+import { createAuditRepo, createWebCacheRepo, createWebPolicyRepo, createWebSearchUsageRepo, createWorkspaceRepo, type NovaStore, openNovaStore } from "@nova/storage";
 import type { WebSearchOutcome, WebSearchRequest } from "@nova/web";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { ServiceError } from "../service-error";
-import { WebService } from "./web-service";
+import { AuditService } from "./audit-service";
+import { WebService, type WebServiceDeps } from "./web-service";
 
 const INJECTION_PAGE = readFileSync(
   new URL("../../../../../packages/web/src/__fixtures__/injection/ignore-instructions.html", import.meta.url),
@@ -46,8 +47,9 @@ const OUTCOME: WebSearchOutcome = {
   usage: { promptTokens: 3120, completionTokens: 64, reasoningTokens: 0, cachedTokens: 0, cost: 0.0081 },
 };
 
-function service(): WebService {
+function service(audit?: WebServiceDeps["audit"]): WebService {
   return new WebService({
+    ...(audit ? { audit } : {}),
     policies: createWebPolicyRepo(store.db),
     cache: createWebCacheRepo(store.db),
     usage: createWebSearchUsageRepo(store.db),
@@ -93,6 +95,14 @@ describe("web policy IPC", () => {
     expect(policy.rules[0]).toMatchObject({ pattern: "docs.test", workspaceId });
     expect(policy.rules.some((rule) => rule.preset === "dev_docs" && rule.workspaceId === null)).toBe(true);
     expect((await web.ipc().getPolicy({ workspaceId: null })).defaultAction).toBe("ask");
+  });
+
+  it("records a policy change as a user action in the audit log (S5)", async () => {
+    const audit = new AuditService({ repo: createAuditRepo(store.db) });
+    await service(audit).ipc().setPolicy({ workspaceId, defaultAction: "allow", rules: [], preset: null });
+    expect(audit.list({})).toMatchObject([
+      { actor: "user", action: "web.policy_changed", workspaceId, target: "workspace", dataSummary: { preset: null, defaultAction: "allow", rules: 0 } },
+    ]);
   });
 
   it("maps an unknown workspace to not_found", () => {

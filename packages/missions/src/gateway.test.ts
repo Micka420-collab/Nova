@@ -55,6 +55,7 @@ function setup(options: { mode?: MissionContract["mode"]; deps?: Partial<ToolDep
   const events: MissionEventInput[] = [];
   const evaluated: { request: PermissionRequest; toolCallId: string }[] = [];
   const audits: ToolExecutionAudit[] = [];
+  const decisions: { request: PermissionRequest; decision: PermissionDecision; toolCallId: string }[] = [];
   const gateway = createToolGateway({
     context: (id) => (id === missionId ? context : null),
     permissions: {
@@ -69,13 +70,14 @@ function setup(options: { mode?: MissionContract["mode"]; deps?: Partial<ToolDep
     toolCalls: { insert() {}, setDecision() {}, markRunning() {}, finish() {} },
     proofs: { insert: (input) => ({ ...input, id: randomUUID(), createdAt: 0 }) },
     audit: (entry) => audits.push(entry),
+    auditDecision: (request, decision, toolCallId) => decisions.push({ request, decision, toolCallId }),
   });
   const call = (name: string, args: unknown, signal = new AbortController().signal) => {
     const request: ToolRunRequest = { id: randomUUID(), providerCallId: "p", missionId, name, rawArguments: JSON.stringify(args), requestedAt: 0 };
     return { request, result: gateway.run(request, signal) };
   };
   const finished = () => events.filter((event) => event.type === "tool.finished");
-  return { call, events, evaluated, audits, mcpCalls, finished, context, memory };
+  return { call, events, evaluated, audits, decisions, mcpCalls, finished, context, memory };
 }
 
 describe("tool gateway", () => {
@@ -124,6 +126,8 @@ describe("tool gateway", () => {
     expect(h.events.find((event) => event.type === "tool.permission")).toMatchObject({ decision: { decision: "deny", reason: "domain_policy" } });
     expect(fetched).toEqual([]);
     expect(h.finished()).toMatchObject([{ state: "denied" }]);
+    // S5: the audit log holds the owner rule that refused, not only the engine's allow.
+    expect(h.decisions).toMatchObject([{ request: { host: "evil.example" }, decision: { decision: "deny", ruleId: "owner:domain_policy" } }]);
   });
 
   it("asks for an MCP tool set to ask even when the profile allows it, and runs it once approved", async () => {
@@ -142,7 +146,10 @@ describe("tool gateway", () => {
     expect(h.context.allowedTools.has("mcp__srv__lookup" as ToolName)).toBe(true);
     // Understand mode does not offer (nor run) an external MCP tool.
     expect(h.context.allowedTools.has("mcp__srv__deploy" as ToolName)).toBe(false);
-    expect(await h.call("mcp__srv__deploy", {}).result).toMatchObject({ ok: false, display: { code: "permission_denied" } });
+    const deploy = h.call("mcp__srv__deploy", {});
+    expect(await deploy.result).toMatchObject({ ok: false, display: { code: "permission_denied" } });
+    // A mode refusal never reaches the engine: the gateway audits it itself.
+    expect(h.decisions).toMatchObject([{ toolCallId: deploy.request.id, decision: { decision: "deny", reason: "mode_forbids", ruleId: "builtin:mode-understand" } }]);
     expect(await h.call("mcp__srv__lookup", { q: "x" }).result).toMatchObject({ ok: true });
     expect(asked).toEqual([{ decision: "ask", reason: "mcp_tool_policy", ruleId: "owner:mcp_tool_policy", rememberable: false, explanation: "Cet outil MCP est réglé sur « Demander » : NOVA te demande à chaque appel." }]);
     expect(h.mcpCalls).toEqual(["mcp__srv__lookup"]);

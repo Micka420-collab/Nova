@@ -93,8 +93,13 @@ export interface ToolGatewayDeps {
     finish(id: string, state: "denied" | "succeeded" | "failed" | "cancelled", outcome: { exitCode: number | null; resultSummary: string | null }): void;
   };
   proofs: { insert(input: Omit<Proof, "id" | "createdAt">): Proof };
-  /** Audit trail of executions (S5); decisions are audited by the permission gate itself. */
+  /** Audit trail of executions (S5); engine decisions are audited by the permission gate itself. */
   audit?: (entry: ToolExecutionAudit) => void;
+  /**
+   * S5: records a decision the permission gate never saw (mode refusal) or did not make (an owner
+   * rule won the merge), so the audit log holds the rule that actually decided. Throws: nothing runs.
+   */
+  auditDecision?: (request: PermissionRequest, decision: PermissionDecision, toolCallId: string) => void;
   now?: () => number;
 }
 
@@ -297,13 +302,15 @@ export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
         let decidingFact: ToolPermissionFacts = first;
         const decide = async (): Promise<PermissionDecision> => {
           if (!context.allowedTools.has(name)) {
-            return {
+            const refusal: PermissionDecision = {
               decision: "deny",
               reason: "mode_forbids",
               ruleId: `builtin:mode-${context.mode}`,
               rememberable: false,
               explanation: "Ce mode de travail n'autorise pas cet outil.",
             };
+            deps.auditDecision?.(permissionRequest(first), refusal, request.id);
+            return refusal;
           }
           const decisions: PermissionDecision[] = [];
           for (const fact of facts) decisions.push(await deps.permissions.evaluate(permissionRequest(fact), { toolCallId: request.id }));
@@ -319,7 +326,9 @@ export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
           }
           const strictest = strictestDecision(decisions);
           // strictestDecision keeps the first decision of the highest rank; an owner's comes after the facts.
-          decidingFact = facts[decisions.findIndex((decision) => decision.decision === strictest.decision)] ?? first;
+          const decidingIndex = decisions.findIndex((decision) => decision.decision === strictest.decision);
+          decidingFact = facts[decidingIndex] ?? first;
+          if (decidingIndex >= facts.length) deps.auditDecision?.(permissionRequest(decidingFact), strictest, request.id);
           return strictest;
         };
         const decision = await decide();

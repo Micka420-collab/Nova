@@ -42,6 +42,7 @@ import {
   type WebSearchOutcome,
 } from "@nova/web";
 import { ServiceError } from "../service-error";
+import type { AuditService } from "./audit-service";
 
 /** Structural view of @nova/storage `WebPolicyRepo` (createWebPolicyRepo). */
 export interface WebPolicyStore {
@@ -73,6 +74,8 @@ export interface WebSearchUsageSink {
 
 export interface WebServiceDeps {
   policies: WebPolicyStore;
+  /** S5: a policy change (e.g. allowing every site) is a user action in the audit log. */
+  audit?: Pick<AuditService, "recordUserAction">;
   /** `web_cache` repo (createWebCacheRepo); null disables caching. */
   cache: WebCacheStore | null;
   usage: WebSearchUsageSink;
@@ -157,6 +160,11 @@ export class WebService {
     const planned = planPolicyScope(req, this.deps.policies.scopeRules(req.workspaceId));
     try {
       const policy = this.deps.policies.replaceScope(req.workspaceId, planned);
+      this.deps.audit?.recordUserAction(req.workspaceId, "web.policy_changed", req.workspaceId === null ? "global" : "workspace", {
+        preset: req.preset,
+        defaultAction: planned.defaultAction,
+        rules: planned.rules.length,
+      });
       return { ...policy, rules: orderPolicyRules(policy.rules) };
     } catch (error) {
       if (isForeignKeyError(error)) throw new ServiceError("not_found", "Workspace not found");

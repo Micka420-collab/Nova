@@ -1,9 +1,10 @@
 import { fileURLToPath } from "node:url";
 import { McpStdioHost, createHostHandlers } from "@nova/mcp";
-import { createMcpRepo, createWorkspaceRepo, type NovaStore, openNovaStore } from "@nova/storage";
+import { createAuditRepo, createMcpRepo, createWorkspaceRepo, type NovaStore, openNovaStore } from "@nova/storage";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startHttpFixture, type HttpFixture } from "../../../../../packages/mcp/src/fixtures/http-server";
 import type { SecretVault } from "../vault";
+import { AuditService } from "./audit-service";
 import { McpService, type McpHostPort } from "./mcp-service";
 
 const FIXTURE = fileURLToPath(new URL("../../../../../packages/mcp/src/fixtures/test-server.ts", import.meta.url));
@@ -76,6 +77,7 @@ function inProcessHost(): McpHostPort & { host: McpStdioHost; crash(): Promise<v
 let store: NovaStore;
 let hostPort: ReturnType<typeof inProcessHost>;
 let service: McpService;
+let audit: AuditService;
 let workspaceId: string;
 let fixture: HttpFixture | null = null;
 
@@ -83,8 +85,10 @@ beforeEach(() => {
   store = openNovaStore(":memory:");
   workspaceId = createWorkspaceRepo(store.db).upsertByRootPath({ rootPath: "/tmp", name: "tmp" }).id;
   hostPort = inProcessHost();
+  audit = new AuditService({ repo: createAuditRepo(store.db) });
   service = new McpService({
     repo: createMcpRepo(store.db),
+    audit,
     secrets: store,
     vault,
     host: hostPort,
@@ -173,6 +177,10 @@ describe("McpService (stdio through the host)", () => {
 
     await service.api().setToolPermission({ serverId: config.id, toolName: "echo", workspaceId: null, permission: "allow" });
     expect((await call("mcp__Fixture__echo", { text: "direct" }, false)).ok).toBe(true);
+    // S5: relaxing a tool to allow leaves a user action in the audit log.
+    expect(audit.list({ action: "mcp." })).toMatchObject([
+      { actor: "user", action: "mcp.tool_permission_changed", target: "Fixture/echo", dataSummary: { serverId: config.id, permission: "allow" } },
+    ]);
 
     // deny (the disabled tool): not offered, and a call is refused before reaching the server.
     await service.api().setToolPermission({ serverId: config.id, toolName: "echo", workspaceId, permission: "deny" });

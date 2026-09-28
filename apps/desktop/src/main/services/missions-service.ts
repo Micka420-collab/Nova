@@ -20,6 +20,7 @@ import {
   type ReviewFsGate,
   type RuntimeLink,
   type ToolExecutionAudit,
+  type ToolGatewayDeps,
 } from "@nova/missions";
 import type { ModelProvider } from "@nova/providers";
 import {
@@ -67,6 +68,8 @@ export interface MissionsServiceDeps {
   isolationLevel(): IsolationLevel;
   /** L1 `AuditService.recordToolExecution`. */
   audit?(entry: ToolExecutionAudit): void;
+  /** L1 `AuditService.recordDecision`, for mode refusals and owner rules (web policy, MCP) that decided. */
+  auditDecision?: ToolGatewayDeps["auditDecision"];
   fallbackModelIds?(modelId: string): string[];
   dailyLimitUsd?: number;
   /** A fresh port to the agent-runtime worker (production: `openAgentRuntimePort(workers)`). */
@@ -218,6 +221,7 @@ export function createMissionsService(deps: MissionsServiceDeps): MissionsServic
     supportsTools: (modelId) => model(modelId)?.supportsTools ?? null,
     dailyLimitUsd: deps.dailyLimitUsd ?? DEFAULT_DAILY_BUDGET_USD,
     ...(deps.audit ? { audit: deps.audit } : {}),
+    ...(deps.auditDecision ? { auditDecision: deps.auditDecision } : {}),
   });
   const ready = controller;
 

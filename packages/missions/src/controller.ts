@@ -153,6 +153,7 @@ export interface MissionControllerDeps {
   supportsTools(modelId: string): boolean | null;
   dailyLimitUsd: number;
   audit?: ToolGatewayDeps["audit"];
+  auditDecision?: ToolGatewayDeps["auditDecision"];
   now?: () => number;
   /** Bound on waiting for the runtime's terminal event after a stop. */
   stopTimeoutMs?: number;
@@ -364,6 +365,7 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
     toolCalls: deps.store.toolCalls,
     proofs: deps.store.proofs,
     ...(deps.audit ? { audit: deps.audit } : {}),
+    ...(deps.auditDecision ? { auditDecision: deps.auditDecision } : {}),
     now,
   });
 
