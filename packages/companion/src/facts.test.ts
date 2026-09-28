@@ -91,6 +91,12 @@ describe("signal producers", () => {
     expect(new Set(produced.map((p) => p.key)).size).toBe(produced.length);
   });
 
+  it("describes a process_stop as stopping its command", () => {
+    const stop = approval("a3", null);
+    stop.request = { workspaceId: stop.request.workspaceId, missionId: MISSION_ID, tool: "process_stop", operation: "execute", argv: ["node", "server.js"] };
+    expect(approvalSummary(stop)).toBe("arrêter node server.js");
+  });
+
   it("names an MCP call by its service and tool, not by the model-facing qualified name", () => {
     const mcp = approval("a2", null);
     mcp.request = { workspaceId: mcp.request.workspaceId, missionId: MISSION_ID, tool: "mcp__fixture__echo", operation: "read" };

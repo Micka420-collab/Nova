@@ -18,6 +18,11 @@ export function isIrreversible(approval: Approval): boolean {
   return approval.request.operation === "external" || approval.decision.reason === "always_ask";
 }
 
+/** What Nomi wants to do, by operation; stopping a process names the command it stops. */
+export function approvalTitleText(approval: Approval): string {
+  return approval.request.tool === "process_stop" ? copy.stopProcess : copy.title[approval.request.operation];
+}
+
 export function approvalTargetText(approval: Approval): string | null {
   const { request } = approval;
   if (request.argv && request.argv.length > 0) return request.argv.join(" ");
@@ -109,7 +114,7 @@ export function AgentApproval({ approval }: { approval: Approval }) {
         id={`approval-${approval.id}`}
         title={
           <>
-            {copy.title[approval.request.operation]}
+            {approvalTitleText(approval)}
             {target ? (
               <>
                 {" "}

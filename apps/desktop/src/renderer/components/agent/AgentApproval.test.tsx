@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { Approval } from "@nova/shared";
 import { installDomPolyfills } from "../../test/dom";
 import { renderWithMission } from "../diff/test-helpers";
-import { AgentApproval } from "./AgentApproval";
+import { AgentApproval, approvalTitleText } from "./AgentApproval";
 
 installDomPolyfills();
 afterEach(cleanup);
@@ -39,6 +39,14 @@ function renderCard(options: { typing: boolean; external?: boolean }) {
   });
   return { ...utils, card: card as Approval | null };
 }
+
+describe("approvalTitleText", () => {
+  it("says a process_stop stops the command it names, never that it launches it", () => {
+    const stop = approval("w", "m", { request: { workspaceId: "w", missionId: "m", tool: "process_stop", operation: "execute", argv: ["node", "server.js"] } });
+    expect(approvalTitleText(stop)).toBe("Nomi veut arrêter");
+    expect(approvalTitleText(approval("w", "m"))).toBe("Nomi veut lancer");
+  });
+});
 
 describe("AgentApproval", () => {
   it("does not take focus from a field the user is typing in", () => {

@@ -28,7 +28,7 @@ import { Composer, type ComposerBlock } from "../chat/Composer";
 import { useSendGuard } from "../chat/useSendGuard";
 import { findModel } from "../models/filter";
 import { isMissionActive, type MissionView } from "../missions/timeline";
-import { approvalTargetText } from "./AgentApproval";
+import { approvalTargetText, approvalTitleText } from "./AgentApproval";
 import { ContractSheet } from "./ContractSheet";
 import { ContextInspector, MentionPicker, useMentionPicker } from "./GoalContext";
 import { MissionTimeline } from "./MissionTimeline";
@@ -444,7 +444,7 @@ function ApprovalAnnouncer() {
     if (!fresh) return;
     announced.current.add(fresh.id);
     const target = approvalTargetText(fresh);
-    const title = `${copy.approval.title[fresh.request.operation]}${target ? ` ${target}` : ""}`;
+    const title = `${approvalTitleText(fresh)}${target ? ` ${target}` : ""}`;
     setMessage({ id: fresh.id, text: copy.approval.announce(title) });
   }, [pending]);
   return (
