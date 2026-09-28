@@ -204,8 +204,8 @@ const V1_TABLES: Record<string, string> = {
 describe("migrations v2 to v5", () => {
   it("opens a fresh database at the latest version", () => {
     const store = openNovaStore(":memory:");
-    expect(SCHEMA_VERSION).toBe(6);
-    expect(readSchemaVersion(store.db)).toBe(6);
+    expect(SCHEMA_VERSION).toBe(7);
+    expect(readSchemaVersion(store.db)).toBe(7);
     expect(tableNames(store.db)).toEqual(LATEST_TABLES);
     store.close();
   });
@@ -287,7 +287,7 @@ describe("migration v6 (harness)", () => {
       INSERT INTO tool_calls (id, mission_id, tool, operation, arguments_json, state, requested_at)
         VALUES ('c-1', 'm-1', 'read_file', 'read', '{}', 'succeeded', 2);
     `);
-    expect(migrate(db, MIGRATIONS)).toBe(6);
+    expect(migrate(db, MIGRATIONS)).toBe(SCHEMA_VERSION);
     const match = (term: string) =>
       db.prepare("SELECT rowid FROM mission_events_fts WHERE mission_events_fts MATCH ?").all(term).map((row) => row["rowid"]);
     expect(match("panier")).toHaveLength(1);

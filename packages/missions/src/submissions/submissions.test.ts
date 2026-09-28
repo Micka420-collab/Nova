@@ -56,6 +56,7 @@ interface Reservation {
   amount: number;
   status: "reserved" | "committed" | "released";
   settled: number;
+  backsSubmission: boolean;
 }
 
 function harness(options: { parentContract?: MissionContract; worktrees?: boolean; tests?: () => Promise<ChildTestsOutcome>; parentTainted?: boolean } = {}) {
@@ -205,7 +206,7 @@ function harness(options: { parentContract?: MissionContract; worktrees?: boolea
       reserve(input) {
         const available = (input.missionBudgetUsd ?? Infinity) - committed(input.missionId) - open(input.missionId);
         if (input.amountUsd > available) return { ok: false, reason: "budget", availableUsd: Math.max(0, available) };
-        const reservation: Reservation = { id: `r${reservations.length + 1}`, missionId: input.missionId, amount: input.amountUsd, status: "reserved", settled: 0 };
+        const reservation: Reservation = { id: `r${reservations.length + 1}`, missionId: input.missionId, amount: input.amountUsd, status: "reserved", settled: 0, backsSubmission: input.backsSubmission === true };
         reservations.push(reservation);
         return { ok: true, reservation: { id: reservation.id } };
       },
@@ -358,6 +359,8 @@ describe("shared budget", () => {
     const { link } = await h.start("verify", 0.3);
     expect(link.reservedUsd).toBe(0.3);
     expect(h.open("parent")).toBeCloseTo(0.3);
+    // A hold, left out of the day's total while the child's own calls are counted there.
+    expect(h.reservations.filter((r) => r.missionId === "parent").map((r) => r.backsSubmission)).toEqual([true]);
     h.childCost.set(link.childMissionId, 0.042);
     h.end(link.childMissionId, "succeeded");
     await flush();

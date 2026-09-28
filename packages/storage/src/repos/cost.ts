@@ -40,7 +40,7 @@ export interface MissionCostSummary {
   /** Sum of reported costs of the mission (a lower bound when unknownCostCalls > 0). */
   spentUsd: number;
   unknownCostCalls: number;
-  /** Reported costs of every usage today (chat included) plus every open reservation. */
+  /** Reported costs of every usage today (chat included) plus every open call reservation. */
   dailySpentUsd: number;
   /** Per model and kind (Mo6). */
   byModel: { modelId: string; kind: UsageKindValue; calls: number; promptTokens: number; completionTokens: number; costUsd: number; unknownCostCalls: number }[];
@@ -56,6 +56,11 @@ export interface CostRepo {
     dailyLimitUsd: number | null;
     /** Start of the current local day (ms). */
     dayStart: number;
+    /**
+     * A parent's hold for a sub-mission: counted against the parent's budget, never in the day's
+     * total (the child's own calls are). Default false.
+     */
+    backsSubmission?: boolean;
   }): ReserveResult;
   /** Settles with the reported cost; null keeps the reserved estimate as committed. Idempotent. */
   settle(reservationId: string, actualUsd: number | null): void;
@@ -88,7 +93,8 @@ export function createCostRepo(db: DatabaseSync, now: () => number = Date.now): 
       .prepare(
         `SELECT
            (SELECT coalesce(sum(cost), 0) FROM usage_records WHERE created_at >= ?) +
-           (SELECT coalesce(sum(amount_usd), 0) FROM cost_reservations WHERE status = 'reserved') AS total`,
+           (SELECT coalesce(sum(amount_usd), 0) FROM cost_reservations
+            WHERE status = 'reserved' AND backs_submission = 0) AS total`,
       )
       .get(dayStart);
     return num(row?.["total"]);
@@ -108,8 +114,9 @@ export function createCostRepo(db: DatabaseSync, now: () => number = Date.now): 
         }
         const id = randomUUID();
         db.prepare(
-          `INSERT INTO cost_reservations (id, mission_id, amount_usd, status, created_at) VALUES (?, ?, ?, 'reserved', ?)`,
-        ).run(id, input.missionId, input.amountUsd, now());
+          `INSERT INTO cost_reservations (id, mission_id, amount_usd, status, created_at, backs_submission)
+           VALUES (?, ?, ?, 'reserved', ?, ?)`,
+        ).run(id, input.missionId, input.amountUsd, now(), input.backsSubmission === true ? 1 : 0);
         return { ok: true, reservation: { id, missionId: input.missionId, amountUsd: input.amountUsd } };
       });
     },

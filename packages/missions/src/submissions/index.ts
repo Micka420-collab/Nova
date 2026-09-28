@@ -8,7 +8,8 @@
 //   SUBMISSION_LIMITS) and `maxParallel` running at once;
 // - shared budget: the child's budget is RESERVED on the parent before anything is spent (refused
 //   when it does not fit) and, when the child ends, the reservation is replaced by the child's real
-//   cost; the child spends against that budget only (its own contract);
+//   cost; the child spends against that budget only (its own contract). The hold is not counted in
+//   the day's total: the child's own calls are;
 // - the child's contract is a subset of the parent's (./contract);
 // - a child that writes works in `<dataDir>/worktrees/<childId>`; nothing it does reaches the
 //   project until the user asks to integrate it. Integration is serialized (one at a time), runs the
@@ -86,7 +87,7 @@ export interface SubmissionLinkStore {
 
 /** @nova/storage `CostRepo` subset. */
 export interface SubmissionCostStore {
-  reserve(input: { missionId: string; amountUsd: number; missionBudgetUsd: number | null; dailyLimitUsd: number | null; dayStart: number }):
+  reserve(input: { missionId: string; amountUsd: number; missionBudgetUsd: number | null; dailyLimitUsd: number | null; dayStart: number; backsSubmission?: boolean }):
     | { ok: true; reservation: { id: string } }
     | { ok: false; reason: "budget" | "daily_budget"; availableUsd: number };
   settle(reservationId: string, actualUsd: number | null): void;
@@ -357,13 +358,16 @@ export function createSubmissionsController(deps: SubmissionsControllerDeps): Su
     }
     if (signal.aborted) throw new SubmissionError("conflict", "cancelled");
 
-    // Shared budget: reserved on the parent BEFORE the child spends anything.
+    // Shared budget: held on the parent BEFORE the child spends anything. It must fit what is left
+    // today, but once held it is left out of the day's total: the child's own calls reserve and
+    // record their usage against the daily cap themselves (counting both would count twice).
     const reserved = deps.cost.reserve({
       missionId: parent.id,
       amountUsd: request.budgetUsd,
       missionBudgetUsd: contract.budgetUsd,
       dailyLimitUsd: deps.dailyLimitUsd(),
       dayStart: startOfDay(now()),
+      backsSubmission: true,
     });
     if (!reserved.ok) {
       const scope = reserved.reason === "budget" ? "this mission's budget" : "today's budget";

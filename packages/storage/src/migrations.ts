@@ -656,6 +656,17 @@ export const MIGRATIONS: readonly Migration[] = [
       CREATE INDEX tool_calls_by_parent ON tool_calls (parent_call_id);
     `,
   },
+  {
+    // A parent mission's hold for a running sub-mission: it bounds the parent's own budget, but
+    // the child's calls reserve and record their usage themselves, so the hold is left out of the
+    // day's total (else the same money is counted twice against the daily cap).
+    version: 7,
+    name: "submission-holds",
+    sql: `
+      ALTER TABLE cost_reservations
+        ADD COLUMN backs_submission INTEGER NOT NULL DEFAULT 0 CHECK (backs_submission IN (0, 1));
+    `,
+  },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

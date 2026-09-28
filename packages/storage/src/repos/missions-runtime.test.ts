@@ -109,4 +109,22 @@ describe("mission budget", () => {
     expect(missions.cost.reserve({ ...base, amountUsd: 0.8 }).ok).toBe(true);
     expect(missions.cost.reserve({ ...base, amountUsd: 0.3 })).toMatchObject({ ok: false, reason: "daily_budget" });
   });
+
+  it("does not count a parent's sub-mission hold in the day's total: the child's own calls are counted", () => {
+    const contract = { profile: "assisted" as const, isolationLevel: "L0" as const, allowedOperations: ["read" as const], allowedHosts: [], maxDurationMs: 60_000, budgetUsd: 2 };
+    const child = missions.create({ workspaceId, conversationId: null, title: "c", goal: "g", mode: "fix", modelId: "acme/m", contract }).id;
+    missions.cost.recordUsage({
+      missionId, toolCallId: null, kind: "generation", providerId: "o", modelId: "acme/m", servedModel: null, servedProvider: null,
+      promptTokens: 1, completionTokens: 1, reasoningTokens: null, cachedTokens: null, cost: 3.5,
+    });
+    // Daily cap 5 with 3.50 spent: the parent holds 1.20 for its child (it fits in what is left today)…
+    const hold = missions.cost.reserve({ missionId, amountUsd: 1.2, missionBudgetUsd: 2, dailyLimitUsd: 5, dayStart: 0, backsSubmission: true });
+    expect(hold.ok).toBe(true);
+    // …and still bounds the parent's own budget.
+    expect(missions.cost.reserve({ missionId, amountUsd: 0.9, missionBudgetUsd: 2, dailyLimitUsd: 5, dayStart: 0 })).toMatchObject({ ok: false, reason: "budget" });
+    // The child's first call (0.40, real total 3.90) is not refused by that hold.
+    expect(missions.cost.reserve({ missionId: child, amountUsd: 0.4, missionBudgetUsd: 1.2, dailyLimitUsd: 5, dayStart: 0 }).ok).toBe(true);
+    expect(missions.cost.summary(child, 0).dailySpentUsd).toBeCloseTo(3.9, 9);
+    expect(missions.cost.summary(missionId, 0).reservedUsd).toBeCloseTo(1.2, 9);
+  });
 });
