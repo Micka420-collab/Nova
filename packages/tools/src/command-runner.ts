@@ -4,6 +4,8 @@
 // `taskkill /T`). Host-agnostic: main or the pty-host instantiates it.
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { stat } from "node:fs/promises";
+import { delimiter, extname, isAbsolute, join } from "node:path";
 import { SECRET_ENV_NAME, scrubChildEnv, TOOL_LIMITS, type IsolationLevel } from "@nova/shared";
 import type { BackgroundProcess, CommandOutcome, CommandOutputListener, CommandRunner, CommandSpec } from "./apis";
 import { ToolFailure } from "./content";
@@ -19,6 +21,62 @@ export function scrubCommandEnv(
     result[name] = value;
   }
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Windows program resolution. libuv only appends .com/.exe and Node refuses to spawn a .cmd/.bat
+// without a shell (CVE-2024-27980), so `pnpm`, `npm`, `npx`, `yarn` (batch shims) would never
+// start. The program is resolved here through PATH + PATHEXT, and a batch file runs through
+// `cmd.exe /d /s /c` with every argument escaped (the scheme of cross-spawn, see qntm.org/cmd).
+
+/** cmd.exe metacharacters, escaped with `^`. */
+const CMD_META = /([()\][%!^"`<>&|;, *?])/g;
+
+/**
+ * MSVCRT quoting, then cmd escaping applied twice: package-manager shims re-expand their `%*`
+ * through cmd once more. Tradeoff: a hand-written batch file that reads `%1` sees the extra `^`.
+ */
+function escapeBatchArgument(arg: string): string {
+  const quoted = `"${arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, "$1$1")}"`;
+  return quoted.replace(CMD_META, "^$1").replace(CMD_META, "^$1");
+}
+
+async function isFile(path: string): Promise<boolean> {
+  return stat(path).then((info) => info.isFile(), () => false);
+}
+
+/**
+ * Absolute path of `program` as Windows would run it (PATHEXT), or null. Only ABSOLUTE PATH entries
+ * are searched: a relative entry, like Windows' implicit current directory, is the workspace.
+ */
+async function resolveWindowsProgram(program: string, cwd: string, env: Readonly<Record<string, string | undefined>>): Promise<string | null> {
+  const extensions = (env["PATHEXT"] ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean).map((ext) => ext.toLowerCase());
+  const variants = (base: string): string[] => [...(extensions.includes(extname(base).toLowerCase()) ? [base] : []), ...extensions.map((ext) => base + ext)];
+  const bases = /[\\/]/.test(program)
+    ? [isAbsolute(program) ? program : join(cwd, program)]
+    : (env["PATH"] ?? env["Path"] ?? "").split(delimiter).filter((dir) => isAbsolute(dir)).map((dir) => join(dir, program));
+  for (const base of bases) {
+    for (const candidate of variants(base)) if (await isFile(candidate)) return candidate;
+  }
+  return null;
+}
+
+/** What to spawn for argv on Windows: the resolved executable, or cmd.exe running a batch file. */
+async function windowsInvocation(
+  argv: readonly [string, ...string[]],
+  cwd: string,
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<{ command: string; args: string[]; verbatim: boolean }> {
+  const [program, ...args] = argv;
+  const resolved = await resolveWindowsProgram(program, cwd, env);
+  if (resolved === null) throw new ToolFailure("not_found", `program "${program}" was not found on PATH`);
+  if (!/\.(cmd|bat)$/i.test(resolved)) return { command: resolved, args, verbatim: false };
+  // cmd cannot carry a line break (or NUL) inside an argument: it would end the command.
+  if (args.some((arg) => /[\r\n\0]/.test(arg))) {
+    throw new ToolFailure("invalid_arguments", `"${program}" is a batch file: its arguments cannot contain line breaks`);
+  }
+  const line = [resolved.replace(CMD_META, "^$1"), ...args.map(escapeBatchArgument)].join(" ");
+  return { command: env["ComSpec"] ?? env["COMSPEC"] ?? "cmd.exe", args: ["/d", "/s", "/c", `"${line}"`], verbatim: true };
 }
 
 export interface ProcessCommandRunnerOptions {
@@ -75,11 +133,14 @@ export function createProcessCommandRunner(options: ProcessCommandRunnerOptions)
     if (!program) throw new ToolFailure("invalid_arguments", "argv is empty");
     const cwd = await options.resolveCwd(spec.workspaceId, spec.cwd);
     if (cwd === null) throw new ToolFailure("outside_workspace", `cwd "${spec.cwd}" is outside the workspace`);
-    const env = scrubCommandEnv(options.env ?? process.env, { CI: "1", NO_COLOR: "1", ...spec.env });
-    const child = spawn(program, args, {
+    const source = options.env ?? process.env;
+    const env = scrubCommandEnv(source, { CI: "1", NO_COLOR: "1", ...spec.env });
+    const target = platform === "win32" ? await windowsInvocation([program, ...args], cwd, source) : { command: program, args, verbatim: false };
+    const child = spawn(target.command, target.args, {
       cwd,
       env,
       shell: false,
+      windowsVerbatimArguments: target.verbatim,
       // Own process group on POSIX so the whole tree can be signalled at once.
       detached: platform !== "win32",
       windowsHide: true,
@@ -90,7 +151,7 @@ export function createProcessCommandRunner(options: ProcessCommandRunnerOptions)
         reject(
           error.code === "ENOENT"
             ? new ToolFailure("not_found", `program "${program}" was not found on PATH`)
-            : new ToolFailure("failed", `could not start "${program}"`),
+            : new ToolFailure("failed", `could not start "${program}" (${error.code ?? "unknown error"})`),
         );
       });
       child.once("close", (code, signal) => resolve({ code, signal }));

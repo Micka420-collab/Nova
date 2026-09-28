@@ -1,6 +1,6 @@
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { createProcessCommandRunner, scrubCommandEnv } from "./command-runner";
 
@@ -79,6 +79,26 @@ describe("process command runner", { timeout: 30_000 }, () => {
     expect(runner.list("m").map((process) => process.id)).toEqual([started.process.id]);
     await runner.stopAll("m");
     expect(runner.list("m")).toEqual([]);
+  });
+
+  // Simulated on POSIX: a fake ComSpec prints the argv it receives, one per line.
+  it.skipIf(process.platform === "win32")("starts a Windows batch shim (pnpm.cmd) through cmd.exe with escaped arguments", async () => {
+    const bin = join(root, "win-bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, "pnpm.cmd"), "@echo off\n");
+    const comspec = join(root, "fake-cmd.sh");
+    writeFileSync(comspec, "#!/bin/sh\nfor a in \"$@\"; do printf '%s\\n' \"$a\"; done\n");
+    chmodSync(comspec, 0o755);
+    const windows = createProcessCommandRunner({
+      resolveCwd: async () => root,
+      env: { PATH: `relative-dir${delimiter}${bin}`, PATHEXT: ".COM;.EXE;.BAT;.CMD", ComSpec: comspec },
+      platform: "win32",
+    });
+    const outcome = await windows.run(spec(["pnpm", "test", "a&b"]), new AbortController().signal);
+    expect(outcome.output.split("\n").slice(0, 3)).toEqual(["/d", "/s", "/c"]);
+    expect(outcome.output).toContain(`"${join(bin, "pnpm.cmd")} ^^^"test^^^" ^^^"a^^^&b^^^""`);
+    await expect(windows.run(spec(["pnpm", "a\nb"]), new AbortController().signal)).rejects.toMatchObject({ code: "invalid_arguments" });
+    await expect(windows.run(spec(["yarn"]), new AbortController().signal)).rejects.toMatchObject({ code: "not_found" });
   });
 
   it("refuses secret-looking extra variables", () => {
