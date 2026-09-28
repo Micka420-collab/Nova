@@ -95,6 +95,8 @@ export interface McpHostPort {
   request<T = unknown>(method: string, params?: unknown): Promise<T>;
   notify(method: string, params?: unknown): void;
   onNotify(listener: (event: { method: string; params: unknown }) => void): () => void;
+  /** The host process died on its own; a restarted host holds no session. */
+  onExit(listener: () => void): () => void;
 }
 
 export interface McpServiceDeps {
@@ -163,11 +165,14 @@ export class McpService {
   private readonly decryptedSecrets = new Set<string>();
   private queue: Promise<unknown> = Promise.resolve();
   private readonly unsubscribe: () => void;
+  private readonly unsubscribeExit: () => void;
 
   constructor(private readonly deps: McpServiceDeps) {
     this.now = deps.now ?? Date.now;
     this.logger = deps.logger ?? SILENT;
     this.unsubscribe = deps.host.onNotify((event) => this.onHostEvent(event.method, event.params));
+    // No call needs to fail first: every stdio server died with the host, the manager says so now.
+    this.unsubscribeExit = deps.host.onExit(() => this.markStdioStopped(() => true));
   }
 
   /** The `mcp` IPC group (MainApiDeps.atelier.mcp). */
@@ -312,6 +317,7 @@ export class McpService {
   /** Closes HTTP sessions and stdio servers (app shutdown). */
   async shutdown(): Promise<void> {
     this.unsubscribe();
+    this.unsubscribeExit();
     await Promise.all([...this.httpSessions.values()].map((session) => session.close()));
     this.httpSessions.clear();
     const stdio = [...this.statuses.values()].filter((status) => status.state === "connected");
@@ -390,7 +396,7 @@ export class McpService {
   private async test(serverId: string) {
     const server = this.requireServer(serverId);
     await this.disconnect(server, "stopped");
-    const status = await this.connect(server);
+    const status = await this.connect(server, true);
     const tools = this.toolViews(server, server.workspaceId);
     const stderrTail = await this.stderrTail(server.id).catch(() => "");
     if (!server.enabled) await this.disconnect(server, "disabled");
@@ -409,15 +415,35 @@ export class McpService {
     return this.connect(server);
   }
 
-  private connect(server: McpServerConfig): Promise<McpServerStatus> {
+  /** `explicit`: the user's test, which connects even a disabled server. */
+  private connect(server: McpServerConfig, explicit = false): Promise<McpServerStatus> {
     const pending = this.connecting.get(server.id);
     if (pending) return pending;
-    const attempt = this.connectOnce(server).finally(() => this.connecting.delete(server.id));
+    const attempt = this.connectOnce(server, explicit).finally(() => this.connecting.delete(server.id));
     this.connecting.set(server.id, attempt);
     return attempt;
   }
 
-  private async connectOnce(server: McpServerConfig): Promise<McpServerStatus> {
+  /**
+   * The config this attempt launched is no longer the stored, wanted one: the server was removed,
+   * disabled or reconfigured (e.g. a leaked token replaced) while it was starting.
+   */
+  private superseded(server: McpServerConfig, explicit: boolean): boolean {
+    const current = this.deps.repo.getServer(server.id);
+    if (!current || (!current.enabled && !explicit)) return true;
+    return JSON.stringify(current.transport) !== JSON.stringify(server.transport);
+  }
+
+  /** Status of a server whose fresh connection was just closed as superseded. */
+  private dropSuperseded(serverId: string): McpServerStatus {
+    this.liveTools.delete(serverId);
+    const current = this.deps.repo.getServer(serverId);
+    if (!current) this.statuses.delete(serverId);
+    const reset = { state: current?.enabled === false ? "disabled" : "stopped", protocolVersion: null, toolCount: null, lastError: null } as const;
+    return current ? this.setStatus(serverId, reset) : { serverId, ...reset, updatedAt: this.now() };
+  }
+
+  private async connectOnce(server: McpServerConfig, explicit: boolean): Promise<McpServerStatus> {
     this.setStatus(server.id, { state: "starting", protocolVersion: null, toolCount: null, lastError: null });
     let resolved: { env: Resolved; headers: Resolved };
     try {
@@ -445,6 +471,11 @@ export class McpService {
       try {
         this.deps.host.start();
         const result = await this.deps.host.request<HostConnectResult>(MCP_HOST_METHODS.connect, params);
+        if (this.superseded(server, explicit)) {
+          // Never keep a process running with an old (or removed) config and its secrets.
+          await this.deps.host.request(MCP_HOST_METHODS.close, { serverId: server.id }).catch(() => {});
+          return this.dropSuperseded(server.id);
+        }
         this.lastStderr.set(server.id, result.stderrTail);
         if (result.info.state === "connected") this.acceptTools(server.id, result.tools);
         return this.applyInfo(result.info);
@@ -471,6 +502,10 @@ export class McpService {
         if (this.httpSessions.get(server.id) === session) this.acceptTools(server.id, tools);
       },
     });
+    if (this.superseded(server, explicit)) {
+      await session.close();
+      return this.dropSuperseded(server.id);
+    }
     if (session.info().state === "connected") {
       this.httpSessions.set(server.id, session);
       this.acceptTools(server.id, session.tools());
@@ -479,6 +514,8 @@ export class McpService {
   }
 
   private async disconnect(server: McpServerConfig, state: "stopped" | "disabled"): Promise<void> {
+    // A connection still starting would register itself after this close: let it land first.
+    await this.connecting.get(server.id)?.catch(() => undefined);
     const session = this.httpSessions.get(server.id);
     this.httpSessions.delete(server.id);
     if (session) await session.close();
@@ -532,11 +569,16 @@ export class McpService {
       live = [];
     }
     const alive = new Set(live.filter((info) => info.state === "connected").map((info) => info.serverId));
-    for (const status of believed) {
-      if (!alive.has(status.serverId)) {
-        this.liveTools.delete(status.serverId);
-        this.setStatus(status.serverId, { state: "stopped", lastError: null });
-      }
+    const checked = new Set(believed.map((status) => status.serverId));
+    this.markStdioStopped((serverId) => checked.has(serverId) && !alive.has(serverId));
+  }
+
+  /** stdio servers believed connected that `lost` says are gone become stopped, without tools. */
+  private markStdioStopped(lost: (serverId: string) => boolean): void {
+    for (const status of [...this.statuses.values()]) {
+      if (status.state !== "connected" || this.httpSessions.has(status.serverId) || !lost(status.serverId)) continue;
+      this.liveTools.delete(status.serverId);
+      this.setStatus(status.serverId, { state: "stopped", lastError: null });
     }
   }
 

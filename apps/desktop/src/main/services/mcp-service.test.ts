@@ -19,17 +19,42 @@ const vault: SecretVault = {
   }),
 };
 
-/** McpHostPort over an in-process McpStdioHost: same handlers as the mcp-host worker. */
-function inProcessHost(): McpHostPort & { host: McpStdioHost } {
+/**
+ * McpHostPort over an in-process McpStdioHost: same handlers as the mcp-host worker. `crash()`
+ * simulates the worker dying and restarting empty; `holdConnects()` keeps connects pending.
+ */
+function inProcessHost(): McpHostPort & { host: McpStdioHost; crash(): Promise<void>; holdConnects(): () => void } {
   const listeners = new Set<(event: { method: string; params: unknown }) => void>();
+  const exitListeners = new Set<() => void>();
+  let hold: Promise<void> | null = null;
+  let dead = false;
   const host = new McpStdioHost((method, params) => {
+    if (dead) return;
     for (const listener of listeners) listener({ method, params });
   });
   const handlers = createHostHandlers(host);
   return {
     host,
+    crash: async () => {
+      // A dead host sends nothing: its sessions end without any info event.
+      dead = true;
+      await host.closeAll();
+      dead = false;
+      for (const listener of exitListeners) listener();
+    },
+    holdConnects: () => {
+      let release = (): void => {};
+      hold = new Promise((resolve) => {
+        release = resolve;
+      });
+      return () => {
+        hold = null;
+        release();
+      };
+    },
     start: () => {},
     request: async <T,>(method: string, params?: unknown): Promise<T> => {
+      if (method === "mcp.connect" && hold) await hold;
       const handler = handlers[method];
       if (!handler) throw new Error(`unknown ${method}`);
       return (await handler(params)) as T;
@@ -40,6 +65,10 @@ function inProcessHost(): McpHostPort & { host: McpStdioHost } {
     onNotify: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    onExit: (listener) => {
+      exitListeners.add(listener);
+      return () => exitListeners.delete(listener);
     },
   };
 }
@@ -189,6 +218,51 @@ describe("McpService (stdio through the host)", () => {
     });
     // Either the offered server answers ("unset") or the call is refused: the global server ("set") never runs it.
     expect(result.content).not.toMatch(/\bset\b/);
+  });
+
+  it("shows stdio servers stopped as soon as the host dies, and stops offering their tools", async () => {
+    const { config } = await addFixture();
+    await service.listToolsForModel(workspaceId);
+    await hostPort.crash();
+    const [view] = await service.api().list({ workspaceId: null });
+    expect(view?.status).toMatchObject({ serverId: config.id, state: "stopped" });
+    expect(await service.listToolsForModel(workspaceId, { connect: false })).toEqual([]);
+  });
+
+  it("closes a server disabled or reconfigured while it was starting, instead of marking it connected", async () => {
+    const { config } = await addFixture();
+    let release = hostPort.holdConnects();
+    const starting = service.listToolsForModel(workspaceId);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const disabling = service.api().update({ serverId: config.id, enabled: false });
+    release();
+    expect(await starting).toEqual([]);
+    expect((await disabling).status.state).toBe("disabled");
+    expect(hostPort.host.sessionInfos()).toEqual([]);
+
+    // A transport replaced mid-start: the process launched with the old config does not survive.
+    await service.api().update({ serverId: config.id, enabled: true });
+    release = hostPort.holdConnects();
+    const again = service.listToolsForModel(workspaceId);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const replacing = service.api().update({
+      serverId: config.id,
+      transport: { type: "stdio", command: process.execPath, args: [FIXTURE], env: { MODE: { kind: "plain", value: "rotated" } } },
+    });
+    release();
+    await again;
+    expect((await replacing).status.state).toBe("stopped");
+    expect(hostPort.host.sessionInfos()).toEqual([]);
+
+    // Removed mid-start: nothing left running, nothing listed.
+    release = hostPort.holdConnects();
+    const third = service.listToolsForModel(workspaceId);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const removing = service.api().remove({ serverId: config.id });
+    release();
+    await Promise.all([third, removing]);
+    expect(hostPort.host.sessionInfos()).toEqual([]);
+    expect(await service.api().list({ workspaceId: null })).toEqual([]);
   });
 
   it("surfaces a server killed mid-call as a failed result and an error status", async () => {
