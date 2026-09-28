@@ -1,9 +1,11 @@
 // Tray / menu bar view of Nomi's real state: a pure function of the desktop snapshot (counts read
-// from the services), so the icon never shows activity that is not happening.
+// from the services), so the icon never shows activity that is not happening, and never shows
+// « au repos » or an empty mission list when a source could not be read.
 import type { DesktopSnapshot } from "../services/desktop-service";
 import { desktopCopy } from "./copy";
 
-export type TrayStatus = "idle" | "working" | "waiting";
+/** `unknown`: nothing known is active, but a source could not be read. */
+export type TrayStatus = "idle" | "working" | "waiting" | "unknown";
 
 export type TrayAction = { kind: "open" } | { kind: "quit" } | { kind: "open-mission"; missionId: string };
 
@@ -33,19 +35,20 @@ export function trayStatus(snapshot: DesktopSnapshot): TrayStatus {
   const { activity } = snapshot.state;
   if (activity.waitingApprovals > 0) return "waiting";
   if (activity.runningMissions > 0 || activity.runningProcesses > 0) return "working";
-  return "idle";
+  return snapshot.state.unreadable.length > 0 ? "unknown" : "idle";
 }
 
 export function buildTrayView(snapshot: DesktopSnapshot): TrayView {
   const { activity } = snapshot.state;
   const status = trayStatus(snapshot);
-  let statusLabel: string = desktopCopy.status.idle;
+  let statusLabel: string = status === "unknown" ? desktopCopy.status.unknown : desktopCopy.status.idle;
   if (status === "waiting") statusLabel = desktopCopy.status.waiting(activity.waitingApprovals);
   else if (activity.runningMissions > 0) statusLabel = desktopCopy.status.working(activity.runningMissions);
   else if (activity.runningProcesses > 0) statusLabel = desktopCopy.status.processes(activity.runningProcesses);
+  const missionsUnknown = snapshot.state.unreadable.includes("missions");
   const missionEntries: TrayMenuEntry[] =
     snapshot.missions.length === 0
-      ? [{ kind: "label", label: desktopCopy.noMission }]
+      ? [{ kind: "label", label: missionsUnknown ? desktopCopy.missionsUnknown : desktopCopy.noMission }]
       : snapshot.missions.map((mission) => ({
           kind: "action",
           label: mission.state === "waiting_approval" ? `${clipTitle(mission.title)} (${desktopCopy.missionWaiting})` : clipTitle(mission.title),

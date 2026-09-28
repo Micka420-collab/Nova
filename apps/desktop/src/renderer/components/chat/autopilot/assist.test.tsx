@@ -37,6 +37,7 @@ const DESKTOP: DesktopState = {
   trayAvailable: true,
   keepRunningOnClose: false,
   activity: { runningMissions: 0, waitingApprovals: 0, runningTerminals: 0, runningProcesses: 0, activeSchedules: 0, nextScheduledAt: null },
+  unreadable: [],
 };
 const CHOICE: AutopilotChoice = {
   reasoningEffort: "medium",

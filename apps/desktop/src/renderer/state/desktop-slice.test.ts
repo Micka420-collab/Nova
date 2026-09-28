@@ -6,6 +6,7 @@ const STATE: DesktopState = {
   trayAvailable: true,
   keepRunningOnClose: true,
   activity: { runningMissions: 1, waitingApprovals: 0, runningTerminals: 0, runningProcesses: 0, activeSchedules: 0, nextScheduledAt: null },
+  unreadable: [],
 };
 
 function client(state: () => Promise<DesktopState>): { client: DesktopClient; emit: (event: DesktopEvent) => void; unsubscribed: () => boolean } {

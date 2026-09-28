@@ -30,7 +30,15 @@ describe("desktop.state", () => {
       {
         missions: async () => [mission("a", "running"), mission("b", "waiting_approval"), mission("c", "succeeded"), mission("d", "suspended")],
         pendingApprovals: async () => 1,
-        runningTerminals: async () => 2,
+        // Only the user's running sessions are terminals: an agent program is its process, a
+        // mission's mirror session runs nothing.
+        terminals: async () => [
+          { owner: "user", state: "running" },
+          { owner: "user", state: "running" },
+          { owner: "user", state: "exited" },
+          { owner: "agent", state: "running" },
+          { owner: "agent", state: "running" },
+        ],
         runningProcesses: async () => 3,
         schedules: () => ({ activeCount: 1, nextDueAt: 1_700_000_000_000 }),
       },
@@ -47,16 +55,18 @@ describe("desktop.state", () => {
         activeSchedules: 1,
         nextScheduledAt: 1_700_000_000_000,
       },
+      unreadable: [],
     });
     expect((await service.snapshot()).missions.map((item) => item.id)).toEqual(["a", "b"]);
   });
 
   it("counts 0 for a feature that is not wired, and lists a failing source as unreadable", async () => {
-    const { service, warnings } = setup({ runningTerminals: () => Promise.reject(new Error("pty-host down")) }, { tray: false });
+    const { service, warnings } = setup({ terminals: () => Promise.reject(new Error("pty-host down")) }, { tray: false });
     const snapshot = await service.snapshot();
     expect(activityCount(snapshot.state.activity)).toBe(0);
     expect(snapshot.state.trayAvailable).toBe(false);
-    expect(snapshot.unreadable).toEqual(["terminals"]);
+    // Carried in the state itself: the renderer and the tray say « inconnu », not 0.
+    expect(snapshot.state.unreadable).toEqual(["terminals"]);
     expect(warnings).toEqual(["desktop activity source failed"]);
   });
 
@@ -91,5 +101,22 @@ describe("desktop.state", () => {
     service.notify();
     await vi.advanceTimersByTimeAsync(25);
     expect(pushed).toHaveLength(2);
+  });
+
+  it("refreshes the tray when the listed missions change though the counts do not", async () => {
+    vi.useFakeTimers();
+    let missions = [mission("a", "running", "Corriger le panier")];
+    const { service, pushed } = setup({ missions: async () => missions });
+    const listed: string[][] = [];
+    service.onChange((snapshot) => listed.push(snapshot.missions.map((item) => item.title)));
+    service.notify();
+    await vi.advanceTimersByTimeAsync(25);
+    // A ended, B started in the same burst: still one running mission.
+    missions = [mission("a", "succeeded", "Corriger le panier"), mission("b", "running", "Écrire les tests")];
+    service.notify();
+    await vi.advanceTimersByTimeAsync(25);
+    expect(listed).toEqual([["Corriger le panier"], ["Écrire les tests"]]);
+    // The renderer only shows counts: pushed once.
+    expect(pushed).toHaveLength(1);
   });
 });

@@ -11,9 +11,11 @@ export const desktopCopy = {
   quitApp: "Quitter NOVA",
   missionsMenu: (count: number) => (count > 0 ? `Missions en cours (${count})` : "Missions en cours"),
   noMission: "Aucune mission en cours",
+  missionsUnknown: "Liste des missions indisponible",
   missionWaiting: "attend ton accord",
   status: {
     idle: "Nomi : au repos",
+    unknown: "Nomi : état inconnu, NOVA n'a pas pu tout vérifier",
     working: (missions: number) => `Nomi travaille : ${plural(missions, "mission en cours", "missions en cours")}`,
     processes: (count: number) => `Nomi : ${plural(count, "processus en arrière-plan", "processus en arrière-plan")}`,
     waiting: (approvals: number) => `Nomi attend ta décision : ${plural(approvals, "approbation", "approbations")}`,

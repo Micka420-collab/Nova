@@ -18,8 +18,8 @@ const IDLE: DesktopActivity = {
   nextScheduledAt: null,
 };
 
-function snapshot(activity: Partial<DesktopActivity> = {}, missions: ActiveMission[] = [], unreadable: DesktopSnapshot["unreadable"] = []): DesktopSnapshot {
-  return { state: { trayAvailable: true, keepRunningOnClose: false, activity: { ...IDLE, ...activity } }, missions, unreadable };
+function snapshot(activity: Partial<DesktopActivity> = {}, missions: ActiveMission[] = [], unreadable: DesktopSnapshot["state"]["unreadable"] = []): DesktopSnapshot {
+  return { state: { trayAvailable: true, keepRunningOnClose: false, activity: { ...IDLE, ...activity }, unreadable }, missions };
 }
 
 const running = (title: string, state: ActiveMission["state"] = "running"): ActiveMission => ({ id: title, title, state });
@@ -41,6 +41,15 @@ describe("tray view", () => {
     expect(waiting.status).toBe("waiting");
     expect(waiting.entries[0]).toEqual({ kind: "label", label: "Nomi attend ta décision : 1 approbation" });
     expect(waiting.entries[3]).toMatchObject({ entries: [{ kind: "action", label: "Déployer (attend ton accord)" }] });
+  });
+
+  it("never says « au repos » or « aucune mission » when a source could not be read", () => {
+    const unknown = buildTrayView(snapshot({}, [], ["missions", "approvals"]));
+    expect(unknown.status).toBe("unknown");
+    expect(unknown.entries[0]).toEqual({ kind: "label", label: "Nomi : état inconnu, NOVA n'a pas pu tout vérifier" });
+    expect(unknown.entries[3]).toMatchObject({ entries: [{ kind: "label", label: "Liste des missions indisponible" }] });
+    // What is known to run still shows.
+    expect(buildTrayView(snapshot({ runningProcesses: 1 }, [], ["approvals"])).status).toBe("working");
   });
 });
 

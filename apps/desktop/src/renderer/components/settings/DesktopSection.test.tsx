@@ -17,6 +17,7 @@ const STATE: DesktopState = {
   trayAvailable: false,
   keepRunningOnClose: false,
   activity: { runningMissions: 2, waitingApprovals: 1, runningTerminals: 0, runningProcesses: 1, activeSchedules: 0, nextScheduledAt: null },
+  unreadable: [],
 };
 
 function mount(harness: HarnessOverrides = {}) {
@@ -49,7 +50,9 @@ describe("DesktopSection", () => {
     const option = await screen.findByRole("switch", { name: "Continuer en arrière-plan quand la fenêtre est fermée" });
     expect(screen.getByText(/Nomi reste dans la barre système/)).toBeTruthy();
     expect(screen.getByText(/barre système n'est pas disponible sur ce bureau/)).toBeTruthy();
-    expect(screen.getByText("En ce moment : 2 missions en cours, 1 approbation en attente, 1 processus en arrière-plan.")).toBeTruthy();
+    expect(
+      screen.getByText("En ce moment : 2 missions en cours, 1 approbation en attente, 0 terminal ouvert, 1 processus en arrière-plan, 0 planning actif."),
+    ).toBeTruthy();
     await act(async () => {
       fireEvent.click(option);
     });
@@ -58,7 +61,16 @@ describe("DesktopSection", () => {
 
     // Live: the activity line follows main's events.
     act(() => listener?.({ type: "desktop.state", state: { ...STATE, activity: { ...STATE.activity, runningMissions: 0 } } }));
-    expect(screen.getByText("En ce moment : 0 mission en cours, 1 approbation en attente, 1 processus en arrière-plan.")).toBeTruthy();
+    expect(
+      screen.getByText("En ce moment : 0 mission en cours, 1 approbation en attente, 0 terminal ouvert, 1 processus en arrière-plan, 0 planning actif."),
+    ).toBeTruthy();
+    // A source main could not read is unknown, never a confident 0.
+    act(() => listener?.({ type: "desktop.state", state: { ...STATE, activity: { ...STATE.activity, runningMissions: 0, waitingApprovals: 0 }, unreadable: ["missions", "approvals"] } }));
+    expect(
+      screen.getByText(
+        "En ce moment : missions en cours : inconnu, approbations en attente : inconnu, 0 terminal ouvert, 1 processus en arrière-plan, 0 planning actif. NOVA n'a pas pu tout vérifier.",
+      ),
+    ).toBeTruthy();
   });
 
   it("shows no background or autopilot control while main answers `unavailable`", async () => {

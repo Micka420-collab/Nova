@@ -49,7 +49,7 @@ export function DesktopSection() {
           <p className="nova-note">{copy.quitNote}</p>
           {desktop ? (
             <p className="nova-note">
-              {copy.activity(desktop.activity.runningMissions, desktop.activity.waitingApprovals, desktop.activity.runningProcesses)}
+              {copy.activity(desktop)}
             </p>
           ) : null}
         </section>

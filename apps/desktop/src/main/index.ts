@@ -630,7 +630,7 @@ async function start(logger: Logger, dataDir: string, logDir: string): Promise<v
     sources: {
       missions: async () => (await missionsApi.list({ workspaceId: null, limit: 200 })).items,
       pendingApprovals: async () => (await approvals.list({ workspaceId: null, missionId: null, status: "pending" })).length,
-      runningTerminals: async () => (await terminal.list({ workspaceId: null })).filter((item) => item.state === "running").length,
+      terminals: () => terminal.list({ workspaceId: null }),
       runningProcesses: async () => (await processes.api.list({ workspaceId: null, missionId: null })).filter((item) => item.state === "running").length,
       schedules: () => ({ activeCount: scheduleService.activeCount(), nextDueAt: scheduleService.nextDueAt() }),
     },

@@ -1,9 +1,14 @@
 // French copy of lane L7 (onboarding, mission density, background option, chat autopilot, pasted
 // images). Owned by L7.
-import type { DetailDensity, OnboardingProfile, ReasoningEffort } from "@nova/shared";
+import type { DesktopState, DetailDensity, OnboardingProfile, ReasoningEffort } from "@nova/shared";
 import type { ImageRejection } from "../lib/vision";
 
 const plural = (count: number, one: string, many: string): string => `${count} ${count > 1 ? many : one}`;
+
+/** One count of the activity line, or « inconnu » when main could not read its source. */
+function activityPart(known: boolean, count: number, one: string, many: string): string {
+  return known ? plural(count, one, many) : `${many} : inconnu`;
+}
 
 export const DENSITY_LABELS: Record<DetailDensity, string> = {
   result: "Résultat",
@@ -73,8 +78,18 @@ export const desktopCopy = {
     noTray:
       "La barre système n'est pas disponible sur ce bureau : fermer la fenêtre la réduira au lieu de la masquer.",
     quitNote: "Avant de quitter, NOVA te prévient si une mission, un terminal, un processus ou un planning est actif.",
-    activity: (missions: number, approvals: number, processes: number) =>
-      `En ce moment : ${plural(missions, "mission en cours", "missions en cours")}, ${plural(approvals, "approbation en attente", "approbations en attente")}, ${plural(processes, "processus", "processus")} en arrière-plan.`,
+    activity: ({ activity, unreadable }: DesktopState): string => {
+      const known = (source: DesktopState["unreadable"][number]) => !unreadable.includes(source);
+      const parts = [
+        activityPart(known("missions"), activity.runningMissions, "mission en cours", "missions en cours"),
+        activityPart(known("approvals"), activity.waitingApprovals, "approbation en attente", "approbations en attente"),
+        activityPart(known("terminals"), activity.runningTerminals, "terminal ouvert", "terminaux ouverts"),
+        activityPart(known("processes"), activity.runningProcesses, "processus en arrière-plan", "processus en arrière-plan"),
+        activityPart(known("schedules"), activity.activeSchedules, "planning actif", "plannings actifs"),
+      ];
+      const note = unreadable.length > 0 ? " NOVA n'a pas pu tout vérifier." : "";
+      return `En ce moment : ${parts.join(", ")}.${note}`;
+    },
     densityTitle: "Missions",
     chatTitle: "Discuter",
     autopilot: "Pilote automatique",

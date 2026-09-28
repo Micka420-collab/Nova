@@ -31,11 +31,16 @@ export interface DesktopActivity {
   nextScheduledAt: number | null;
 }
 
+/** Where each activity count comes from. */
+export type DesktopSource = "missions" | "approvals" | "terminals" | "processes" | "schedules";
+
 export interface DesktopState {
   /** A tray icon could be created on this system (false on some Linux desktops). */
   trayAvailable: boolean;
   keepRunningOnClose: boolean;
   activity: DesktopActivity;
+  /** Sources that could not be read this time: their counts are UNKNOWN (the 0 there is no fact). */
+  unreadable: DesktopSource[];
 }
 
 /** Pushed on `desktop.onEvent`. */

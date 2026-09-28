@@ -25,7 +25,7 @@ function formatNext(at: number, now: number): string {
 
 export function buildQuitWarning(snapshot: DesktopSnapshot, now: number = Date.now()): QuitWarning | null {
   const { activity } = snapshot.state;
-  if (activityCount(activity) === 0 && snapshot.unreadable.length === 0) return null;
+  if (activityCount(activity) === 0 && snapshot.state.unreadable.length === 0) return null;
   const copy = desktopCopy.quit;
   const lines: string[] = [];
   if (activity.runningMissions > 0) {
@@ -41,6 +41,6 @@ export function buildQuitWarning(snapshot: DesktopSnapshot, now: number = Date.n
     lines.push(copy.schedules(activity.activeSchedules, next));
   }
   const detail = [copy.intro, ...lines.map((line) => `• ${line}`)];
-  if (snapshot.unreadable.length > 0) detail.push("", copy.unreadable);
+  if (snapshot.state.unreadable.length > 0) detail.push("", copy.unreadable);
   return { title: copy.title, message: copy.message, detail: detail.join("\n"), buttons: [copy.cancel, copy.confirm] };
 }
