@@ -1107,12 +1107,14 @@ export function createAppStore(client: NovaApi): AppStore {
         try {
           const mission = await client.missions.start({ missionId, tasks, contract });
           putMission(mission);
+          // The estimate was computed for the planned steps: another count leaves it unknown.
+          const estimated = tasks === null || tasks.length === result.tasks.length;
           set((state) => ({
             missions: {
               ...state.missions,
               plan: { status: "idle" },
               selectedId: missionId,
-              estimates: { ...state.missions.estimates, [missionId]: result.estimate },
+              estimates: estimated ? { ...state.missions.estimates, [missionId]: result.estimate } : state.missions.estimates,
             },
           }));
         } catch (error) {

@@ -80,6 +80,16 @@ describe("ContractSheet", () => {
     expect(screen.getByText("Le budget doit être un montant supérieur à 0 $ et d'au plus 1 000 $.")).toBeTruthy();
   });
 
+  it("never presents the initial plan's estimate as the edited plan's, nor compares it to the cap", () => {
+    renderSheet();
+    fireEvent.change(screen.getByRole("textbox", { name: "Budget maximal ($)" }), { target: { value: "0,01" } });
+    expect(screen.getByText(/L'estimation dépasse le plafond/)).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", { name: "Nouvelle étape" }), { target: { value: "Vérifier" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ajouter une étape" }));
+    expect(screen.getByText(/^Estimation du plan initial \(2 étapes\) : /)).toBeTruthy();
+    expect(screen.queryByText(/L'estimation dépasse le plafond/)).toBeNull();
+  });
+
   it("starts from the Web toggle of the goal composer and says it in the contract", () => {
     const onLaunch = renderSheet(true);
     expect(screen.getByText("Recherche Web permise pour cette mission")).toBeTruthy();

@@ -290,6 +290,8 @@ export const atelierCopy = {
     isolationL2: "Conteneur.",
     asksBefore: "Te demandera avant : supprimer un fichier, toute autre adresse Internet, toute action irréversible.",
     estimate: (range: string) => `Estimation : ${range}`,
+    estimateInitial: (range: string, steps: number) =>
+      `Estimation du plan initial (${plural(steps, "étape", "étapes")}) : ${range}. Le plan modifié n'a pas d'estimation ; le plafond s'applique.`,
     estimateUnknown:
       "Coût : inconnu (le catalogue ne donne pas le prix de ce modèle). Le plafond s'applique quand même, sur ce qui sera rapporté.",
     estimateOver: (cap: string) => `L'estimation dépasse le plafond (${cap}) : relève-le ou réduis le plan.`,

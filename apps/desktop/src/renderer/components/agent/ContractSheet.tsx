@@ -56,7 +56,10 @@ export function ContractSheet({ result, workspacePath, expert, starting, error, 
   const [editContract, setEditContract] = useState(expert);
   const [newStep, setNewStep] = useState("");
   const estimate = formatEstimate(result.estimate);
-  const over = estimateExceedsCap(result.estimate, draft.budgetUsd);
+  // The estimate is main's, for the planned number of steps: with another count it is only the
+  // initial plan's (never presented as this plan's, never compared to the cap).
+  const estimateStale = draft.steps.length !== result.tasks.length;
+  const over = !estimateStale && estimateExceedsCap(result.estimate, draft.budgetUsd);
   const cap = formatCost(parseDecimal(draft.budgetUsd));
   const canLaunch = !starting && !blocked;
 
@@ -257,7 +260,11 @@ export function ContractSheet({ result, workspacePath, expert, starting, error, 
           />
         </div>
         <p className="nova-contract__estimate">
-          {estimate ? copy.contract.estimate(estimate) : copy.contract.estimateUnknown}
+          {estimate
+            ? estimateStale
+              ? copy.contract.estimateInitial(estimate, result.tasks.length)
+              : copy.contract.estimate(estimate)
+            : copy.contract.estimateUnknown}
           {result.estimate.assumptions ? <span className="nova-note"> {copy.contract.assumptions(result.estimate.assumptions)}</span> : null}
         </p>
         {over && cap ? <Callout tone="warning">{copy.contract.estimateOver(cap)}</Callout> : null}
