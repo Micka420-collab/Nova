@@ -40,7 +40,13 @@ export interface ScheduleRepo {
   runOfMission(missionId: string): ScheduleRun | null;
   /** Runs still `running` (crash recovery at startup). */
   listRunning(): ScheduleRun[];
-  /** Keeps the newest `keep` runs of a schedule; returns the number removed. */
+  /** Runs of one schedule whose mission may still hold it (`running` or `suspended`), oldest first. */
+  listOpenRuns(scheduleId: string): ScheduleRun[];
+  /**
+   * Keeps the newest `keep` runs of a schedule; returns the number removed. Open runs (`running`,
+   * `suspended`) are never removed: they are how a run's mission end finds its row and how
+   * overlaps are detected.
+   */
   pruneRuns(scheduleId: string, keep: number): number;
 }
 
@@ -209,10 +215,17 @@ export function createScheduleRepo(db: DatabaseSync, now: () => number = Date.no
       return db.prepare("SELECT * FROM schedule_runs WHERE outcome = 'running' ORDER BY due_at").all().map(toRun);
     },
 
+    listOpenRuns(scheduleId) {
+      return db
+        .prepare("SELECT * FROM schedule_runs WHERE schedule_id = ? AND outcome IN ('running', 'suspended') ORDER BY due_at, rowid")
+        .all(scheduleId)
+        .map(toRun);
+    },
+
     pruneRuns(scheduleId, keep) {
       const result = db
         .prepare(
-          `DELETE FROM schedule_runs WHERE schedule_id = ? AND id NOT IN
+          `DELETE FROM schedule_runs WHERE schedule_id = ? AND outcome NOT IN ('running', 'suspended') AND id NOT IN
              (SELECT id FROM schedule_runs WHERE schedule_id = ? ORDER BY due_at DESC, rowid DESC LIMIT ?)`,
         )
         .run(scheduleId, scheduleId, keep);
