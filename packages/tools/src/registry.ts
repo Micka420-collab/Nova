@@ -95,8 +95,9 @@ function mcpExecutor(offer: McpToolOffer, deps: ToolDeps): ToolExecutor<Record<s
     // user can switch a tool to "ask" (or deny it) while a mission runs, and execute() below
     // calls it as approved.
     async ownerPolicy(_args, scope) {
+      // Same server and tool as the offer: the qualified name can move to another server.
       const live = (await deps.mcp?.listToolsForModel(scope.workspaceId, { connect: false }))?.find(
-        (tool) => tool.definition.name === definition.name,
+        (tool) => tool.serverId === offer.serverId && tool.toolName === offer.toolName,
       );
       if (!live) return { decision: "deny", reason: "mcp_tool_policy", detail: `${ref} is no longer available (denied, disabled or disconnected)` };
       return live.permission === "ask" ? { decision: "ask", reason: "mcp_tool_policy", detail: `${ref} asks before each call` } : null;
@@ -105,7 +106,7 @@ function mcpExecutor(offer: McpToolOffer, deps: ToolDeps): ToolExecutor<Record<s
     async execute(args, context) {
       if (!deps.mcp) throw new ToolFailure("unavailable", "MCP is not available in this session");
       // Reaching execute means the gateway allowed, or the user approved, this exact call.
-      const result = await deps.mcp.callTool(definition.name, args, {
+      const result = await deps.mcp.callTool({ serverId: offer.serverId, toolName: offer.toolName }, args, {
         workspaceId: context.workspaceId,
         callId: context.callId,
         signal: context.signal,

@@ -181,6 +181,8 @@ export interface WebApi {
 /** An enabled MCP tool as offered to the model (never a `deny` tool nor a disabled server). */
 export interface McpToolOffer {
   definition: ToolDefinition & { name: McpToolName };
+  /** The exact server this offer (and its approval card) names: calls go there or nowhere. */
+  serverId: string;
   serverName: string;
   toolName: string;
   /** Per-tool permission set in the MCP manager when listed; `ask` makes every call ask (mcp_tool_policy). */
@@ -190,9 +192,13 @@ export interface McpToolOffer {
 export interface McpApi {
   /** `connect: false` lists the live tools of already-connected servers only (per-call rule lookup). */
   listToolsForModel(workspaceId: string, options?: { connect?: boolean }): Promise<McpToolOffer[]>;
-  /** `approved`: the gateway allowed or the user approved this exact call. Returns untrusted output. */
+  /**
+   * Calls `toolName` on server `serverId` (the offer's ids, never re-derived from the qualified
+   * name: another server may take that name later). `approved`: the gateway allowed or the user
+   * approved this exact call. Returns untrusted output.
+   */
   callTool(
-    name: string,
+    target: { serverId: string; toolName: string },
     args: Record<string, unknown>,
     context: { workspaceId: string; callId: string; signal: AbortSignal; approved: boolean },
   ): Promise<ToolResult>;

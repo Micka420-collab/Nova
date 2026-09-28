@@ -73,8 +73,12 @@ afterEach(async () => {
   store.close();
 });
 
-const call = (name: string, args: Record<string, unknown>, approved = true) =>
-  service.callTool(name, args, { workspaceId, callId: crypto.randomUUID(), signal: new AbortController().signal, approved });
+/** Calls the tool the model was offered under `name` (by its server id and tool name, as the registry does). */
+async function call(name: string, args: Record<string, unknown>, approved = true) {
+  const offered = (await service.listToolsForModel(workspaceId, { connect: false })).find((tool) => tool.definition.name === name);
+  const target = offered ? { serverId: offered.serverId, toolName: offered.toolName } : { serverId: "unknown", toolName: name };
+  return service.callTool(target, args, { workspaceId, callId: crypto.randomUUID(), signal: new AbortController().signal, approved });
+}
 
 async function addFixture(enabled = true) {
   return service.api().add({
@@ -159,6 +163,32 @@ describe("McpService (stdio through the host)", () => {
     expect(await service.listToolsForModel(workspaceId)).toEqual([]);
     expect(await call("mcp__Fixture__echo", { text: "x" })).toMatchObject({ ok: false });
     expect(hostPort.host.sessionInfos()).toEqual([]);
+  });
+
+  it("runs a call on the server that was offered, never on a same-named server that connected later", async () => {
+    // Workspace server without the token, connected first; the global one (with it) connects later
+    // and may take the qualified name (ordered by server id).
+    const local = await service.api().add({
+      name: "Fixture",
+      transport: { type: "stdio", command: process.execPath, args: [FIXTURE], env: {} },
+      scope: "workspace",
+      workspaceId,
+      enabled: true,
+    });
+    const global = await addFixture(false);
+    const offered = (await service.listToolsForModel(workspaceId)).find((tool) => tool.toolName === "env");
+    expect(offered?.serverId).toBe(local.config.id);
+    await service.api().update({ serverId: global.config.id, enabled: true });
+    await service.listToolsForModel(workspaceId);
+    expect((await service.api().list({ workspaceId })).map((view) => view.status.state)).toEqual(["connected", "connected"]);
+    const result = await service.callTool({ serverId: local.config.id, toolName: "env" }, { name: "FIXTURE_TOKEN" }, {
+      workspaceId,
+      callId: crypto.randomUUID(),
+      signal: new AbortController().signal,
+      approved: true,
+    });
+    // Either the offered server answers ("unset") or the call is refused: the global server ("set") never runs it.
+    expect(result.content).not.toMatch(/\bset\b/);
   });
 
   it("surfaces a server killed mid-call as a failed result and an error status", async () => {

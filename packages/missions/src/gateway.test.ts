@@ -14,6 +14,7 @@ const ASK: PermissionDecision = { decision: "ask", reason: "profile_asks", ruleI
 
 const offer = (name: string, operation: "read" | "external", permission: "allow" | "ask"): McpToolOffer => ({
   definition: { name: `mcp__srv__${name}` as McpToolName, description: "untrusted", inputSchema: { type: "object" }, operation },
+  serverId: "srv-id",
   serverName: "srv",
   toolName: name,
   permission,
@@ -33,7 +34,8 @@ function setup(options: { mode?: MissionContract["mode"]; deps?: Partial<ToolDep
     web: null,
     mcp: {
       listToolsForModel: async () => mcpTools,
-      async callTool(name, _args, context) {
+      async callTool(target, _args, context) {
+        const name = `mcp__srv__${target.toolName}`;
         mcpCalls.push(name);
         return {
           callId: context.callId, ok: true, content: "out", display: { kind: "mcp", server: "srv", tool: name, isError: false, text: "out" },

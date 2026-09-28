@@ -281,13 +281,22 @@ export class McpService {
     return [...this.decryptedSecrets];
   }
 
-  async callTool(name: string, args: Record<string, unknown>, context: McpCallContext): Promise<ToolResult> {
+  /**
+   * Resolved by server id and tool name, as offered and approved: the qualified name may now map
+   * to another server (same name, other scope) that connected since the mission started.
+   */
+  async callTool(
+    target: { serverId: string; toolName: string },
+    args: Record<string, unknown>,
+    context: McpCallContext,
+  ): Promise<ToolResult> {
     const tool = (await this.listToolsForModel(context.workspaceId, { connect: false })).find(
-      (candidate) => candidate.definition.name === name,
+      (candidate) => candidate.serverId === target.serverId && candidate.toolName === target.toolName,
     );
     if (!tool) {
       // Unknown, denied, disabled or disconnected: never executed.
-      return refusedToolResult(context.callId, "not_found", `MCP tool ${name} is not available.`, name);
+      const ref = `${this.deps.repo.getServer(target.serverId)?.name ?? "?"}/${target.toolName}`;
+      return refusedToolResult(context.callId, "not_found", `MCP tool ${ref} is not available.`, ref);
     }
     const ref = `${tool.serverName}/${tool.toolName}`;
     if (tool.permission === "ask" && !context.approved) {

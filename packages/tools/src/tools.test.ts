@@ -78,6 +78,7 @@ const offer = (name: string, operation: "read" | "external", permission: "allow"
     inputSchema: { type: "object" },
     operation,
   },
+  serverId: "srv-fs",
   serverName: "fs",
   toolName: name,
   permission,
@@ -290,8 +291,8 @@ describe("web and MCP executors", () => {
     let live = [offer("alpha", "external", "ask"), offer("zeta", "read", "allow")];
     const mcp = {
       listToolsForModel: async () => live,
-      async callTool(name: string, args: Record<string, unknown>, ctx: { approved: boolean; callId: string }) {
-        calls.push({ name, args, approved: ctx.approved });
+      async callTool(target: { serverId: string; toolName: string }, args: Record<string, unknown>, ctx: { approved: boolean; callId: string }) {
+        calls.push({ target, args, approved: ctx.approved });
         return {
           callId: ctx.callId, ok: true, content: "fenced mcp output", display: { kind: "mcp" as const, server: "fs", tool: "alpha", isError: false, text: "x" },
           provenance: { source: "mcp" as const, untrusted: true, ref: "fs/alpha" }, durationMs: 1,
@@ -311,7 +312,7 @@ describe("web and MCP executors", () => {
     live = [offer("zeta", "read", "ask")];
     expect(await registry.get("mcp__fs__alpha")?.ownerPolicy?.({}, scope)).toMatchObject({ decision: "deny", reason: "mcp_tool_policy" });
     const result = await registry.get("mcp__fs__alpha")?.execute({ q: 1 }, context({ callId: "call-9" }));
-    expect(calls).toEqual([{ name: "mcp__fs__alpha", args: { q: 1 }, approved: true }]);
+    expect(calls).toEqual([{ target: { serverId: "srv-fs", toolName: "alpha" }, args: { q: 1 }, approved: true }]);
     expect(result).toMatchObject({ callId: "call-9", provenance: { untrusted: true } });
   });
 });
