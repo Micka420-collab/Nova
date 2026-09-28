@@ -35,7 +35,15 @@ export interface FsHandlersEnv {
   rgPath: string | null;
   notify(method: string, params: unknown): void;
   watch?: WatchOptions;
+  /** Longest text search before ripgrep is killed (default SEARCH_DEADLINE_MS). */
+  searchDeadlineMs?: number;
 }
+
+/**
+ * Below ManagedWorker's 30 s request timeout: past it main has already answered `unavailable`, so a
+ * ripgrep still scanning would only burn CPU and disk for nobody.
+ */
+const SEARCH_DEADLINE_MS = 25_000;
 
 interface OpenWorkspace {
   root: string;
@@ -142,10 +150,16 @@ export function createFsHandlers(env: FsHandlersEnv): FsHandlers {
       if (!env.rgPath) throw new WorkspaceError("unavailable", "ripgrep is not available");
       await matcher.load("");
       const controller = new AbortController();
-      if (streamId) {
-        searches.get(streamId)?.abort();
-        searches.set(streamId, controller);
-      }
+      // A one-shot search (the project panel, one query at a time per workspace) supersedes the
+      // previous one of its workspace: typing must not pile up full-tree ripgrep scans.
+      const key = streamId ?? `text:${query.workspaceId}`;
+      searches.get(key)?.abort();
+      searches.set(key, controller);
+      let timedOut = false;
+      const deadline = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, env.searchDeadlineMs ?? SEARCH_DEADLINE_MS);
       try {
         return await searchText(root, query, {
           rgPath: env.rgPath,
@@ -157,8 +171,12 @@ export function createFsHandlers(env: FsHandlersEnv): FsHandlers {
               }
             : {}),
         });
+      } catch (error) {
+        if (timedOut) throw new WorkspaceError("unavailable", "search took too long: narrow it with include globs");
+        throw error;
       } finally {
-        if (streamId && searches.get(streamId) === controller) searches.delete(streamId);
+        clearTimeout(deadline);
+        if (searches.get(key) === controller) searches.delete(key);
       }
     }),
 
