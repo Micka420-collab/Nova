@@ -149,6 +149,12 @@ export interface MissionControllerDeps {
    * data), appended to the mission's system prompt; null = none. Loaded in full only by `skill`.
    */
   skillIndex?(workspaceId: string): Promise<string | null>;
+  /**
+   * J2-B L8: called just before a terminal event (succeeded, failed, cancelled) is journaled,
+   * whether the runtime or main ends the mission, so a lane can journal its own closing fact first
+   * (the journal accepts nothing after the terminal event). A throw is ignored.
+   */
+  beforeTerminal?(event: MissionEventInput): void;
   /** Registry of one mission (built-ins over the injected APIs + enabled MCP tools snapshot). */
   tools(input: { workspaceId: string; missionId: string }): Promise<{ registry: ToolRegistry; mcpTools: readonly McpToolOffer[] }>;
   commands: Pick<CommandRunner, "stopAll"> | null;
@@ -259,6 +265,14 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
     },
   });
   const append = (event: MissionEventInput): MissionEvent | null => {
+    const terminal = event.type === "mission.succeeded" || event.type === "mission.failed" || event.type === "mission.cancelled";
+    if (terminal && deps.beforeTerminal && !journal.isTerminated(event.missionId)) {
+      try {
+        deps.beforeTerminal(event);
+      } catch {
+        // A lane's closing fact never blocks the mission's end.
+      }
+    }
     const stored = journal.append(event);
     // The tasks table is the projection read by `missions.get`: keep it in step with the journal.
     if (stored?.type === "task.updated") deps.store.setTaskState(stored.task.id, stored.task.state);
@@ -509,7 +523,11 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
         tasks = deps.store.listTasks(record.id).map(({ updatedAt: _updatedAt, ...task }) => task);
       }
       const { registry, mcpTools } = await deps.tools({ workspaceId: record.workspaceId, missionId: record.id });
-      const allowedTools = missionToolSet(record.mode, { webSearch: contract.webSearch, mcpTools, harness: missionHarnessOf(contract) });
+      // A failing skill index never blocks a mission: it starts without skills. Without an index the
+      // `skill` tool is not offered either (its refs would be invented, its schema wasted).
+      const skillIndex = (await deps.skillIndex?.(record.workspaceId).catch(() => null)) ?? null;
+      const allowedTools = new Set(missionToolSet(record.mode, { webSearch: contract.webSearch, mcpTools, harness: missionHarnessOf(contract) }));
+      if (skillIndex === null) allowedTools.delete("skill");
       const tools = registry.definitions(allowedTools);
       const lifetime = new AbortController();
       lifetimes.set(record.id, lifetime);
@@ -529,8 +547,6 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
       emitBudget(record.id);
       try {
         const runtime = await runtimeLink();
-        // A failing skill index never blocks a mission: it starts without skills.
-        const skillIndex = (await deps.skillIndex?.(record.workspaceId).catch(() => null)) ?? null;
         await runtime.start({
           mission: toMission(mission(record.id)),
           contract,

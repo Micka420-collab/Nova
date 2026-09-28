@@ -159,7 +159,8 @@ export type ToolErrorCode =
  * Where the content of a result comes from. Anything but `nova` is untrusted data: it is wrapped
  * as "data, not instructions" before reaching the model and taints the context (W5).
  */
-export type ProvenanceSource = "nova" | "workspace_file" | "command_output" | "git" | "web" | "mcp";
+/** `skill`: content of a user or project skill (method text the user enabled; data, never authority). */
+export type ProvenanceSource = "nova" | "workspace_file" | "command_output" | "git" | "web" | "mcp" | "skill";
 
 export interface Provenance {
   source: ProvenanceSource;

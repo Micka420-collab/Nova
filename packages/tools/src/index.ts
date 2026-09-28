@@ -51,7 +51,13 @@ export interface ToolExecutionContext {
    * mode, permission engine, approval, checkpoint, audit) with `parentCallId` = this call.
    * run_chain and start_submission are refused inside a program (CHAIN_FORBIDDEN_TOOLS).
    */
-  runNested?: (call: { name: string; rawArguments: string }) => Promise<ToolResult>;
+  runNested?: (call: { name: string; rawArguments: string }, signal?: AbortSignal) => Promise<ToolResult>;
+}
+
+/** Mission of the call whose permission facts are extracted (a process of another mission is unknown). */
+export interface ToolCallScope {
+  workspaceId: string;
+  missionId: string;
 }
 
 type WithoutEnvelope<T> = T extends unknown ? Omit<T, "id" | "seq" | "at" | "missionId"> : never;
@@ -85,8 +91,11 @@ export interface ToolExecutor<Args = unknown> {
   readonly operation: OperationClass;
   readonly definition: ToolDefinition;
   readonly argsSchema: z.ZodType<Args>;
-  /** One entry per target (a move has two paths); the gateway evaluates each, strictest wins. */
-  permissionFacts(args: Args): ToolPermissionFacts[] | Promise<ToolPermissionFacts[]>;
+  /**
+   * One entry per target (a move has two paths); the gateway evaluates each, strictest wins. The
+   * gateway always passes the call's scope; executors whose targets do not depend on it ignore it.
+   */
+  permissionFacts(args: Args, scope?: ToolCallScope): ToolPermissionFacts[] | Promise<ToolPermissionFacts[]>;
   /** Owner rule (web domain policy, MCP tool permission); null = none. A throw means deny. */
   ownerPolicy?(args: Args, context: { workspaceId: string; missionHosts: readonly string[] | null }): Promise<OwnerPolicy | null>;
   /** Paths to snapshot before execution (write/delete operations only). */
@@ -132,7 +141,11 @@ export type {
 export { parseToolArguments } from "./args";
 export {
   createProcessCommandRunner,
+  plainTerminalText,
   scrubCommandEnv,
+  type AgentProcessRequest,
+  type AgentProgram,
+  type AgentTerminalHost,
   type ProcessCommandRunner,
   type ProcessCommandRunnerOptions,
 } from "./command-runner";

@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import { memoryFiles } from "./__fixtures__/memory-files";
 import type { ProcessApi, ToolDeps } from "./apis";
 import type { ToolExecutionContext } from "./index";
-import type { ProcessToolExecutor } from "./process-tools";
 import { createToolRegistry } from "./registry";
 
 const WS = "11111111-1111-4111-8111-111111111111";
@@ -62,7 +61,7 @@ function setup(processes: ProcessApi | null) {
     if (!executor) throw new Error(`missing ${name}`);
     return executor.execute(parsed.args, context());
   };
-  const executor = (name: string) => registry.get(name) as ProcessToolExecutor<unknown> | null;
+  const executor = (name: string) => registry.get(name);
   return { registry, run, executor };
 }
 

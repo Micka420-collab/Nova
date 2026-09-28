@@ -264,7 +264,7 @@ export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
       let factsError: { code: Parameters<typeof errorResult>[1]; message: string } | null = null;
       if (executor && parsed?.ok) {
         try {
-          facts = await executor.permissionFacts(parsed.args);
+          facts = await executor.permissionFacts(parsed.args, { workspaceId: context.workspaceId, missionId: context.missionId });
         } catch (error) {
           factsError = toToolFailure(error, signal);
         }
@@ -452,7 +452,7 @@ export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
           ...(name === "run_chain"
             ? {
                 // Nested calls re-enter this gateway: same parse, mode, permission, approval and audit.
-                runNested: async (call: { name: string; rawArguments: string }) => {
+                runNested: async (call: { name: string; rawArguments: string }, nestedSignal?: AbortSignal) => {
                   if ((CHAIN_FORBIDDEN_TOOLS as readonly string[]).includes(call.name)) {
                     return errorResult(request.id, "permission_denied", `"${call.name}" cannot be called from a program`);
                   }
@@ -466,7 +466,7 @@ export function createToolGateway(deps: ToolGatewayDeps): ToolGateway {
                       requestedAt: now(),
                       parentCallId: request.id,
                     },
-                    signal,
+                    nestedSignal ? AbortSignal.any([signal, nestedSignal]) : signal,
                   );
                 },
               }

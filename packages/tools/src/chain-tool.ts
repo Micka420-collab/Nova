@@ -106,13 +106,13 @@ export function createChainExecutors(deps: ToolDeps): ToolExecutor[] {
           logs: "",
         };
       } else {
-        const runContext: ChainRunContext & { runNested: typeof runNested } = {
+        const runContext: ChainRunContext = {
           workspaceId: context.workspaceId,
           missionId: context.missionId,
           callId: context.callId,
           signal: context.signal,
-          runNested: async (call): Promise<ToolResult> => {
-            const result = await runNested(call);
+          runNested: async (call, signal): Promise<ToolResult> => {
+            const result = await runNested(call, signal);
             if (result.provenance.untrusted) taint.origin ??= result.provenance;
             return result;
           },

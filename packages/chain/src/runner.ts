@@ -35,14 +35,8 @@ export interface ChainRunnerDeps {
   limits?: Partial<ChainLimits>;
 }
 
-/**
- * What the executor hands the runner: the frozen `ChainRunContext` plus the gateway re-entry of
- * the run_chain call (`ToolExecutionContext.runNested`). TODO(lead, J2-B contract request L4):
- * declare `runNested` on `ChainRunContext` itself; this interface then becomes an alias.
- */
-export interface ChainNestedRunContext extends ChainRunContext {
-  runNested(call: { name: string; rawArguments: string }): Promise<ToolResult>;
-}
+/** What the executor hands the runner (`ChainRunContext` carries the gateway re-entry). */
+export type ChainNestedRunContext = ChainRunContext;
 
 export interface ChainRunOutcome {
   summary: ChainRunSummary;
@@ -105,6 +99,9 @@ export function createChainRunner(deps: ChainRunnerDeps): ChainRunner {
 
       const runId = randomUUID();
       const inFlight = new Set<Promise<void>>();
+      // Aborts the calls still in flight when the program ends on anything but success (timeout,
+      // limit, host failure): a pending approval is withdrawn instead of waiting for the user.
+      const calls = new AbortController();
       let logs = "";
       let logsFull = false;
       let ended = false;
@@ -119,10 +116,12 @@ export function createChainRunner(deps: ChainRunnerDeps): ChainRunner {
           if (timer) clearTimeout(timer);
           context.signal.removeEventListener("abort", onAbort);
           connection.kill();
+          if (state !== "succeeded") calls.abort();
           const bounded = result === null ? null : capText(redactSecrets(result), limits.resultMaxChars).text;
           // The parent never finishes before its children: calls already relayed settle first (a
-          // stop aborts them through the mission signal; an approval still pending waits for its
-          // answer, so no approved effect happens after the run_chain card says it ended).
+          // stop aborts them through the mission signal, a failed end through `calls`; after a
+          // success a call still pending waits for its answer, so no approved effect happens after
+          // the run_chain card says it ended).
           void Promise.allSettled([...inFlight]).then(() => resolve(finished(state, error, bounded, logs)));
         };
 
@@ -132,7 +131,7 @@ export function createChainRunner(deps: ChainRunnerDeps): ChainRunner {
           toolCalls += 1;
           let result: ToolResult | null = null;
           try {
-            result = await context.runNested({ name: message.tool, rawArguments: message.argsJson });
+            result = await context.runNested({ name: message.tool, rawArguments: message.argsJson }, calls.signal);
           } catch {
             result = null;
           }

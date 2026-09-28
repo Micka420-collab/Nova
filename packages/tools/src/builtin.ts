@@ -425,7 +425,9 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
           argv: args.argv,
         };
       }
-      const outcome = await runner.run(spec, context.signal, context.onOutput);
+      const outcome = await runner.run(spec, context.signal, context.onOutput, (sessionId) =>
+        context.record?.({ type: "tool.terminal", callId: context.callId, sessionId }),
+      );
       if (outcome.cancelled) throw new ToolFailure("cancelled", "the command was stopped");
       seenText.record(outcome.output);
       const status = outcome.timedOut
@@ -484,6 +486,7 @@ export function createBuiltinExecutors(deps: ToolDeps): ToolExecutor[] {
         { workspaceId: context.workspaceId, missionId: context.missionId, argv: invocation.argv, cwd: "", timeoutMs: args.timeoutMs },
         context.signal,
         context.onOutput,
+        (sessionId) => context.record?.({ type: "tool.terminal", callId: context.callId, sessionId }),
       );
       if (outcome.cancelled) throw new ToolFailure("cancelled", "the tests were stopped");
       seenText.record(outcome.output);

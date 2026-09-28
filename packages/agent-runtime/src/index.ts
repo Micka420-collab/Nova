@@ -15,3 +15,10 @@ export {
   buildMissionSystemPrompt,
   buildProviderMessages,
 } from "./prompt";
+export {
+  COMPACTION_SUMMARY_MAX_TOKENS,
+  buildCompactionPrompt,
+  normalizeCompactionSummary,
+  type CompactionPromptInput,
+  type CompactionTranscriptEntry,
+} from "./compaction-prompt";

@@ -2,13 +2,11 @@
 // ChatRunner for the conversation path, a scripted provider/proxy. Checks what the user sees
 // (typed refusals, events) and what the model receives (only what the user applied).
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ChatRunner } from "@nova/agent-runtime";
+import { COMPACTION_SUMMARY_MAX_TOKENS, ChatRunner, buildCompactionPrompt, normalizeCompactionSummary } from "@nova/agent-runtime";
 import { ProxyError, createMissionJournal, type MissionEventInput, type ProviderProxy, type ProxyMessage, type ProxyStreamRequest } from "@nova/missions";
 import type { ModelProvider, ProviderStreamEvent, StreamChatRequest } from "@nova/providers";
 import { DEFAULT_SETTINGS, type ContextEvent, type MissionEvent, type ModelInfo } from "@nova/shared";
 import { createCompactionRepo, createMissionRepo, createWorkspaceRepo, openNovaStore, type MissionRepo, type NovaStore } from "@nova/storage";
-// Until @nova/agent-runtime exports it (J2-B L2 contract request), the prompt module is read from source.
-import { COMPACTION_SUMMARY_MAX_TOKENS, buildCompactionPrompt, normalizeCompactionSummary } from "../../../../../packages/agent-runtime/src/compaction-prompt";
 import { ServiceError } from "../service-error";
 import { createContextService, type ContextService } from "./context-service";
 

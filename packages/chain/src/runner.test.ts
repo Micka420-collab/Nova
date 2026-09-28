@@ -123,6 +123,22 @@ describe("ChainRunner", () => {
     expect(hosts[0]!.killed).toBe(true);
   });
 
+  it("withdraws a call still waiting (an approval) when the program ends at its time limit", async () => {
+    const { open } = fakeHost({ onRun: (host) => host.emit({ type: "tool.call", requestId: "c1", tool: "write_file", argsJson: "{}" }) });
+    let withdrawn = false;
+    // Like the gateway: the call settles only when its approval is answered or its signal aborts.
+    const waiting = (_call: { name: string; rawArguments: string }, signal?: AbortSignal) =>
+      new Promise<ToolResult>((resolve) => {
+        signal?.addEventListener("abort", () => {
+          withdrawn = true;
+          resolve({ ...ok("x"), ok: false, content: "Error (cancelled): stopped" });
+        });
+      });
+    const outcome = await createChainRunner({ openHost: open, limits: { timeoutMs: 30 } }).run("x();", context(waiting));
+    expect(outcome.summary.state).toBe("timeout");
+    expect(withdrawn).toBe(true);
+  });
+
   it("reports a host that dies as a failure", async () => {
     const { open } = fakeHost({ onRun: (host) => host.exit(134) });
     const outcome = await createChainRunner({ openHost: open }).run("x();", context(async () => ok("x")));

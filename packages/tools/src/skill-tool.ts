@@ -141,8 +141,7 @@ export function createSkillExecutors(deps: ToolDeps): ToolExecutor[] {
         ok: true,
         content: fenceSkill(text, meta.ref),
         display,
-        // TODO(contract): a dedicated "skill" ProvenanceSource (requested in the L3 report).
-        provenance: provenance("workspace_file", `skill:${meta.ref}/${shownPath}`),
+        provenance: provenance("skill", `${meta.ref}/${shownPath}`),
         durationMs: Date.now() - started,
         prewrapped: true,
       });

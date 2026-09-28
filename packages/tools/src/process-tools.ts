@@ -12,22 +12,7 @@ import {
 } from "@nova/shared";
 import type { ProcessApi, ToolDeps } from "./apis";
 import { ToolFailure, makeResult, provenance, tail } from "./content";
-import type { ExecutedToolResult, ToolExecutionContext, ToolExecutor, ToolPermissionFacts } from "./index";
-
-/** Mission scope of a permission check (see `ProcessToolExecutor.permissionFacts`). */
-export interface ProcessToolScope {
-  workspaceId: string;
-  missionId: string;
-}
-
-/**
- * A process executor. `permissionFacts` also takes the call's mission scope so process_stop can
- * show the engine the exact argv it kills; without a scope (J2-B contract request, see the L1
- * report) no argv is known and the engine judges the bare `execute` operation (strictest outcome).
- */
-export type ProcessToolExecutor<Args> = ToolExecutor<Args> & {
-  permissionFacts(args: Args, scope?: ProcessToolScope): ToolPermissionFacts[] | Promise<ToolPermissionFacts[]>;
-};
+import type { ExecutedToolResult, ToolCallScope, ToolExecutionContext, ToolExecutor, ToolPermissionFacts } from "./index";
 
 /** Characters of output shown on the card (the model gets up to `maxChars`). */
 const CARD_TAIL_CHARS = 4_000;
@@ -65,18 +50,18 @@ interface ProcessSpec<S extends z.ZodType> {
   operation: "read" | "execute";
   description: string;
   schema: S;
-  facts(args: z.output<S>, scope: ProcessToolScope | undefined): ToolPermissionFacts[];
+  facts(args: z.output<S>, scope: ToolCallScope | undefined): ToolPermissionFacts[];
   run(api: ProcessApi, args: z.output<S>, context: ToolExecutionContext, started: number): Promise<ExecutedToolResult>;
 }
 
-function processTool<S extends z.ZodType>(api: ProcessApi, spec: ProcessSpec<S>): ProcessToolExecutor<z.output<S>> {
+function processTool<S extends z.ZodType>(api: ProcessApi, spec: ProcessSpec<S>): ToolExecutor<z.output<S>> {
   const definition: ToolDefinition = { name: spec.name, description: spec.description, inputSchema: inputSchema(spec.schema), operation: spec.operation };
   return {
     name: spec.name,
     operation: spec.operation,
     definition,
     argsSchema: spec.schema as unknown as z.ZodType<z.output<S>>,
-    permissionFacts: (args: z.output<S>, scope?: ProcessToolScope) => spec.facts(args, scope),
+    permissionFacts: (args: z.output<S>, scope?: ToolCallScope) => spec.facts(args, scope),
     checkpointPaths: () => [],
     execute: (args, context) => spec.run(api, args, context, Date.now()),
   };

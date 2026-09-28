@@ -122,7 +122,11 @@ export type CommandOutputListener = (stream: "stdout" | "stderr", chunk: string)
 
 /** Structured process execution: no shell, confined cwd, scrubbed env, timeout, caps, tree kill. */
 export interface CommandRunner {
-  run(spec: CommandSpec, signal: AbortSignal, onOutput?: CommandOutputListener): Promise<CommandOutcome>;
+  /**
+   * `onTerminal` receives the agent terminal session that mirrors this run (read-only in the dock),
+   * when the runner has one; it is journaled as `tool.terminal`.
+   */
+  run(spec: CommandSpec, signal: AbortSignal, onOutput?: CommandOutputListener, onTerminal?: (sessionId: string) => void): Promise<CommandOutcome>;
   /** Starts a long-lived process (dev server); returns once it runs, with its first output. */
   startBackground(
     spec: CommandSpec,
@@ -268,6 +272,11 @@ export interface ChainRunContext {
   /** The run_chain call id (parent of every inner call). */
   callId: string;
   signal: AbortSignal;
+  /**
+   * Runs one `nova.<tool>(args)` of the program through the SAME gateway pipeline as a direct call.
+   * `signal` aborts that call (a program that ends by timeout/limit cancels a pending approval).
+   */
+  runNested(call: { name: string; rawArguments: string }, signal?: AbortSignal): Promise<ToolResult>;
 }
 
 /** L4: runs one program in the isolated chain host; inner calls go through the ToolGateway. */
