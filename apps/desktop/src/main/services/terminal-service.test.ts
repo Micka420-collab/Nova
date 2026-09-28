@@ -16,6 +16,7 @@ function fakePort(name: string) {
 function setup(options: { fail?: boolean; windowOpen?: boolean } = {}) {
   const calls: { method: string; params: unknown; transfer: MessagePortMain[] }[] = [];
   const listeners: ((event: WorkerNotify) => void)[] = [];
+  const hostExits: (() => void)[] = [];
   const sent: { envelope: NovaPortEnvelope; port: MessagePortMain }[] = [];
   const channels: { port1: ReturnType<typeof fakePort>; port2: ReturnType<typeof fakePort> }[] = [];
   const session = (params: Record<string, unknown>): TerminalSession => ({
@@ -36,10 +37,15 @@ function setup(options: { fail?: boolean; windowOpen?: boolean } = {}) {
     request: async <T,>(method: string, params: unknown = null, transfer: MessagePortMain[] = []) => {
       calls.push({ method, params, transfer });
       if (options.fail) throw new ServiceError("unavailable", "pty-host: node-pty could not be loaded");
+      if (method === PTY_METHODS.list) return [] as T;
       return session(params as Record<string, unknown>) as T;
     },
     onNotify: (listener) => {
       listeners.push(listener);
+      return () => {};
+    },
+    onExit: (listener) => {
+      hostExits.push(listener);
       return () => {};
     },
   };
@@ -59,7 +65,7 @@ function setup(options: { fail?: boolean; windowOpen?: boolean } = {}) {
     },
     newId: () => SESSION,
   });
-  return { service, calls, listeners, sent, channels, getWorker };
+  return { service, calls, listeners, hostExits, sent, channels, getWorker };
 }
 
 describe("terminal service", () => {
@@ -148,5 +154,20 @@ describe("terminal service", () => {
     for (const listener of listeners) listener({ kind: "notify", method: PTY_EVENTS.exit, params: exited });
     for (const listener of listeners) listener({ kind: "notify", method: "other", params: null });
     expect(exits).toEqual([exited]);
+  });
+
+  it("ends every running session, visibly, when the pty-host dies on its own", async () => {
+    const { service, hostExits } = setup();
+    const events: unknown[] = [];
+    const exits: TerminalSession[] = [];
+    service.onEvent((event) => events.push(event));
+    service.onExit((session) => exits.push(session));
+    await service.create({ workspaceId: WORKSPACE, cwd: "", cols: 80, rows: 24 });
+    for (const listener of hostExits) listener();
+    expect(events.at(-1)).toEqual({ type: "session.exited", session: expect.objectContaining({ id: SESSION, state: "exited", exitCode: null }) });
+    expect(exits).toEqual([expect.objectContaining({ id: SESSION, state: "exited" })]);
+    // Reported once: a later host death has nothing left to end.
+    for (const listener of hostExits) listener();
+    expect(exits).toHaveLength(1);
   });
 });

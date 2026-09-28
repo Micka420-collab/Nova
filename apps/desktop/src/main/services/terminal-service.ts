@@ -19,6 +19,8 @@ type TerminalApi = MainApi["terminal"];
 export interface PtyWorker {
   request<T = unknown>(method: string, params?: unknown, transfer?: MessagePortMain[]): Promise<T>;
   onNotify(listener: (event: WorkerNotify) => void): () => void;
+  /** The pty-host died on its own: its sessions (and their shells) are gone. */
+  onExit(listener: () => void): () => void;
 }
 
 export interface PortPair {
@@ -73,17 +75,32 @@ export function createTerminalService(deps: TerminalServiceDeps): TerminalServic
   };
   let subscribed: PtyWorker | null = null;
   const newId = deps.newId ?? randomUUID;
+  /** Running sessions the host reported: a host that dies cannot report their end itself. */
+  const live = new Map<string, TerminalSession>();
+  const track = (session: TerminalSession): TerminalSession => {
+    if (session.state === "running") live.set(session.id, session);
+    else live.delete(session.id);
+    return session;
+  };
+  const ended = (session: TerminalSession, outputTail: string): void => {
+    live.delete(session.id);
+    for (const listener of exitListeners) listener(session, outputTail);
+    publish({ type: "session.exited", session });
+  };
 
   const worker = (): PtyWorker => {
     const current = deps.worker();
     if (subscribed !== current) {
       subscribed = current;
       current.onNotify((event) => {
-        if (event.method === PTY_EVENTS.update) publish({ type: "session.updated", session: event.params as TerminalSession });
+        if (event.method === PTY_EVENTS.update) publish({ type: "session.updated", session: track(event.params as TerminalSession) });
         if (event.method !== PTY_EVENTS.exit) return;
         const { outputTail, ...session } = event.params as TerminalSession & { outputTail?: string };
-        for (const listener of exitListeners) listener(session, outputTail ?? "");
-        publish({ type: "session.exited", session });
+        ended(session, outputTail ?? "");
+      });
+      // Every shell died with the host: each tab ends (no exit code) instead of looking alive.
+      current.onExit(() => {
+        for (const session of [...live.values()]) ended({ ...session, state: "exited", exitCode: null }, "");
       });
     }
     return current;
@@ -118,17 +135,18 @@ export function createTerminalService(deps: TerminalServiceDeps): TerminalServic
   return {
     create: async (req) => {
       const params = await createParams({ ...req, owner: "user", missionId: null, title: null, command: null });
-      const session = await withPort(params.id, PTY_METHODS.create, params);
+      const session = track(await withPort(params.id, PTY_METHODS.create, params));
       publish({ type: "session.created", session });
       return session;
     },
-    list: (req) => worker().request<TerminalSession[]>(PTY_METHODS.list, req),
-    attach: (req) => withPort(req.sessionId, PTY_METHODS.attach, req),
+    list: async (req) => (await worker().request<TerminalSession[]>(PTY_METHODS.list, req)).map(track),
+    attach: async (req) => track(await withPort(req.sessionId, PTY_METHODS.attach, req)),
     resize: async (req) => {
       await worker().request(PTY_METHODS.resize, req);
     },
     kill: async (req) => {
       await worker().request(PTY_METHODS.kill, req);
+      live.delete(req.sessionId);
     },
     // No port: the window discovers the session with `list` and attaches when it shows it.
     createAgentSession: async (req) => {
@@ -142,11 +160,11 @@ export function createTerminalService(deps: TerminalServiceDeps): TerminalServic
         title: req.title,
         command: req.command,
       });
-      const session = await worker().request<TerminalSession>(PTY_METHODS.create, params);
+      const session = track(await worker().request<TerminalSession>(PTY_METHODS.create, params));
       publish({ type: "session.created", session });
       return session;
     },
-    takeOver: (req) => worker().request<TerminalSession>(PTY_METHODS.takeOver, req),
+    takeOver: async (req) => track(await worker().request<TerminalSession>(PTY_METHODS.takeOver, req)),
     onExit: (listener) => {
       // Subscribed to the worker on its first use: registering never starts the pty-host.
       exitListeners.add(listener);
