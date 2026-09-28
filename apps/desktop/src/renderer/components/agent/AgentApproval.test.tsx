@@ -28,7 +28,7 @@ function renderCard(options: { typing: boolean; external?: boolean }) {
   const utils = renderWithMission({
     edits: [],
     ui: (missionId) => {
-      card = approval("00000000-0000-4000-8000-00000000b001", missionId, options.external ? { request: { workspaceId: "w", missionId, tool: "mcp__github__create_issue", operation: "external" } } : {});
+      card = approval("00000000-0000-4000-8000-00000000b001", missionId, options.external ? { request: { workspaceId: "w", missionId, tool: "mcp__github__create-issue", operation: "external" } } : {});
       return (
         <>
           <textarea aria-label="Composer" autoFocus={options.typing} />
@@ -63,6 +63,8 @@ describe("AgentApproval", () => {
   it("marks external actions irreversible and offers no mission-wide approval", () => {
     renderCard({ typing: true, external: true });
     expect(screen.getByText("Cette action ne pourra pas être annulée par NOVA.")).toBeTruthy();
+    // An MCP call names the service and tool it acts on (it has no path or host).
+    expect(screen.getByRole("alertdialog", { name: "Nomi veut agir hors de NOVA github › create-issue" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Pour cette mission" })).toBeNull();
     // The shortcut hint does not announce the missing mission-wide shortcut.
     expect(screen.getByText("Ctrl+Entrée : une fois · Échap : refuser")).toBeTruthy();

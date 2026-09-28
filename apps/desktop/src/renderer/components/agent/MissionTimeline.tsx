@@ -5,7 +5,7 @@ import { Button, Callout, CitationChip, useToast } from "@nova/ui";
 import { fr } from "../../copy/fr";
 import { SUSPEND_REASON_COPY } from "../../copy/fr-atelier";
 import { errorToast } from "../../lib/errors";
-import { formatInteger } from "../../lib/format";
+import { formatCost, formatInteger } from "../../lib/format";
 import { useApp } from "../../state/context";
 import { groupTimeline, type MessageItem, type MissionView, type NoticeItem } from "../missions/timeline";
 import { AgentApproval } from "./AgentApproval";
@@ -88,7 +88,8 @@ const MAX_MISSION_BUDGET_USD = 1_000;
 function RaiseCap({ view, onResume }: { view: MissionView; onResume: (budgetUsd: number) => void }) {
   const id = useId();
   const current = view.budget?.budgetUsd ?? null;
-  const [value, setValue] = useState(current === null ? "" : String(Math.min(MAX_MISSION_BUDGET_USD, current * 2)));
+  // French notation both ways: « 0,004 » proposed, « 0,50 $ » in the hint (never « 0.50 »).
+  const [value, setValue] = useState(current === null ? "" : String(Math.min(MAX_MISSION_BUDGET_USD, current * 2)).replace(".", ","));
   const parsed = Number(value.replace(",", "."));
   const valid = value.trim() !== "" && Number.isFinite(parsed) && parsed > (current ?? 0) && parsed <= MAX_MISSION_BUDGET_USD;
   return (
@@ -110,7 +111,7 @@ function RaiseCap({ view, onResume }: { view: MissionView; onResume: (budgetUsd:
           onChange={(event) => setValue(event.target.value)}
         />
       </label>
-      {!valid ? <p className="nova-note">{copy.mission.raiseCapInvalid(current === null ? "0" : current.toFixed(2))}</p> : null}
+      {!valid ? <p className="nova-note">{copy.mission.raiseCapInvalid(formatCost(current ?? 0) ?? "0 $")}</p> : null}
       <Button size="sm" variant="secondary" type="submit" disabled={!valid}>
         {copy.mission.raiseCap}
       </Button>

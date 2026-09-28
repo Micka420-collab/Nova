@@ -46,7 +46,7 @@ function WorkbenchWithDock() {
       {dockOpen ? (
         <>
           <Separator className="nova-separator nova-separator--horizontal" />
-          <Panel id="dock" defaultSize={240} minSize={120} maxSize="60">
+          <Panel id="dock" defaultSize={300} minSize={160} maxSize="60">
             <Dock />
           </Panel>
         </>

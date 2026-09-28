@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { activityForTool } from "./activity";
 import { EMPTY_COMPANION_FACTS, currentActivity, focusMission, reduceCompanionFacts, type CompanionFactsState } from "./facts";
-import { signalsFromMissionEvent } from "./signals";
+import { approvalSummary, signalsFromMissionEvent } from "./signals";
 import { MISSION_ID, MissionLog, approval, commandDisplay, testsDisplay } from "./test-events";
 
 function replay(log: MissionLog): CompanionFactsState {
@@ -89,5 +89,11 @@ describe("signal producers", () => {
     expect(produced[2]?.draft.evidence.excerpt).toBe("exécuter pnpm install");
     expect(produced[4]?.draft.evidence.excerpt).toBe("la limite d'itérations est atteinte");
     expect(new Set(produced.map((p) => p.key)).size).toBe(produced.length);
+  });
+
+  it("names an MCP call by its service and tool, not by the model-facing qualified name", () => {
+    const mcp = approval("a2", null);
+    mcp.request = { workspaceId: mcp.request.workspaceId, missionId: MISSION_ID, tool: "mcp__fixture__echo", operation: "read" };
+    expect(approvalSummary(mcp)).toBe("utiliser fixture › echo");
   });
 });

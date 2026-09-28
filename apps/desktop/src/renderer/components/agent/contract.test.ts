@@ -111,6 +111,16 @@ describe("contract sheet validation", () => {
     expect(result.errors.budget).toBeDefined();
   });
 
+  it("keeps a cap below one cent as typed, and refuses a cap of 0 (a mission that can do nothing)", () => {
+    const draft = draftFromPlan(plan());
+    const small = validateContractDraft(MISSION_ID, { ...draft, budgetUsd: "0,002" });
+    expect(small.ok && small.contract.budgetUsd).toBe(0.002);
+    expect(validateContractDraft(MISSION_ID, { ...draft, budgetUsd: "0" })).toMatchObject({
+      ok: false,
+      errors: { budget: "Le budget doit être un montant supérieur à 0 $ et d'au plus 1 000 $." },
+    });
+  });
+
   it("lowercases and dedupes hosts, accepts wildcard subdomains", () => {
     const draft = { ...draftFromPlan(plan()), hostsText: "Docs.Example.com, *.npmjs.org docs.example.com" };
     const result = validateContractDraft(MISSION_ID, draft);

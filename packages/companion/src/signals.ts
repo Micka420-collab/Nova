@@ -1,6 +1,6 @@
 // Signal producers (N2): recorded runtime facts → companion signals. Pure; main stores the result
 // in `signals` before any suggestion may refer to it. No network, no model, no guessing.
-import { redactSecrets, type Approval, type CompanionSignal, type MissionEvent } from "@nova/shared";
+import { parseMcpToolName, redactSecrets, type Approval, type CompanionSignal, type MissionEvent } from "@nova/shared";
 import { NOMI_COPY } from "./copy";
 import type { MissionFacts } from "./facts";
 import { shortCommand } from "./format";
@@ -29,6 +29,9 @@ export function approvalSummary(approval: Approval): string {
     return `lire ${request.path}`;
   }
   if (request.host) return `accéder à ${request.host}`;
+  // `mcp__server__tool` is the model's name for it; people know the service and its tool.
+  const mcp = parseMcpToolName(request.tool);
+  if (mcp) return `utiliser ${mcp.serverSlug} › ${mcp.toolSlug}`;
   return `utiliser l'outil ${request.tool}`;
 }
 

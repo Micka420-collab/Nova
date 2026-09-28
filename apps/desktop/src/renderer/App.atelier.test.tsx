@@ -193,5 +193,11 @@ describe("App atelier", () => {
     expect(store.getState().ui.activeDoc).toBe(`diff:${missionId}`);
     expect(await screen.findByRole("region", { name: "Relecture des changements" })).toBeTruthy();
     expect(calls).toContain("missions.diff");
+
+    // Back home, « Confier une mission à Nomi » starts a new mission: not the finished one again.
+    fireEvent.click(screen.getByRole("button", { name: "Accueil" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Confier une mission à Nomi" }));
+    expect(await screen.findByRole("radiogroup", { name: "Mode de travail" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Objectif de la mission" })).toBeTruthy();
   }, 30_000);
 });

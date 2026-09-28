@@ -8,6 +8,7 @@ import {
   type McpServerView,
   type McpSetToolPermissionRequest,
   type McpToolInfo,
+  type MissionEvent,
   type NovaBridge,
 } from "@nova/shared";
 import { Toaster } from "@nova/ui";
@@ -101,8 +102,8 @@ function makeServer(partial: Partial<McpServerView["config"]> = {}): McpServerVi
   };
 }
 
-function renderManager(mcp: Partial<NovaBridge["mcp"]> | null, withWorkspace = true) {
-  const fake = createFakeBridge({ connection: VALID_CONNECTION, atelier: mcp ? { mcp } : undefined });
+function renderManager(mcp: Partial<NovaBridge["mcp"]> | null, withWorkspace = true, missions?: Partial<NovaBridge["missions"]>) {
+  const fake = createFakeBridge({ connection: VALID_CONNECTION, atelier: mcp ? { mcp, ...(missions ? { missions } : {}) } : undefined });
   const client = createNovaClient(fake.bridge);
   const store = createAppStore(client);
   const workspace = makeWorkspace();
@@ -118,6 +119,37 @@ function renderManager(mcp: Partial<NovaBridge["mcp"]> | null, withWorkspace = t
 }
 
 describe("McpManager", () => {
+  it("re-reads the servers after a mission's tool call: a server that crashed mid-call shows « en erreur »", async () => {
+    const server = makeServer({ name: "fixture" });
+    let current: McpServerView = server;
+    let push: ((event: MissionEvent) => void) | null = null;
+    renderManager({ list: () => ok([current]) }, true, {
+      onEvent: (listener) => {
+        push = listener;
+        return () => undefined;
+      },
+    });
+    const list = await screen.findByRole("list", { name: "Serveurs MCP" });
+    expect(within(list).getByText(/connecté/)).toBeTruthy();
+    current = { ...server, status: { ...server.status, state: "error", lastError: "Le serveur s'est arrêté.", updatedAt: 2 } };
+    await act(async () => {
+      push?.({
+        id: testId(),
+        missionId: testId(),
+        seq: 9,
+        at: 2,
+        type: "tool.finished",
+        callId: testId(),
+        state: "failed",
+        durationMs: 30,
+        display: { kind: "error", code: "unavailable", message: "Le serveur s'est arrêté pendant l'appel." },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    });
+    expect(within(list).getByText(/en erreur/)).toBeTruthy();
+    expect(within(list).getByText("Le serveur s'est arrêté.")).toBeTruthy();
+  });
+
   it("says when no service is connected, and offers to add one", async () => {
     renderManager(inMemoryMcp().mcp);
     expect(await screen.findByText("Aucun service connecté.")).toBeTruthy();

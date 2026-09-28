@@ -5,7 +5,7 @@ import { useState, type ReactNode } from "react";
 import { Button, CitationChip, ToolCallCard, ToolCallGroup, type ToolCallStatus } from "@nova/ui";
 import { isMcpToolName, parseMcpToolName, type ToolDisplay } from "@nova/shared";
 import { fr } from "../../copy/fr";
-import { PERMISSION_REASON_LABELS } from "../../copy/fr-atelier";
+import { PERMISSION_REASON_LABELS, TOOL_ERROR_LABELS } from "../../copy/fr-atelier";
 import { formatCost, formatInteger } from "../../lib/format";
 import { useApp, useClient } from "../../state/context";
 import { toolCategory, type ToolItem } from "../missions/timeline";
@@ -62,7 +62,7 @@ function statusOf(item: ToolItem): ToolCallStatus {
   return item.state;
 }
 
-function DisplayBody({ display, item }: { display: ToolDisplay; item: ToolItem }) {
+function DisplayBody({ display }: { display: ToolDisplay }) {
   const client = useClient();
   const revealFile = useApp((state) => state.revealFile);
   const openDoc = useApp((state) => state.openDoc);
@@ -71,10 +71,14 @@ function DisplayBody({ display, item }: { display: ToolDisplay; item: ToolItem }
     case "text":
       return <pre className="nova-tool__pre">{display.text}</pre>;
     case "error":
+      // The message is written for the model (often English): the meaning comes first, in French.
       return (
-        <p className="nova-tool__error">
-          {display.message} <code>{display.code}</code>
-        </p>
+        <>
+          <p className="nova-tool__error">{TOOL_ERROR_LABELS[display.code]}</p>
+          <p className="nova-tool__detail">
+            {copy.errorDetail} {display.message}
+          </p>
+        </>
       );
     case "file_read":
       return (
@@ -154,14 +158,14 @@ function DisplayBody({ display, item }: { display: ToolDisplay; item: ToolItem }
         </>
       );
     case "tests": {
+      // A runner NOVA does not name ("other") and counts it did not report are left out, never
+      // shown as « other » or three « inconnu »: the exit code is the fact.
       const n = (value: number | null) => (value === null ? fr.app.unknown : formatInteger(value));
-      return (
-        <p className="nova-tool__fact">
-          {display.runner} · {copy.tests(n(display.passed), n(display.failed), n(display.skipped))} ·{" "}
-          {copy.exitCode(display.exitCode)}
-          {item.output ? null : ""}
-        </p>
-      );
+      const reported = display.passed !== null || display.failed !== null || display.skipped !== null;
+      const counts = reported ? copy.tests(n(display.passed), n(display.failed), n(display.skipped)) : null;
+      const runner = display.runner === "other" || display.runner === "unknown" ? null : display.runner;
+      const parts = [runner, counts, copy.exitCode(display.exitCode)].filter((part) => part !== null);
+      return <p className="nova-tool__fact">{parts.join(" · ")}</p>;
     }
     case "git_status":
       return (
@@ -191,6 +195,8 @@ function DisplayBody({ display, item }: { display: ToolDisplay; item: ToolItem }
             {formatCost(display.costUsd) ? copy.webCost(formatCost(display.costUsd) ?? "") : copy.webCostUnknown}
           </p>
           <p className="nova-tool__subhead">{copy.sources}</p>
+          {/* W5: what a page says is data from outside, shown with its provenance, never a rule. */}
+          <p className="nova-tool__untrusted">{copy.webUntrusted}</p>
           <ol className="nova-tool__sources">
             {display.citations.map((citation) => (
               <li key={citation.url}>
@@ -239,11 +245,20 @@ function hostOf(url: string): string {
 
 export function ToolCard({ item, expert }: { item: ToolItem; expert: boolean }) {
   const category = toolCategory(item.call.name);
-  const [expanded, setExpanded] = useState(
-    item.state === "failed" || (expert && (category === "edit" || category === "terminal")),
-  );
+  // A failure or a refusal opens by itself, also when it happens after the card mounted (live
+  // missions): its reason is what the user needs to see (scenario 6).
+  const ended = item.state === "failed" || item.state === "denied";
+  const [expanded, setExpanded] = useState(ended || (expert && (category === "edit" || category === "terminal")));
+  const [openedOnEnd, setOpenedOnEnd] = useState(ended);
+  if (ended !== openedOnEnd) {
+    setOpenedOnEnd(ended);
+    if (ended) setExpanded(true);
+  }
   const permission = item.permission;
   const showPermission = permission && permission.decision !== "allow";
+  const deniedByUser = item.state === "denied" && permission?.decision === "ask";
+  // The refusal's error text is written for the model (English); the line above says it in French.
+  const display = showPermission && item.display?.kind === "error" && item.display.code === "permission_denied" ? null : item.display;
   return (
     <ToolCallCard
       kind={category}
@@ -256,17 +271,19 @@ export function ToolCard({ item, expert }: { item: ToolItem; expert: boolean }) 
       expanded={expanded}
       onExpandedChange={setExpanded}
     >
-      {showPermission ? <p className="nova-tool__fact">{copy.permission(PERMISSION_REASON_LABELS[permission.reason])}</p> : null}
+      {showPermission ? (
+        <p className="nova-tool__fact">{deniedByUser ? copy.deniedByUser : copy.permission(PERMISSION_REASON_LABELS[permission.reason])}</p>
+      ) : null}
       {expert ? (
         <>
           <p className="nova-tool__subhead">{copy.arguments}</p>
           <pre className="nova-tool__pre">{item.call.argumentsPreview}</pre>
         </>
       ) : null}
-      {item.display ? (
+      {display ? (
         <>
           {expert ? <p className="nova-tool__subhead">{copy.result}</p> : null}
-          <DisplayBody display={item.display} item={item} />
+          <DisplayBody display={display} />
         </>
       ) : null}
       {item.output && item.state === "running" ? (

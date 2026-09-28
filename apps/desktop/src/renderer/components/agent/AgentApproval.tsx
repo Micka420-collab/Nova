@@ -21,13 +21,18 @@ export function isIrreversible(approval: Approval): boolean {
 export function approvalTargetText(approval: Approval): string | null {
   const { request } = approval;
   if (request.argv && request.argv.length > 0) return request.argv.join(" ");
-  return request.path ?? request.host ?? null;
+  // An MCP call has no path or host: the service and its tool are what it acts on.
+  return request.path ?? request.host ?? (isMcpToolName(request.tool) ? mcpLabel(request.tool) : null);
+}
+
+function mcpLabel(tool: string): string {
+  return tool.replace(/^mcp__/, "").replace("__", " › ");
 }
 
 function approvalFacts(approval: Approval, workspaceName: string | null): ApprovalFact[] {
   const { request, decision } = approval;
   const facts: ApprovalFact[] = [
-    { label: copy.tool, value: <code>{isMcpToolName(request.tool) ? request.tool.replace(/^mcp__/, "").replace("__", " › ") : request.tool}</code> },
+    { label: copy.tool, value: <code>{isMcpToolName(request.tool) ? mcpLabel(request.tool) : request.tool}</code> },
   ];
   if (request.argv && request.argv.length > 0) facts.push({ label: copy.command, value: <code>{request.argv.join(" ")}</code> });
   if (request.path) facts.push({ label: copy.path, value: <code>{request.path}</code> });

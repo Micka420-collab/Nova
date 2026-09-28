@@ -13,6 +13,7 @@ import { McpServerForm } from "./McpServerForm";
 import { McpSources } from "./McpSources";
 
 const t = fr.extensions;
+const STATUS_REFRESH_MS = 250;
 
 type ListState =
   | { status: "loading" }
@@ -73,6 +74,28 @@ export function McpManager() {
       current = false;
     };
   }, [client, requestKey]);
+
+  // Server status has no push channel: a tool call of a mission is when a server may have
+  // connected, crashed or timed out, so the list is re-read then (debounced), and when the
+  // manager is shown again. Without it a crashed server kept showing « connecté ».
+  const shown = useApp((state) => state.ui.activeDoc === "extensions");
+  const [wasShown, setWasShown] = useState(shown);
+  if (shown !== wasShown) {
+    setWasShown(shown);
+    if (shown) setReload((value) => value + 1);
+  }
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const unsubscribe = client.missions.onEvent((event) => {
+      if (event.type !== "tool.finished") return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => setReload((value) => value + 1), STATUS_REFRESH_MS);
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      unsubscribe();
+    };
+  }, [client]);
 
   const retry = () => {
     setList({ status: "loading" });

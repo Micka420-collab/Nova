@@ -72,6 +72,12 @@ function FolderCard() {
   const loading = useApp((state) => state.workspace.status === "loading");
   const openWorkspace = useApp((state) => state.openWorkspace);
   const setUi = useApp((state) => state.setUi);
+  const selectMission = useApp((state) => state.selectMission);
+  const finishedSelected = useApp((state) => {
+    const id = state.missions.selectedId;
+    const mission = id ? state.missions.views[id]?.mission : undefined;
+    return mission !== undefined && ["succeeded", "failed", "cancelled"].includes(mission.state);
+  });
   const setWorkMode = useApp((state) => state.setWorkMode);
   const toast = useToast();
   const open = () => {
@@ -102,6 +108,8 @@ function FolderCard() {
               variant="primary"
               size="sm"
               onClick={() => {
+                // A new mission: a finished one stays in the mission list, not in the way of the composer.
+                if (finishedSelected) selectMission(null);
                 setWorkMode("understand");
                 setUi({ route: "chat", agentOpen: true });
               }}

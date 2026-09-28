@@ -271,10 +271,11 @@ export function TerminalPanel(props: TerminalPanelProps) {
         </Button>
       </div>
 
+      {/* One line: in a 240 px dock a callout left no room for the terminal itself. */}
       {rendererIssue ? (
-        <Callout tone="warning" className="nv-terminal-notice">
+        <p className="nv-terminal-notice" role="note" title={copy.degraded}>
           {copy.degraded}
-        </Callout>
+        </p>
       ) : null}
 
       {active ? (

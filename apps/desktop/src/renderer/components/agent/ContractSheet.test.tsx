@@ -77,7 +77,7 @@ describe("ContractSheet", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Budget maximal ($)" }), { target: { value: "beaucoup" } });
     fireEvent.click(screen.getByRole("button", { name: "Lancer la mission" }));
     expect(onLaunch).not.toHaveBeenCalled();
-    expect(screen.getByText("Le budget doit être un montant entre 0 et 1 000 $.")).toBeTruthy();
+    expect(screen.getByText("Le budget doit être un montant supérieur à 0 $ et d'au plus 1 000 $.")).toBeTruthy();
   });
 
   it("starts from the Web toggle of the goal composer and says it in the contract", () => {

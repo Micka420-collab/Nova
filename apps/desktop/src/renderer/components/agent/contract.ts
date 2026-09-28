@@ -121,14 +121,16 @@ export function validateContractDraft(missionId: string, draft: ContractDraft): 
     errors.duration = copy.duration;
   }
   const budget = parseDecimal(draft.budgetUsd);
-  if (budget === null || budget < 0 || budget > MAX_BUDGET_USD) errors.budget = copy.budget;
+  // A cap of 0 lets the mission do nothing (it suspends before its first call): refused here.
+  const cap = budget === null ? null : Math.round(budget * 10_000) / 10_000;
+  if (cap === null || cap <= 0 || cap > MAX_BUDGET_USD) errors.budget = copy.budget;
 
   const hosts = parseHosts(draft.hostsText);
   const invalidHost = hosts.find((host) => !HostPatternSchema.safeParse(host).success);
   if (invalidHost !== undefined) errors.hosts = copy.host(invalidHost);
   else if (hosts.length > MAX_HOSTS) errors.hosts = copy.tooManyHosts;
 
-  if (Object.keys(errors).length > 0 || minutes === null || budget === null) return { ok: false, errors };
+  if (Object.keys(errors).length > 0 || minutes === null || cap === null) return { ok: false, errors };
 
   const tasks: MissionTaskDraft[] | null = draft.stepsEdited
     ? draft.steps.map((step) => ({
@@ -142,7 +144,8 @@ export function validateContractDraft(missionId: string, draft: ContractDraft): 
     allowedHosts: hosts,
     webSearch: draft.webSearch,
     maxDurationMs: Math.round(minutes) * 60_000,
-    budgetUsd: Math.round(budget * 100) / 100,
+    // To the hundredth of a cent: a cap under one cent (cheap models) is not rounded away to 0.
+    budgetUsd: cap,
   };
   // Same schema main applies: what passes here is exactly what main will accept.
   const parsed = MissionStartRequestSchema.safeParse({ missionId, tasks, contract });

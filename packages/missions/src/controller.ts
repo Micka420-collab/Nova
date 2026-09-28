@@ -108,6 +108,16 @@ export interface MissionStoreLike {
   reviews: { record(missionId: string, decisions: { path: string; hunkIndex: number | null; decision: "kept" | "reverted" }[]): void };
 }
 
+/**
+ * What is left under a cap, French notation, rounded DOWN (never promise more than there is), with
+ * four decimals under one cent (a 0,002 $ cap is not « 0,00 $ »).
+ */
+function remainingUsdText(usd: number): string {
+  const digits = usd > 0 && usd < 0.01 ? 4 : 2;
+  const factor = 10 ** digits;
+  return (Math.floor(usd * factor) / factor).toFixed(digits).replace(".", ",");
+}
+
 /** Expected refusal with an IPC error code (main maps it to ServiceError). */
 export class MissionError extends Error {
   constructor(
@@ -230,6 +240,26 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
     // The tasks table is the projection read by `missions.get`: keep it in step with the journal.
     if (stored?.type === "task.updated") deps.store.setTaskState(stored.task.id, stored.task.state);
     return stored;
+  };
+
+  /**
+   * S6 after a crash: every call left without its end gets one, before the mission's terminal event
+   * (else it reads « en cours » forever). A call that had started may have acted: `interrupted`,
+   * result unknown, shown to the user and never replayed. One that had not started was not run.
+   */
+  const closeOpenToolCalls = (missionId: string): void => {
+    const events = deps.store.listEvents(missionId).map(eventFromRecord);
+    const ended = new Set(events.flatMap((event) => (event.type === "tool.finished" ? [event.callId] : [])));
+    const started = new Set(events.flatMap((event) => (event.type === "tool.started" ? [event.callId] : [])));
+    for (const event of events) {
+      if (event.type !== "tool.requested" || ended.has(event.call.id)) continue;
+      const ran = started.has(event.call.id);
+      const display = ran
+        ? { kind: "error" as const, code: "interrupted" as const, message: "NOVA stopped while this call was running: its outcome is unknown. Do not assume it ran or not; it was not retried." }
+        : { kind: "error" as const, code: "cancelled" as const, message: "NOVA stopped before this call ran: it was not executed." };
+      deps.store.toolCalls.finish(event.call.id, ran ? "failed" : "cancelled", { exitCode: null, resultSummary: display.code });
+      append({ type: "tool.finished", missionId, callId: event.call.id, state: ran ? "failed" : "cancelled", display, durationMs: Math.max(0, now() - event.at) });
+    }
   };
 
   const mission = (id: string): MissionRecordLike => {
@@ -516,7 +546,7 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
           dayStart: startOfDay(now()),
         });
         if (result.ok) return { ok: true, reservationId: result.reservation.id };
-        const left = result.availableUsd.toFixed(2).replace(".", ",");
+        const left = remainingUsdText(result.availableUsd);
         return {
           ok: false,
           code: result.reason,
@@ -572,6 +602,7 @@ export function createMissionController(deps: MissionControllerDeps): MissionCon
       const interrupted = deps.store.listInterrupted();
       for (const record of interrupted) {
         deps.store.cost.releaseOpen(record.id);
+        closeOpenToolCalls(record.id);
         append({ type: "mission.failed", missionId: record.id, reason: "internal", detail: "interrompue par l'arrêt de NOVA" });
       }
       return interrupted.length;

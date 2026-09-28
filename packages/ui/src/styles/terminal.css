@@ -94,6 +94,7 @@
 
 .nv-terminal-status {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--nv-space-2);
   min-height: 32px;
@@ -103,6 +104,7 @@
 }
 
 .nv-terminal-cwd {
+  flex: 1 1 12ch;
   min-width: 0;
   overflow: hidden;
   color: var(--nv-text-secondary);
@@ -111,15 +113,29 @@
   white-space: nowrap;
 }
 
+/* The actions stay together: in a narrow dock they move below the shell label as one row
+   instead of spilling one button per line (or past the edge). */
 .nv-terminal-actions {
   display: inline-flex;
-  flex-wrap: wrap;
+  flex: none;
   gap: var(--nv-space-1);
   margin-inline-start: auto;
 }
 
+.nv-terminal-status > .nv-pill {
+  flex: none;
+}
+
 .nv-terminal-notice {
-  margin: var(--nv-space-2) var(--nv-space-3) 0;
+  margin: 0;
+  padding: 2px var(--nv-space-3);
+  overflow: hidden;
+  border-bottom: 1px solid var(--nv-border);
+  background: var(--nv-amber-soft);
+  color: var(--nv-amber);
+  font-size: var(--nv-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nv-terminal-find {

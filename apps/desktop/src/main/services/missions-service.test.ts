@@ -300,4 +300,41 @@ describe("missions service (main + runtime over a port)", () => {
     expect(terminal()).toMatchObject([{ type: "mission.failed", reason: "internal" }]);
     expect(service.controller.recoverInterrupted()).toBe(0);
   });
+
+  it("says what is left under the cap without rounding it up (0.498 $ left is « 0,49 $ », not « 0,50 $ »)", async () => {
+    build();
+    turns = [{ text: PLAN }];
+    const plan = await service.api.plan({ workspaceId, conversationId: null, goal: "x", mode: "fix", modelId: MODEL, contract: null });
+    // The planning call reported 0.002 $ of the default 0.50 $ cap.
+    expect(service.controller.budget.reserve(plan.mission.id, 1)).toEqual({ ok: false, code: "budget", message: "budget de la mission atteint (reste 0,49 $)" });
+  });
+
+  it("closes the tool calls a crash left open: a started one as interrupted (result unknown), never replayed", async () => {
+    build();
+    turns = [{ text: PLAN }];
+    const plan = await service.api.plan({ workspaceId, conversationId: null, goal: "x", mode: "fix", modelId: MODEL, contract: null });
+    const missionId = plan.mission.id;
+    const call = (id: string) => ({ id, name: "run_command" as const, operation: "execute" as const, argumentsPreview: "{}", path: null, host: null, argv: ["node", "effect.js"] });
+    const journal = service.controller.journal;
+    journal.append({ type: "mission.started", missionId, contract: { ...CONTRACT, workspaceId, mode: "fix", isolationLevel: "L0" } });
+    journal.append({ type: "tool.requested", missionId, call: call("c-started"), taskId: null });
+    journal.append({ type: "tool.started", missionId, callId: "c-started", isolationLevel: "L0" });
+    journal.append({ type: "tool.requested", missionId, call: call("c-queued"), taskId: null });
+    pushed = [];
+    build();
+    const requestsBefore = requests.length;
+    expect(service.controller.recoverInterrupted()).toBe(1);
+    const ends = stored("tool.finished") as Extract<MissionEvent, { type: "tool.finished" }>[];
+    expect(ends.map((event) => [event.callId, event.state, event.display.kind === "error" ? event.display.code : null])).toEqual([
+      ["c-started", "failed", "interrupted"],
+      ["c-queued", "cancelled", "cancelled"],
+    ]);
+    // Each call has exactly one end, before the mission's own terminal event; nothing is re-run.
+    expect(pushed.map((event) => event.type).slice(-1)).toEqual(["mission.failed"]);
+    expect(requests.length).toBe(requestsBefore);
+    pushed = [];
+    build();
+    expect(service.controller.recoverInterrupted()).toBe(0);
+    expect(stored("tool.finished")).toEqual([]);
+  });
 });

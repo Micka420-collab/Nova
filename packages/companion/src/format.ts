@@ -2,7 +2,10 @@
 
 /** "4,10 $"; "au moins 0,02 $" when some costs are unknown. */
 export function formatUsd(value: number, lowerBound = false): string {
-  const text = `${value.toFixed(2).replace(".", ",")} $`;
+  // Under one cent, four decimals (trailing zeros dropped): cheap models spend 0,0016 $, not 0,00 $.
+  const small = value > 0 && value < 0.01;
+  const digits = small ? value.toFixed(4).replace(/0+$/, "") : value.toFixed(2);
+  const text = `${digits.replace(".", ",")} $`;
   return lowerBound ? `au moins ${text}` : text;
 }
 

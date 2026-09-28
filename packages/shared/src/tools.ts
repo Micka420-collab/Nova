@@ -130,7 +130,9 @@ export type ToolErrorCode =
   | "timeout"
   | "cancelled"
   | "unavailable"
-  | "failed";
+  | "failed"
+  /** NOVA stopped (crash, quit) while the call was running: its outcome is unknown, never replayed. */
+  | "interrupted";
 
 /**
  * Where the content of a result comes from. Anything but `nova` is untrusted data: it is wrapped

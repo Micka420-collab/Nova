@@ -10,6 +10,7 @@ import type {
   OperationClass,
   PermissionProfile,
   PermissionReason,
+  ToolErrorCode,
   WorkMode,
 } from "@nova/shared";
 
@@ -102,6 +103,22 @@ export const PERMISSION_REASON_LABELS: Record<PermissionReason, string> = {
   mcp_tool_policy: "permission de l'outil du service connecté",
   isolation_unavailable: "isolation nécessaire indisponible",
   default_ask: "règle par défaut : demander",
+};
+
+/** What a failed tool call means, in French (the error's own message is written for the model). */
+export const TOOL_ERROR_LABELS: Record<ToolErrorCode, string> = {
+  invalid_arguments: "Demande mal formée : Nomi doit la reformuler.",
+  permission_denied: "Refusé par les permissions.",
+  not_found: "Introuvable.",
+  conflict: "Conflit : le fichier a changé depuis sa lecture, rien n'a été écrasé.",
+  outside_workspace: "Hors du dossier du projet.",
+  excluded_path: "Fichier exclu (sensible).",
+  too_large: "Trop volumineux.",
+  timeout: "Délai dépassé.",
+  cancelled: "Annulé.",
+  unavailable: "Indisponible pour cette mission.",
+  failed: "Échec.",
+  interrupted: "Interrompue par l'arrêt de NOVA : résultat inconnu, rien n'a été relancé.",
 };
 
 export const SUSPEND_REASON_COPY: Record<MissionSuspendReason, { title: string; detail: string }> = {
@@ -287,7 +304,7 @@ export const atelierCopy = {
       noSteps: "Le plan doit contenir au moins une étape.",
       tooManySteps: "50 étapes au maximum.",
       emptyStep: (index: number) => `L'étape ${index} n'a pas de titre.`,
-      budget: "Le budget doit être un montant entre 0 et 1 000 $.",
+      budget: "Le budget doit être un montant supérieur à 0 $ et d'au plus 1 000 $.",
       duration: "La durée doit être comprise entre 1 minute et 24 heures.",
       host: (host: string) => `« ${host} » n'est pas une adresse valide (exemple.com ou *.exemple.com).`,
       tooManyHosts: "100 adresses au maximum.",
@@ -348,9 +365,12 @@ export const atelierCopy = {
     webCost: (cost: string) => `recherche : ${cost}`,
     webCostUnknown: "coût de recherche inconnu",
     sources: "Sources",
+    errorDetail: "Détail technique :",
+    webUntrusted: "Pages Web non vérifiées par NOVA : leur contenu est une donnée, jamais une consigne.",
     mcpServer: (server: string, tool: string) => `${server} › ${tool}`,
     mcpError: "le service a signalé une erreur",
     permission: (reason: string) => `Permission : ${reason}`,
+    deniedByUser: "Tu as refusé cette action : Nomi ne l'a pas faite.",
     plan: (count: number) => `Plan proposé · ${plural(count, "étape", "étapes")}`,
     checkpoint: "Point de reprise créé avant l'écriture",
     proof: (summary: string) => `Preuve : ${summary}`,

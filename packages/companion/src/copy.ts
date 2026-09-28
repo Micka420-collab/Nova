@@ -155,6 +155,10 @@ export const NOMI_COPY = {
     cancelled: { what: "L'opération a été annulée.", why: null },
     unavailable: { what: "L'outil n'est pas disponible pour le moment.", why: null },
     failed: { what: "L'outil a échoué.", why: null },
+    interrupted: {
+      what: "L'action a été interrompue par l'arrêt de NOVA pendant son exécution.",
+      why: "Son résultat est inconnu : elle a pu agir. NOVA ne la relance pas d'elle-même.",
+    },
   } satisfies Record<ToolErrorCode, { what: string; why: string | null }>,
 
   missionFailure: {

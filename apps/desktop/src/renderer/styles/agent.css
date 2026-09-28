@@ -185,13 +185,17 @@
 
 /* Mission timeline */
 
+/* One column that never grows past its panel: a grid track defaults to its content's min width,
+   so a long command in a card title (nowrap) widened the whole journal past the edge. */
 .nova-agent-timeline {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--nv-space-3);
 }
 
 .nova-agent-timeline__list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--nv-space-1);
   margin: 0;
   padding: 0;
@@ -347,6 +351,19 @@
   font-size: var(--nv-text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.nova-tool__detail {
+  margin: 0;
+  color: var(--nv-text-secondary);
+}
+
+.nova-tool__untrusted {
+  margin: 0 0 var(--nv-space-1);
+  padding-left: var(--nv-space-2);
+  border-left: 2px solid var(--nv-border-strong);
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-xs);
 }
 
 .nova-tool__snippet {
