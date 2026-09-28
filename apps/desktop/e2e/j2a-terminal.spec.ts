@@ -1,7 +1,7 @@
 // J2-A journey (e): the terminal of the atelier is a real shell (node-pty in the pty-host worker) in
-// the project folder: a command runs and prints, Ctrl+C interrupts a running program (the process
-// is really gone), and the shell keeps working afterwards.
-import { existsSync, readFileSync } from "node:fs";
+// the project folder: a command runs there, Ctrl+C interrupts a running program (the process is
+// really gone), and the shell keeps working afterwards.
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { makeUserDataDir, removeDir, type LaunchedNova } from "./fixtures";
@@ -40,14 +40,13 @@ function alive(pid: number): boolean {
   }
 }
 
-/** Visible text of the terminal (xterm DOM rows, or its accessibility buffer with a canvas renderer). */
-async function screenText(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const view = document.querySelector(".nv-terminal-view:not([hidden])");
-    const rows = view?.querySelector(".xterm-rows");
-    const a11y = view?.querySelector(".xterm-accessibility-tree");
-    return `${rows?.textContent ?? ""}\n${a11y?.textContent ?? ""}`;
-  });
+/**
+ * Runs `node -e <code>` in the terminal: the same line works in every shell NOVA opens (bash, zsh,
+ * pwsh, cmd). What the command did is read from the disk, not from the screen: with the WebGL
+ * renderer the terminal text is only pixels.
+ */
+async function runNode(page: Page, code: string): Promise<void> {
+  await page.keyboard.type(`node -e "${code}"\n`);
 }
 
 test("(e) terminal: a command runs in the project folder, Ctrl+C stops a running program", async () => {
@@ -55,7 +54,7 @@ test("(e) terminal: a command runs in the project folder, Ctrl+C stops a running
   const { page } = nova;
 
   // Ctrl+J shows the dock; its Terminal tab opens a shell in the project.
-  await page.keyboard.press("Control+j");
+  await page.keyboard.press("ControlOrMeta+j");
   const panel = page.getByRole("region", { name: "Terminal" });
   await expect(panel).toBeVisible();
   const empty = panel.getByRole("button", { name: "Nouveau terminal" });
@@ -64,22 +63,23 @@ test("(e) terminal: a command runs in the project folder, Ctrl+C stops a running
   await expect(session).toBeVisible();
   await session.click();
 
-  await page.keyboard.type("pwd; echo NOVA_$((6*7))\n");
-  await expect.poll(() => screenText(page)).toContain("NOVA_42");
-  expect(await screenText(page)).toContain(project);
+  await runNode(page, "require('fs').writeFileSync('cwd.txt', process.cwd())");
+  await expect.poll(() => existsSync(join(project, "cwd.txt"))).toBe(true);
+  // Native realpath: macOS /var is /private/var, Windows tmp paths can be 8.3 short names.
+  expect(realpathSync.native(readFileSync(join(project, "cwd.txt"), "utf8"))).toBe(realpathSync.native(project));
   await shot(page, "j2a-14-terminal-command");
 
   // A program that never ends: it writes its pid, then waits. Ctrl+C must kill it.
-  await page.keyboard.type(`node -e "require('fs').writeFileSync('pid.txt', String(process.pid)); setInterval(() => {}, 1000)"\n`);
+  await runNode(page, "require('fs').writeFileSync('pid.txt', String(process.pid)); setInterval(() => {}, 1000)");
   await expect.poll(() => existsSync(join(project, "pid.txt"))).toBe(true);
   spawnedPid = Number(readFileSync(join(project, "pid.txt"), "utf8"));
   expect(alive(spawnedPid)).toBe(true);
   await page.keyboard.press("Control+c");
   await expect.poll(() => alive(spawnedPid ?? 0), { timeout: 10_000 }).toBe(false);
 
-  // The shell is still there and saw the interrupt (exit status 130 = SIGINT).
-  await page.keyboard.type("echo apres-$?\n");
-  await expect.poll(() => screenText(page)).toContain("apres-130");
+  // The shell survived the interrupt and still runs commands.
+  await runNode(page, "require('fs').writeFileSync('after.txt', 'ok')");
+  await expect.poll(() => existsSync(join(project, "after.txt"))).toBe(true);
   await expect(panel.getByRole("tab", { name: /En cours/ }).first()).toBeVisible();
   await shot(page, "j2a-15-terminal-interrupted");
 });
