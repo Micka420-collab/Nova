@@ -19,9 +19,16 @@ export interface AutoContinueChange {
   error: string | null;
 }
 
-/** Default bounds when the option is turned on: 3 rounds, half of the mission budget (rounded down to the cent). */
+/**
+ * Default bounds when the option is turned on: 3 rounds, half of the mission budget rounded down
+ * to the cent, or to 0,0001 $ under a cent (a cheap mission's budget of 0,015 $ gives 0,0075 $,
+ * not a 0 $ cap that would never allow a round). Without a valid mission budget: 0, refused below.
+ */
 export function defaultAutoContinue(missionBudgetUsd: number | null): AutoContinueOptions {
-  const budget = missionBudgetUsd === null ? 0 : Math.floor((missionBudgetUsd / 2) * 100) / 100;
+  if (missionBudgetUsd === null || missionBudgetUsd <= 0) return { maxRounds: DEFAULT_AUTO_CONTINUE_ROUNDS, budgetUsd: 0 };
+  const half = missionBudgetUsd / 2;
+  const cents = Math.floor(half * 100) / 100;
+  const budget = cents > 0 ? cents : Math.floor(half * 10_000) / 10_000 || missionBudgetUsd;
   return { maxRounds: DEFAULT_AUTO_CONTINUE_ROUNDS, budgetUsd: budget };
 }
 
@@ -31,7 +38,8 @@ export function validateAutoContinue(roundsText: string, budgetText: string, mis
     return { value: null, error: copy.errors.rounds(AUTO_CONTINUE_LIMITS.maxRounds) };
   }
   const budget = parseDecimal(budgetText);
-  if (budget === null || budget > 1_000) return { value: null, error: copy.errors.budget };
+  // A 0 $ cap would refuse every round: the option would look on and never act.
+  if (budget === null || budget <= 0 || budget > 1_000) return { value: null, error: copy.errors.budget };
   if (missionBudgetUsd !== null && budget > missionBudgetUsd) return { value: null, error: copy.errors.overMission };
   return { value: { maxRounds: rounds, budgetUsd: budget }, error: null };
 }

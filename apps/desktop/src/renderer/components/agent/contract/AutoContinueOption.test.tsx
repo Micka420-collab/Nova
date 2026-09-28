@@ -63,9 +63,14 @@ describe("AutoContinueOption", () => {
   it("validates as a pure function too", () => {
     expect(defaultAutoContinue(0.35)).toEqual({ maxRounds: 3, budgetUsd: 0.17 });
     expect(defaultAutoContinue(null)).toEqual({ maxRounds: 3, budgetUsd: 0 });
+    // A cheap mission's budget under two cents still allows rounds.
+    expect(defaultAutoContinue(0.015)).toEqual({ maxRounds: 3, budgetUsd: 0.0075 });
+    expect(defaultAutoContinue(0.0001)).toEqual({ maxRounds: 3, budgetUsd: 0.0001 });
     expect(validateAutoContinue("2,5", "0,1", 1).error).toBe("Un nombre entier de 1 à 10.");
     expect(validateAutoContinue("2", "abc", 1).error).toBe("Un montant positif, par exemple 0,20.");
-    expect(validateAutoContinue("2", "0", null)).toEqual({ value: { maxRounds: 2, budgetUsd: 0 }, error: null });
+    // A 0 $ cap never allows a round: refused, as the copy says (« Un montant positif »).
+    expect(validateAutoContinue("2", "0", null)).toEqual({ value: null, error: "Un montant positif, par exemple 0,20." });
+    expect(validateAutoContinue("2", "0,0075", 0.015)).toEqual({ value: { maxRounds: 2, budgetUsd: 0.0075 }, error: null });
   });
 
   it("knows when the plan has something NOVA can prove in this mode", () => {
