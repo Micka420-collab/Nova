@@ -1,7 +1,14 @@
 // Chat orchestration for the Electron main process: conversation -> provider stream -> storage,
 // with live events for the renderer. One active stream per conversation.
 import { randomUUID } from "node:crypto";
-import { ProviderError, providerErrorInfo, type ModelProvider, type WebPluginOptions } from "@nova/providers";
+import {
+  ProviderError,
+  providerErrorInfo,
+  type ChatImageInput,
+  type ChatMessageInput,
+  type ModelProvider,
+  type WebPluginOptions,
+} from "@nova/providers";
 import {
   redactSecrets,
   type ActiveStream,
@@ -13,7 +20,9 @@ import {
   type ChatStreamEvent,
   type Message,
   type MessageStatus,
+  type ModelInfo,
   type ProviderErrorInfo,
+  type ReasoningEffort,
   type StreamPhase,
   type UsageSummary,
   type WebCitation,
@@ -56,6 +65,13 @@ export interface ChatRunnerDeps {
    * null = the full history.
    */
   historyForModel?: (conversationId: string, history: Message[]) => CompactedHistory | null;
+  /**
+   * J2-B L7: catalog entry of a model (null = unknown). Decides whether pasted images may be sent
+   * (`inputModalities` must list "image"; unknown = refused, never guessed) and whether a reasoning
+   * effort applies (dropped only when the catalog says `supportsReasoning: false`). Absent: images
+   * are refused and a requested effort is sent as asked.
+   */
+  modelInfo?: (modelId: string) => ModelInfo | null | Promise<ModelInfo | null>;
 }
 
 /** An applied compaction: the summary (sent as labeled context) and the messages after it. */
@@ -73,6 +89,23 @@ export interface ChatTurnContext {
 }
 
 export type RuntimeErrorCode = "no_key" | "not_found" | "conflict" | "invalid_state";
+
+/** What the renderer asked for this one message besides its text (never stored). */
+interface TurnExtras {
+  /** Pasted images, sent with the user turn and then released. */
+  images: ChatImageInput[];
+  reasoningEffort: ReasoningEffort | null;
+}
+
+const NO_EXTRAS: TurnExtras = { images: [], reasoningEffort: null };
+
+/** Message of the refusal when a model cannot receive images (checked before anything is stored). */
+const IMAGES_REFUSED_MESSAGE = "This model does not accept images (catalog input modalities)";
+
+/** True only when the catalog lists "image" among the model's input modalities. */
+function modelAcceptsImages(model: ModelInfo | null): boolean {
+  return model?.inputModalities?.includes("image") === true;
+}
 
 export class RuntimeError extends Error {
   readonly code: RuntimeErrorCode;
@@ -116,6 +149,8 @@ interface StreamRun {
   supersedes: Message | null;
   /** Attachments and web of the message that started this run (send only). */
   readonly turn: ChatTurnContext | null;
+  /** J2-B L7: images and reasoning effort of that message; images are dropped once sent. */
+  extras: TurnExtras;
 }
 
 interface Progress {
@@ -140,6 +175,15 @@ export function sourcesBlock(citations: readonly WebCitation[]): string {
   const clean = (text: string): string => text.replace(/[[\]\s]+/g, " ").trim().slice(0, 200) || "source";
   const lines = citations.slice(0, 20).map((citation) => `- [${clean(citation.title)}](<${citation.url.replace(/[<>\s]/g, "")}>)`);
   return `\n\n**Sources**\n${lines.join("\n")}`;
+}
+
+/** The images go with the latest user turn (the message that carried them), never an older one. */
+function attachImages(messages: ChatMessageInput[], images: ChatImageInput[]): ChatMessageInput[] {
+  if (images.length === 0) return messages;
+  const index = messages.findLastIndex((message) => message.role === "user");
+  const target = messages[index];
+  if (target?.role !== "user") return messages;
+  return messages.map((message, position) => (position === index ? { ...target, images } : message));
 }
 
 function describeError(error: unknown): string {
@@ -177,6 +221,7 @@ export class ChatRunner {
     const apiKey = await this.requireApiKey();
     const wantsTurn = (req.attachments?.length ?? 0) > 0 || req.webSearch === true;
     if (wantsTurn && !this.deps.prepareTurn) throw new RuntimeError("invalid_state", "Attachments and web are not available");
+    const extras = await this.prepareExtras(req);
     const turn = wantsTurn && this.deps.prepareTurn ? await this.deps.prepareTurn(req) : null;
     // Synchronous from here: no other send/retry can interleave between checks and writes.
     const { store } = this.deps;
@@ -197,7 +242,7 @@ export class ChatRunner {
       status: "complete",
       modelId: null,
     });
-    const run = this.startRun(conversationId, req.modelId, apiKey, null, turn);
+    const run = this.startRun(conversationId, req.modelId, apiKey, null, turn, extras);
     const conversation = store.getConversation(conversationId);
     if (!conversation) throw new Error("Conversation vanished while starting a stream");
     return { conversation, userMessage, assistantMessage: run.message, streamId: run.streamId };
@@ -279,6 +324,24 @@ export class ChatRunner {
     return apiKey;
   }
 
+  /**
+   * Validates what this message adds besides its text, before anything is stored: images only for
+   * a model the catalog says accepts them, and the reasoning effort dropped for a model the
+   * catalog says cannot reason (ADR-008: the reasoning itself is never kept either way).
+   */
+  private async prepareExtras(req: ChatSendRequest): Promise<TurnExtras> {
+    const images = req.images ?? [];
+    const effort = req.reasoningEffort ?? null;
+    if (images.length === 0 && effort === null) return NO_EXTRAS;
+    const model = this.deps.modelInfo ? await this.deps.modelInfo(req.modelId) : null;
+    if (images.length > 0 && !modelAcceptsImages(model)) throw new RuntimeError("invalid_state", IMAGES_REFUSED_MESSAGE);
+    const reasoningEffort = effort !== null && model?.supportsReasoning === false ? null : effort;
+    if (effort !== null && reasoningEffort === null) {
+      this.logger.info("reasoning effort dropped: the model does not support reasoning", { modelId: req.modelId });
+    }
+    return { images: images.map((image) => ({ mediaType: image.mediaType, dataBase64: image.dataBase64 })), reasoningEffort };
+  }
+
   private assertNoActiveStream(conversationId: string): void {
     for (const run of this.runs.values()) {
       if (run.conversationId === conversationId) {
@@ -293,6 +356,7 @@ export class ChatRunner {
     apiKey: string,
     supersedes: Message | null = null,
     turn: ChatTurnContext | null = null,
+    extras: TurnExtras = NO_EXTRAS,
   ): StreamRun {
     const { store } = this.deps;
     const history = store.listMessages(conversationId);
@@ -322,6 +386,7 @@ export class ChatRunner {
       },
       supersedes,
       turn,
+      extras,
     };
     this.runs.set(run.streamId, run);
     const task: Promise<void> = new Promise<void>((resolve) => setImmediate(resolve))
@@ -383,13 +448,18 @@ export class ChatRunner {
       const lastUser = messages.findLastIndex((message) => message.role === "user");
       messages.splice(lastUser === -1 ? messages.length : lastUser, 0, { role: "system", content: context });
     }
+    const withImages = attachImages(messages, run.extras.images);
+    const { reasoningEffort } = run.extras;
+    // Sent once: the image bytes are not kept in memory for the rest of the generation.
+    run.extras = { images: [], reasoningEffort };
     const webPlugin = run.turn?.webPlugin ?? null;
     const events = provider.streamChat(apiKey, {
       modelId: run.modelId,
-      messages,
+      messages: withImages,
       signal,
       dataCollection: this.deps.getSettings().privacy.providerDataCollection,
       ...(webPlugin ? { webPlugin } : {}),
+      ...(reasoningEffort ? { reasoningEffort } : {}),
     });
     let persistedAt = this.now();
     for await (const event of events) {

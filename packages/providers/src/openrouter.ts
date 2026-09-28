@@ -197,6 +197,21 @@ function interpretChunk(payload: string, state: StreamState): ProviderStreamEven
 /** OpenAI-format message as sent on the wire. */
 function toWireMessage(message: ChatMessageInput): JsonRecord {
   switch (message.role) {
+    case "user": {
+      const images = message.images ?? [];
+      if (images.length === 0) return { role: "user", content: message.content };
+      // Multimodal turn: the text part first, then each image as a data URL (never a remote URL).
+      return {
+        role: "user",
+        content: [
+          { type: "text", text: message.content },
+          ...images.map((image) => ({
+            type: "image_url",
+            image_url: { url: `data:${image.mediaType};base64,${image.dataBase64}` },
+          })),
+        ],
+      };
+    }
     case "tool":
       return { role: "tool", tool_call_id: message.toolCallId, content: message.content };
     case "assistant": {
@@ -227,6 +242,7 @@ export function buildChatBody(request: Omit<StreamChatRequest, "signal">): JsonR
     provider: { data_collection: request.dataCollection },
   };
   if (request.maxTokens !== undefined) body.max_tokens = request.maxTokens;
+  if (request.reasoningEffort !== undefined) body.reasoning = { effort: request.reasoningEffort };
   const fallbacks = request.fallbackModelIds?.filter((id) => id !== request.modelId) ?? [];
   if (fallbacks.length > 0) body.models = [request.modelId, ...fallbacks];
   if (request.tools && request.tools.length > 0) {

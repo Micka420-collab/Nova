@@ -857,3 +857,63 @@ describe("ChatRunner applied compaction (J2-B L2 hook)", () => {
     expect(seen).toEqual([1, 3]);
   });
 });
+
+describe("ChatRunner images and reasoning effort (J2-B L7)", () => {
+  const PNG = { mediaType: "image/png" as const, dataBase64: "iVBORw0KGgo=", name: "capture.png" };
+  const catalogModel = (partial: Partial<ModelInfo>): ModelInfo => ({
+    id: MODEL, name: "Model A", author: "author", description: null, contextLength: 8_000, maxCompletionTokens: null,
+    inputModalities: ["text"], outputModalities: ["text"], supportsTools: true, supportsStructuredOutputs: null,
+    supportsReasoning: null, pricing: { promptPerMTok: 1, completionPerMTok: 2, variable: false }, isFree: false,
+    expirationDate: null, createdAt: null, ...partial,
+  });
+
+  it("sends pasted images with that turn only and never stores them", async () => {
+    const { provider, runner, store } = setup({ modelInfo: () => catalogModel({ inputModalities: ["text", "image"] }) });
+    provider.push(answer("Un graphique."));
+    const sent = await runner.send({ ...fresh("Que montre l'image ?"), images: [PNG] });
+    await runner.idle();
+    expect(provider.calls[0]?.request.messages.at(-1)).toEqual({
+      role: "user",
+      content: "Que montre l'image ?",
+      images: [{ mediaType: "image/png", dataBase64: "iVBORw0KGgo=" }],
+    });
+    // Only the text is kept: nothing of the image reaches SQLite.
+    const stored = store.listMessages(sent.conversation.id);
+    expect(JSON.stringify(stored)).not.toContain("iVBORw0KGgo=");
+    expect(stored[0]?.content).toBe("Que montre l'image ?");
+
+    provider.push(answer("OK"));
+    await runner.send({ conversationId: sent.conversation.id, content: "Et maintenant ?", modelId: MODEL });
+    await runner.idle();
+    expect(provider.calls[1]?.request.messages.some((message) => message.role === "user" && "images" in message)).toBe(false);
+  });
+
+  it("refuses images, before storing anything, when the catalog does not say the model accepts them", async () => {
+    for (const modelInfo of [() => catalogModel({ inputModalities: ["text"] }), () => catalogModel({ inputModalities: null }), () => null, undefined]) {
+      const { provider, runner, store } = setup(modelInfo ? { modelInfo } : {});
+      await expect(runner.send({ ...fresh("Regarde"), images: [PNG] })).rejects.toMatchObject(runtimeError("invalid_state"));
+      expect(store.listConversations({}).items).toEqual([]);
+      expect(provider.calls).toEqual([]);
+    }
+  });
+
+  it("sends the reasoning effort unless the catalog says the model cannot reason", async () => {
+    const reasoning = setup({ modelInfo: () => catalogModel({ supportsReasoning: null }) });
+    reasoning.provider.push(answer("A"));
+    await reasoning.runner.send({ ...fresh("Complexe"), reasoningEffort: "high" });
+    await reasoning.runner.idle();
+    expect(reasoning.provider.calls[0]?.request.reasoningEffort).toBe("high");
+
+    const plain = setup({ modelInfo: () => catalogModel({ supportsReasoning: false }) });
+    plain.provider.push(answer("B"));
+    await plain.runner.send({ ...fresh("Complexe"), reasoningEffort: "high" });
+    await plain.runner.idle();
+    expect(plain.provider.calls[0]?.request).not.toHaveProperty("reasoningEffort");
+
+    const none = setup();
+    none.provider.push(answer("C"));
+    await none.runner.send({ ...fresh("Simple"), reasoningEffort: null });
+    await none.runner.idle();
+    expect(none.provider.calls[0]?.request).not.toHaveProperty("reasoningEffort");
+  });
+});

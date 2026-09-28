@@ -1,0 +1,23 @@
+/* J2-B L7: first-run profile and density, and the density switch of mission cards. */
+.nova-profile-onboarding {
+  display: grid;
+  gap: var(--nv-space-4);
+}
+
+.nova-density-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-2) var(--nv-space-3);
+  margin-block-end: var(--nv-space-2);
+}
+
+.nova-density-bar__hidden {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nv-space-2);
+  margin: 0;
+  color: var(--nv-text-secondary);
+  font-size: var(--nv-text-sm);
+}

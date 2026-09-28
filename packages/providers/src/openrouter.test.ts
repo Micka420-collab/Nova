@@ -133,6 +133,38 @@ describe("OpenRouterProvider.streamChat", () => {
     expect(headers.get("content-type")).toBe("application/json");
   });
 
+  it("J2-B L7: sends the reasoning effort only when asked, never the reasoning itself", async () => {
+    const { provider, calls } = providerFor([sseData(chunk({ content: "ok" }), "[DONE]")]);
+    await run(provider.streamChat(KEY, request({ reasoningEffort: "high" })));
+    const body = JSON.parse(String(calls[0]?.init.body)) as Record<string, unknown>;
+    expect(body.reasoning).toEqual({ effort: "high" });
+    const plain = providerFor([sseData(chunk({ content: "ok" }), "[DONE]")]);
+    await run(plain.provider.streamChat(KEY, request()));
+    expect(JSON.parse(String(plain.calls[0]?.init.body))).not.toHaveProperty("reasoning");
+  });
+
+  it("J2-B L7: sends pasted images as data-URL parts of the user turn (text first)", async () => {
+    const { provider, calls } = providerFor([sseData(chunk({ content: "ok" }), "[DONE]")]);
+    const messages: StreamChatRequest["messages"] = [
+      { role: "system", content: "Sois bref." },
+      { role: "user", content: "Que montre cette capture ?", images: [{ mediaType: "image/png", dataBase64: "iVBORw0KGgo=" }] },
+      { role: "user", content: "Sans image", images: [] },
+    ];
+    await run(provider.streamChat(KEY, request({ messages })));
+    const body = JSON.parse(String(calls[0]?.init.body)) as { messages: unknown[] };
+    expect(body.messages).toEqual([
+      { role: "system", content: "Sois bref." },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Que montre cette capture ?" },
+          { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgo=" } },
+        ],
+      },
+      { role: "user", content: "Sans image" },
+    ]);
+  });
+
   it("omits max_tokens when not requested and forwards data_collection allow", async () => {
     const { provider, calls } = providerFor([sseData(chunk({ content: "ok" }), "[DONE]")]);
     await run(provider.streamChat(KEY, request({ dataCollection: "allow" })));

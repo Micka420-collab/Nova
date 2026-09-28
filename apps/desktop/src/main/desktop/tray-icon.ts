@@ -1,0 +1,11 @@
+// Tray / menu bar image: packages/ui/assets/favicon-32.png (rendered by `pnpm icons`), embedded so
+// it ships inside out/ (build/ is not packaged). tray-icon.test.ts keeps both in sync.
+export const TRAY_ICON_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAEg0lEQVR4nMWXX2wURRzHf7O7d9eC9AxwlUPbw9AiRCIt9cFoWwMxCvpCExUSTNBUSUykGI0PVHgqgi8mFh5UlBCIJjQa2xcBjcFYwPBgaWNqILYPUBL/0Epyp9B2b/fW33eP6c3+uZ4KHJ9mezOzszPf+f2ZnRWksKKxMZW+mmk3LbPVsXOPC00jx3H4zv9HCEFOLkc8Vn8kFu2Px+cdvDA0dJFuMCMgmVrWlrWmDjm2Hdd0nR9yKJezb4kATdOJNBZi2yR0PR2NVLz468Vf+vh2XgAmt7KTX1qWxbXbj2EYFIlWtkGEWN7QsGRi/OqQnc3G+V7Z0CORdKJ6wSqRvL++y5y8vjPHfionGsdXNFaxWyxcXPO9INFqWVluLi+RWOysWLDoXkcIjWy7tP/rm1dToj5FtQ3LuUY0NnSBMr9N0PCJU1wLp5r7Vy+tpdEz52jqr2vcUkDXDRKJ+1IO+3/WaK9vaaI1r22meHIh14KkWUTfzm66MnKJawXw3IZ3tnOJ6OcTp+nYngNcKqAbel6AZZpcDWfl+hZqeu4pGj01QDWNK6jmxur9TP99nY5u3+sR8dhLbfQoXyDz+wR99PwbXCqglRJQMW+uO8DJfZ9yLQ/aNnbvoOq6Wq55uTx43hUhQV9YAH1P7v+Mho97XVVSQDyZYPOOcynI051b6cF1zVzycnzvx3RldMyddPR00O8qswpYua6F6lpWu6aF+Ud4MD9hIjBpb+f7rnisfoSfPffFN6FCQgW4Ztvd4fpbBb7tef1dz0DoG+aO/c+86vbDfYiIza0MPAtCBWziAf2TS2CNw+27PG7BSrcc7KLYXXO4lqeH42CM4wFABERymgVEBASoaVOMMEv4n/vhUC+d4UtSywuCiAF2hRrQAQFq2qirwAS4pL/h1763u7lUQH3WPxF4q/8I/yc6sPHNGQsGBCDn1+94hTtMcEdvzgI5CPiO0+rHz7/mUoFN+zrdfeIy75BHO/ZwSwG4CbsiskSmY0AA/LW15z3XnzKQVFQBAPEAl0jwPEyNWFEFoH3bVx9wyeuegADwMO96a7ZtDl1hx7EPXXESWOrIy7s8QrHKNo4HrBT7Qc2qB1zXoB2gvagFJMjvOn7xYFdTVyhNrBIWD5gMIqoWed8dsAxiQAouKgCs7XiBN6NmjwhpHT+qWSUw+1rui4XAapjcvx3PKgAgfTAhJsBKkfOIkTBU0/rBODKjVEoKkCA74mzOYX6l4s3Y9OyT3BpkgGMGq5TACrCiP5Yk/1qACgZFpPu3XwlMDWvhF7EAy8i89zMjoNSBxA9EYL+Af4uBAwisIQMuDJ1Px//pSOYHK8QxDb8INBw6ELB4cxZbtYp7JMOhlD8aWm0zy03lxcChNJla2mVOT92RY3msck6XwPfg+B9//mRb2SpuLxu6Ec0k7pn/kOAyLV6ybEPWnOy9I59mXHeBCNOcPuzkrKrb5Q6YXWh6Jhqt2ILJuSn/cSrBd2I6fa2d3fFEzrIfwV2H/24GHoIH4W8vQz9raPq3d8+v+uT84OAlbnX5ByXwYCscGpERAAAAAElFTkSuQmCC";
+
+export const TRAY_ICON_DATA_URL = `data:image/png;base64,${TRAY_ICON_PNG_BASE64}`;
+
+/** Pixel size the tray expects: macOS menu bar 16 pt, Windows notification area 16, Linux indicators 22. */
+export function trayIconSize(platform: NodeJS.Platform): number {
+  return platform === "linux" ? 22 : 16;
+}
